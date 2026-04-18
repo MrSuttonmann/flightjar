@@ -28,6 +28,15 @@
                  background: #888; margin-right: 6px; vertical-align: middle; }
   #status.live .dot { background: #4ade80; }
   #status.dead .dot { background: #ef4444; }
+  #sort-bar { display: flex; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--border);
+              background: #131821; }
+  .sort-chip { flex: 1; padding: 4px 6px; font-size: 11px; text-align: center;
+               color: var(--muted); background: transparent; border: 1px solid transparent;
+               border-radius: 3px; cursor: pointer; user-select: none;
+               font-variant-numeric: tabular-nums; }
+  .sort-chip:hover { color: var(--text); }
+  .sort-chip.active { color: var(--text); background: #1d2533; border-color: var(--border); }
+  .sort-chip .arrow { display: inline-block; width: 8px; color: var(--accent); }
   #ac-list { flex: 1; overflow-y: auto; }
   .ac-item { padding: 8px 14px; border-bottom: 1px solid var(--border); cursor: pointer;
              font-size: 12px; line-height: 1.4; }
@@ -69,6 +78,12 @@
       <h1>BEAST Aircraft</h1>
       <div id="status"><span class="dot"></span><span id="status-text">Connecting…</span></div>
     </div>
+    <div id="sort-bar">
+      <div class="sort-chip" data-key="callsign">Callsign<span class="arrow"></span></div>
+      <div class="sort-chip" data-key="altitude">Alt<span class="arrow"></span></div>
+      <div class="sort-chip" data-key="distance">Dist<span class="arrow"></span></div>
+      <div class="sort-chip" data-key="age">Age<span class="arrow"></span></div>
+    </div>
     <div id="ac-list"></div>
   </div>
   <div id="map"></div>
@@ -88,6 +103,31 @@
   let selectedIcao = null;
   let showLabels = true;
   let firstUpdate = true;
+  let lastSnap = null;
+
+  // Sidebar sort state. `dir` is 1 (asc) or -1 (desc).
+  // Default direction per key — matches what feels natural for each column.
+  const defaultDir = { callsign: 1, altitude: -1, distance: 1, age: 1 };
+  let sortKey = 'callsign';
+  let sortDir = defaultDir[sortKey];
+
+  function distanceFrom(a, refLat, refLon) {
+    if (a.lat == null || a.lon == null || refLat == null || refLon == null) return null;
+    // Equirectangular approximation — plenty accurate for sidebar ordering.
+    const dLat = (a.lat - refLat) * Math.PI / 180;
+    const dLon = (a.lon - refLon) * Math.PI / 180 * Math.cos(refLat * Math.PI / 180);
+    return Math.hypot(dLat, dLon) * 6371;  // km
+  }
+
+  function sortValue(a, key, snap) {
+    switch (key) {
+      case 'callsign': return (a.callsign || '').trim() || null;
+      case 'altitude': return a.altitude;
+      case 'age':      return a.age;
+      case 'distance': return distanceFrom(a, snap.lat_ref, snap.lon_ref);
+    }
+    return null;
+  }
 
   // Color scale: low altitude = warm, high altitude = cool.
   function altColor(alt) {
@@ -132,6 +172,7 @@
   }
 
   function update(snap) {
+    lastSnap = snap;
     const seen = new Set();
 
     for (const a of snap.aircraft) {
@@ -200,13 +241,33 @@
     }
   }
 
+  function renderSortBar() {
+    document.querySelectorAll('.sort-chip').forEach(el => {
+      const active = el.dataset.key === sortKey;
+      el.classList.toggle('active', active);
+      el.querySelector('.arrow').textContent = active ? (sortDir === 1 ? '↑' : '↓') : '';
+    });
+  }
+
   function renderSidebar(snap) {
     const status = document.getElementById('status-text');
     status.textContent =
       `${snap.count} aircraft · ${snap.positioned} positioned`;
 
+    // Sort a copy so we don't mutate the snapshot used elsewhere.
+    const rows = snap.aircraft.slice().sort((a, b) => {
+      const av = sortValue(a, sortKey, snap);
+      const bv = sortValue(b, sortKey, snap);
+      // Null always sinks to the bottom regardless of direction.
+      if (av == null && bv == null) return a.icao.localeCompare(b.icao);
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
+      return cmp * sortDir || a.icao.localeCompare(b.icao);
+    });
+
     const list = document.getElementById('ac-list');
-    list.innerHTML = snap.aircraft.map(a => `
+    list.innerHTML = rows.map(a => `
       <div class="ac-item ${a.icao === selectedIcao ? 'selected' : ''}"
            data-icao="${a.icao}">
         <div class="row1">
@@ -241,6 +302,21 @@
       el.classList.toggle('selected', el.dataset.icao === icao);
     });
   }
+
+  document.querySelectorAll('.sort-chip').forEach(el => {
+    el.addEventListener('click', () => {
+      const key = el.dataset.key;
+      if (key === sortKey) {
+        sortDir = -sortDir;
+      } else {
+        sortKey = key;
+        sortDir = defaultDir[key];
+      }
+      renderSortBar();
+      if (lastSnap) renderSidebar(lastSnap);
+    });
+  });
+  renderSortBar();
 
   // ---- WebSocket ----
   let ws;

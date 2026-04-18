@@ -297,5 +297,7 @@ class AircraftRegistry:
             "now": now,
             "count": len(out),
             "positioned": sum(1 for a in out if a["lat"] is not None),
+            "lat_ref": self.lat_ref,
+            "lon_ref": self.lon_ref,
             "aircraft": out,
         }
