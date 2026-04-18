@@ -185,6 +185,13 @@ and `site_name` at the top level.
   the right way round, and remember `RECEIVER_ANON_KM` deliberately shifts
   the dot if it's non-zero.
 
+## Links
+
+- **Source**: [github.com/MrSuttonmann/flightjar](https://github.com/MrSuttonmann/flightjar) — issues and PRs welcome.
+- **Support**: [Buy me a coffee](https://www.buymeacoffee.com/mrsuttonmann) if Flightjar is useful to you.
+
+Both are also linked from the footer of the sidebar in the UI.
+
 ## License
 
 Flightjar is released under the **GNU General Public License v3.0** — see
