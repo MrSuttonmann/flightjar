@@ -152,3 +152,13 @@ jq -r '.ts_rx[0:16]' beast-logs/beast.jsonl | uniq -c
 - **The receiver dot is in the wrong place.** Check `LAT_REF` / `LON_REF` are
   the right way round, and remember `RECEIVER_ANON_KM` deliberately shifts
   the dot if it's non-zero.
+
+## License
+
+Flightjar is released under the **GNU General Public License v3.0** — see
+[`LICENSE`](LICENSE) for the full text.
+
+GPL-3.0 was chosen to match [pyModeS](https://github.com/junzis/pyModeS), the
+Mode S / ADS-B decoding library Flightjar depends on, which is itself
+GPL-3.0-or-later. You're free to use, modify, and redistribute Flightjar; any
+redistributed derivative must be made available under the same terms.
