@@ -1,3 +1,3 @@
 fastapi==0.136.0
 uvicorn[standard]==0.32.1
-pyModeS==2.18
+pyModeS==3.2.0
