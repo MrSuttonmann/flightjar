@@ -111,62 +111,63 @@ def decode(hex_msg: str, type_name: str) -> dict:
     """Best-effort decode with pyModeS. Position needs CPR pairs so we skip it."""
     if not HAVE_PMS or type_name not in ("mode_s_short", "mode_s_long"):
         return {}
-    out: dict = {}
     try:
-        df = pms.df(hex_msg)
-    except Exception:
+        r = pms.decode(hex_msg)
+    except Exception as e:
+        return {"decode_error": str(e)}
+    if not r:
+        return {}
+    # Decoded is a dict subclass; treat as a plain mapping.
+    r = dict(r)
+
+    out: dict = {}
+    df = r.get("df")
+    if df is None:
         return {}
     out["df"] = df
-    try:
-        if df in (17, 18):
-            if pms.crc(hex_msg) != 0:
-                out["crc_ok"] = False
-                return out
-            out["crc_ok"] = True
-            out["icao"] = pms.adsb.icao(hex_msg)
-            tc = pms.adsb.typecode(hex_msg)
+
+    if df in (17, 18):
+        out["crc_ok"] = bool(r.get("crc_valid"))
+        if not out["crc_ok"]:
+            return out
+        if r.get("icao"):
+            out["icao"] = r["icao"]
+        tc = r.get("typecode")
+        if tc is not None:
             out["tc"] = tc
-            if 1 <= tc <= 4:
-                try:
-                    out["callsign"] = pms.adsb.callsign(hex_msg).rstrip("_ ").strip()
-                except Exception:
-                    pass
-            elif 9 <= tc <= 18:
-                try:
-                    out["altitude_ft"] = pms.adsb.altitude(hex_msg)
-                except Exception:
-                    pass
-            elif tc == 19:
-                try:
-                    v = pms.adsb.velocity(hex_msg)
-                    if v:
-                        out["velocity"] = {
-                            "speed": v[0],
-                            "heading": v[1],
-                            "vrate": v[2],
-                            "type": v[3],
-                        }
-                except Exception:
-                    pass
-        elif df in (4, 20):
-            try:
-                out["icao"] = pms.common.icao(hex_msg)
-                out["altitude_ft"] = pms.common.altcode(hex_msg)
-            except Exception:
-                pass
-        elif df in (5, 21):
-            try:
-                out["icao"] = pms.common.icao(hex_msg)
-                out["squawk"] = pms.common.idcode(hex_msg)
-            except Exception:
-                pass
-        elif df == 11:
-            try:
-                out["icao"] = pms.common.icao(hex_msg)
-            except Exception:
-                pass
-    except Exception as e:
-        out["decode_error"] = str(e)
+        if 1 <= (tc or 0) <= 4 and r.get("callsign"):
+            out["callsign"] = str(r["callsign"]).rstrip("_ ").strip()
+        if 9 <= (tc or 0) <= 22 and r.get("altitude") is not None:
+            out["altitude_ft"] = r["altitude"]
+        if tc == 19:
+            vel = {}
+            if r.get("groundspeed") is not None:
+                vel["speed"] = r["groundspeed"]
+            elif r.get("airspeed") is not None:
+                vel["speed"] = r["airspeed"]
+                if r.get("airspeed_type") is not None:
+                    vel["type"] = r["airspeed_type"]
+            if r.get("track") is not None:
+                vel["heading"] = r["track"]
+            elif r.get("heading") is not None:
+                vel["heading"] = r["heading"]
+            if r.get("vertical_rate") is not None:
+                vel["vrate"] = r["vertical_rate"]
+            if vel:
+                out["velocity"] = vel
+    elif df in (4, 20):
+        if r.get("icao"):
+            out["icao"] = r["icao"]
+        if r.get("altitude") is not None:
+            out["altitude_ft"] = r["altitude"]
+    elif df in (5, 21):
+        if r.get("icao"):
+            out["icao"] = r["icao"]
+        if r.get("squawk") is not None:
+            out["squawk"] = r["squawk"]
+    elif df == 11:
+        if r.get("icao"):
+            out["icao"] = r["icao"]
     return out
 
 

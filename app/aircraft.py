@@ -1,6 +1,6 @@
 """Per-aircraft state, fed by Mode S messages.
 
-Position decoding uses pyModeS:
+Position decoding uses pyModeS 3.x's unified `decode()`:
   * Global decode requires an even+odd CPR pair within ~10s.
   * Once we have a position (or if a receiver lat/lon is configured) we can
     do local decode from a single message, which is faster to first fix.
@@ -49,6 +49,21 @@ class Aircraft:
     msg_count: int = 0
 
 
+def _decode(msg, **kw) -> dict:
+    """pms.decode() with swallowed exceptions, always returning a dict-like."""
+    try:
+        r = pms.decode(msg, **kw)
+    except Exception as e:
+        log.debug("decode error: %s", e)
+        return {}
+    if not r:
+        return {}
+    # pms.decode returns a Decoded dict subclass; treat it as a plain mapping.
+    if isinstance(r, list):
+        return dict(r[-1]) if r else {}
+    return dict(r)
+
+
 class AircraftRegistry:
     def __init__(self, lat_ref: Optional[float] = None,
                  lon_ref: Optional[float] = None,
@@ -65,19 +80,14 @@ class AircraftRegistry:
         """Update state from one Mode S message. Returns True if accepted."""
         if now is None:
             now = time.time()
-        try:
-            df = pms.df(hex_msg)
-        except Exception:
+        r = _decode(hex_msg)
+        df = r.get("df")
+        if df is None:
             return False
-
         if df in (17, 18):
-            return self._ingest_adsb(hex_msg, now)
-        if df in (4, 20):
-            return self._ingest_altcode(hex_msg, now)
-        if df in (5, 21):
-            return self._ingest_idcode(hex_msg, now)
-        if df == 11:
-            return self._ingest_allcall(hex_msg, now)
+            return self._ingest_adsb(r, hex_msg, now)
+        if df in (4, 5, 11, 20, 21):
+            return self._ingest_surveillance(r, now)
         return False
 
     def _get(self, icao: str) -> Aircraft:
@@ -87,159 +97,133 @@ class AircraftRegistry:
             self.aircraft[icao] = ac
         return ac
 
-    def _ingest_adsb(self, msg: str, now: float) -> bool:
-        try:
-            if pms.crc(msg) != 0:
-                return False
-            icao = pms.adsb.icao(msg)
-            tc = pms.adsb.typecode(msg)
-        except Exception:
+    def _ingest_adsb(self, r: dict, msg: str, now: float) -> bool:
+        if not r.get("crc_valid"):
             return False
-        if not icao:
+        icao = r.get("icao")
+        tc = r.get("typecode")
+        if not icao or tc is None:
             return False
 
         ac = self._get(icao)
         ac.last_seen = now
         ac.msg_count += 1
 
-        try:
-            if 1 <= tc <= 4:
-                cs = pms.adsb.callsign(msg)
-                if cs:
-                    ac.callsign = cs.rstrip("_ ").strip() or None
-                try:
-                    ac.category = pms.adsb.category(msg)
-                except Exception:
-                    pass
+        if 1 <= tc <= 4:
+            cs = r.get("callsign")
+            if cs:
+                ac.callsign = str(cs).rstrip("_ ").strip() or None
+            cat = r.get("category")
+            if cat is not None:
+                ac.category = cat
 
-            elif 5 <= tc <= 8:
-                # Surface position
-                ac.on_ground = True
-                self._update_position(ac, msg, now, surface=True)
+        elif 5 <= tc <= 8:
+            # Surface position
+            ac.on_ground = True
+            self._update_position(ac, msg, now, r, surface=True)
 
-            elif 9 <= tc <= 18 or 20 <= tc <= 22:
-                # Airborne position (baro alt for 9-18, GNSS alt for 20-22)
-                ac.on_ground = False
-                self._update_position(ac, msg, now, surface=False)
-                try:
-                    alt = pms.adsb.altitude(msg)
-                    if alt is not None:
-                        ac.altitude = int(alt)
-                except Exception:
-                    pass
-
-            elif tc == 19:
-                v = pms.adsb.velocity(msg)
-                if v:
-                    spd, hdg, vr, _vtype = v
-                    if spd is not None:
-                        ac.speed = float(spd)
-                    if hdg is not None:
-                        ac.track = float(hdg)
-                    if vr is not None:
-                        ac.vrate = int(vr)
-        except Exception as e:
-            log.debug("adsb decode error tc=%s: %s", tc, e)
-
-        return True
-
-    def _ingest_altcode(self, msg: str, now: float) -> bool:
-        try:
-            icao = pms.common.icao(msg)
-        except Exception:
-            return False
-        if not icao:
-            return False
-        ac = self._get(icao)
-        ac.last_seen = now
-        ac.msg_count += 1
-        try:
-            alt = pms.common.altcode(msg)
+        elif 9 <= tc <= 18 or 20 <= tc <= 22:
+            # Airborne position (baro alt for 9-18, GNSS alt for 20-22)
+            ac.on_ground = False
+            self._update_position(ac, msg, now, r, surface=False)
+            alt = r.get("altitude")
             if alt is not None:
+                try:
+                    ac.altitude = int(alt)
+                except (TypeError, ValueError):
+                    pass
+
+        elif tc == 19:
+            # Velocity. Subtypes 1/2 give groundspeed+track; 3/4 give airspeed+heading.
+            spd = r.get("groundspeed")
+            if spd is None:
+                spd = r.get("airspeed")
+            if spd is not None:
+                ac.speed = float(spd)
+            trk = r.get("track")
+            if trk is None:
+                trk = r.get("heading")
+            if trk is not None:
+                ac.track = float(trk)
+            vr = r.get("vertical_rate")
+            if vr is not None:
+                try:
+                    ac.vrate = int(vr)
+                except (TypeError, ValueError):
+                    pass
+
+        return True
+
+    def _ingest_surveillance(self, r: dict, now: float) -> bool:
+        """Handle DF 4/20 (altitude), DF 5/21 (squawk), DF 11 (all-call)."""
+        icao = r.get("icao")
+        if not icao:
+            return False
+        ac = self._get(icao)
+        ac.last_seen = now
+        ac.msg_count += 1
+        alt = r.get("altitude")
+        if alt is not None:
+            try:
                 ac.altitude = int(alt)
-        except Exception:
-            pass
-        return True
-
-    def _ingest_idcode(self, msg: str, now: float) -> bool:
-        try:
-            icao = pms.common.icao(msg)
-        except Exception:
-            return False
-        if not icao:
-            return False
-        ac = self._get(icao)
-        ac.last_seen = now
-        ac.msg_count += 1
-        try:
-            sq = pms.common.idcode(msg)
-            if sq is not None:
-                ac.squawk = str(sq)
-        except Exception:
-            pass
-        return True
-
-    def _ingest_allcall(self, msg: str, now: float) -> bool:
-        try:
-            icao = pms.common.icao(msg)
-        except Exception:
-            return False
-        if not icao:
-            return False
-        ac = self._get(icao)
-        ac.last_seen = now
-        ac.msg_count += 1
+            except (TypeError, ValueError):
+                pass
+        sq = r.get("squawk")
+        if sq is not None:
+            ac.squawk = str(sq)
         return True
 
     # -------- position decoding --------
 
-    def _update_position(self, ac: Aircraft, msg: str, now: float, surface: bool):
-        try:
-            oe = pms.adsb.oe_flag(msg)
-        except Exception:
-            return
-
+    def _update_position(self, ac: Aircraft, msg: str, now: float,
+                         result: dict, surface: bool):
+        oe = result.get("cpr_format")
         if oe == 0:
             ac.even_msg, ac.even_t = msg, now
-        else:
+        elif oe == 1:
             ac.odd_msg, ac.odd_t = msg, now
 
         pos = None
 
-        # 1. Global decode if we have a fresh pair
-        if (ac.even_msg and ac.odd_msg
-                and abs(ac.even_t - ac.odd_t) < POSITION_PAIR_MAX_AGE):
+        # 1. Global decode if we have a fresh pair.
+        #    Surface global decode needs a reference point; skip if unset.
+        pair_fresh = (ac.even_msg and ac.odd_msg
+                      and abs(ac.even_t - ac.odd_t) < POSITION_PAIR_MAX_AGE)
+        if pair_fresh and (not surface or self.lat_ref is not None):
+            kw = {}
+            if surface:
+                kw["surface_ref"] = (self.lat_ref, self.lon_ref)
             try:
-                if surface:
-                    if self.lat_ref is not None:
-                        pos = pms.adsb.surface_position(
-                            ac.even_msg, ac.odd_msg,
-                            ac.even_t, ac.odd_t,
-                            self.lat_ref, self.lon_ref,
-                        )
-                else:
-                    pos = pms.adsb.airborne_position(
-                        ac.even_msg, ac.odd_msg,
-                        ac.even_t, ac.odd_t,
-                    )
+                batch = pms.decode(
+                    [ac.even_msg, ac.odd_msg],
+                    timestamps=[ac.even_t, ac.odd_t],
+                    **kw,
+                )
+                latest = batch[-1] if isinstance(batch, list) else batch
+                lat = latest.get("latitude") if latest else None
+                lon = latest.get("longitude") if latest else None
+                if lat is not None and lon is not None:
+                    pos = (lat, lon)
             except Exception as e:
                 log.debug("global cpr fail %s: %s", ac.icao, e)
-                pos = None
 
         # 2. Local decode using last known position for this aircraft
         if pos is None and ac.lat is not None:
-            try:
-                pos = pms.adsb.position_with_ref(msg, ac.lat, ac.lon)
-            except Exception:
-                pos = None
+            kw = ({"surface_ref": (ac.lat, ac.lon)} if surface
+                  else {"reference": (ac.lat, ac.lon)})
+            r2 = _decode(msg, **kw)
+            lat, lon = r2.get("latitude"), r2.get("longitude")
+            if lat is not None and lon is not None:
+                pos = (lat, lon)
 
         # 3. Local decode using configured receiver reference
         if pos is None and self.lat_ref is not None:
-            try:
-                pos = pms.adsb.position_with_ref(
-                    msg, self.lat_ref, self.lon_ref)
-            except Exception:
-                pos = None
+            kw = ({"surface_ref": (self.lat_ref, self.lon_ref)} if surface
+                  else {"reference": (self.lat_ref, self.lon_ref)})
+            r2 = _decode(msg, **kw)
+            lat, lon = r2.get("latitude"), r2.get("longitude")
+            if lat is not None and lon is not None:
+                pos = (lat, lon)
 
         if pos is None:
             return
