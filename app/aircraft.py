@@ -7,6 +7,7 @@ Position decoding uses pyModeS 3.x's unified `decode()`:
 """
 
 import logging
+import math
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -67,12 +68,14 @@ def _decode(msg, **kw) -> dict:
 class AircraftRegistry:
     def __init__(self, lat_ref: Optional[float] = None,
                  lon_ref: Optional[float] = None,
-                 receiver_info: Optional[dict] = None):
+                 receiver_info: Optional[dict] = None,
+                 site_name: Optional[str] = None):
         self.aircraft: dict[str, Aircraft] = {}
         self.lat_ref = lat_ref
         self.lon_ref = lon_ref
         # Info shown to clients; may be anonymised relative to lat_ref/lon_ref.
         self.receiver_info = receiver_info
+        self.site_name = site_name
 
     # -------- ingest --------
 
@@ -256,6 +259,10 @@ class AircraftRegistry:
     def snapshot(self, now: Optional[float] = None) -> dict:
         if now is None:
             now = time.time()
+        # Reference for distance_km is the displayed receiver position (which
+        # may be anonymised), so the number matches what the UI renders.
+        ref = self.receiver_info or {}
+        ref_lat, ref_lon = ref.get("lat"), ref.get("lon")
         out = []
         for ac in self.aircraft.values():
             # Skip aircraft with no callsign AND no position/speed/altitude —
@@ -263,6 +270,11 @@ class AircraftRegistry:
             if (ac.callsign is None and ac.lat is None
                     and ac.speed is None and ac.altitude is None):
                 continue
+            distance_km = None
+            if ref_lat is not None and ac.lat is not None:
+                dlat = math.radians(ac.lat - ref_lat)
+                dlon = math.radians(ac.lon - ref_lon) * math.cos(math.radians(ref_lat))
+                distance_km = round(math.hypot(dlat, dlon) * 6371, 2)
             out.append({
                 "icao": ac.icao,
                 "callsign": ac.callsign,
@@ -277,6 +289,7 @@ class AircraftRegistry:
                 "last_seen": ac.last_seen,
                 "age": round(now - ac.last_seen, 1),
                 "msg_count": ac.msg_count,
+                "distance_km": distance_km,
                 "trail": [[lat, lon] for lat, lon, _ in ac.trail],
             })
         # Newest first
@@ -286,5 +299,6 @@ class AircraftRegistry:
             "count": len(out),
             "positioned": sum(1 for a in out if a["lat"] is not None),
             "receiver": self.receiver_info,
+            "site_name": self.site_name,
             "aircraft": out,
         }

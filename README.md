@@ -12,13 +12,18 @@ network and get a lightweight map, log file, and simple API on top.
 ## What you get
 
 - **Live map** at `http://<host>:8080/` with planes coloured by altitude,
-  short trails, and a callsign label on each one.
+  short trails, and a callsign label on each one (toggleable).
 - **Sidebar list** of currently tracked aircraft, sortable by callsign,
-  altitude, distance from the receiver, or age.
+  altitude, distance from the receiver, or age. Hover a plane on the map
+  to highlight its row, and vice-versa.
+- **Unit switcher** — Metric, Imperial, or Nautical — applied across
+  altitude, speed, vertical rate, and distance. Your choice is remembered.
 - **A record of every message** written as JSON Lines to a file on disk,
   rotated daily.
 - **Optional privacy** — you can fuzz the displayed receiver location so
   sharing screenshots doesn't pin your home address on a map.
+- **Optional site name** shown in the header and browser tab so you can
+  tell multiple installs apart at a glance.
 - **A small HTTP / WebSocket API** if you want to build your own dashboard.
 
 ## Before you start
@@ -70,11 +75,19 @@ Logs land in `./beast-logs/beast.jsonl` next to the compose file by default.
 
 - **Click a plane** (on the map or in the sidebar) to centre on it and see
   speed, altitude, heading, vertical rate and squawk.
+- **Hover sync** — hovering a plane on the map highlights its sidebar row
+  (and scrolls it into view); hovering a sidebar row draws a ring around
+  the aircraft on the map.
 - **Sort the sidebar** with the chips at the top: Callsign, Alt, Dist
   (distance from your receiver), or Age. Click the active one again to
   reverse the direction.
-- **Title bar** shows how many aircraft are currently being tracked —
-  handy when the tab is in the background.
+- **Units** — the toggle in the header switches the whole UI between
+  Metric (km, km/h, m), Imperial (mi, mph, ft), and Nautical (nm, kt, ft).
+  Metric altitude flips to km once you cross 1 km.
+- **Labels** — the Labels button toggles the permanent callsign labels
+  next to each plane on the map. Your preference is remembered.
+- **Title bar** shows how many aircraft are currently being tracked (and
+  your site name, if set) — handy when the tab is in the background.
 
 ## Privacy: hiding your receiver location
 
@@ -94,6 +107,18 @@ location is *somewhere* inside that area. Your real coords never leave the
 container — they're still used internally to decode aircraft positions
 accurately.
 
+## Running multiple receivers
+
+If you run Flightjar on more than one machine (or want to tell staging apart
+from production), set `SITE_NAME` to a short label:
+
+```yaml
+SITE_NAME: "Home Receiver"
+```
+
+It shows up next to "Flightjar" in the sidebar and in the browser tab title
+(e.g. `Flightjar — Home Receiver (7)`).
+
 ## Configuration reference
 
 | Setting               | Default             | What it does                                                   |
@@ -103,6 +128,7 @@ accurately.
 | `LAT_REF`             | (unset)             | Receiver latitude. Faster first fix + surface decoding.        |
 | `LON_REF`             | (unset)             | Receiver longitude.                                            |
 | `RECEIVER_ANON_KM`    | `0`                 | Fuzz the displayed receiver location (km). `0` = exact.        |
+| `SITE_NAME`           | (unset)             | Display name shown in the header and browser tab title.        |
 | `BEAST_OUTFILE`       | `/data/beast.jsonl` | Log file inside the container. Empty disables file logging.    |
 | `BEAST_ROTATE`        | `daily`             | `none`, `hourly`, or `daily`.                                  |
 | `BEAST_ROTATE_KEEP`   | `14`                | How many rotated log files to keep.                            |
@@ -135,6 +161,12 @@ jq -r '.ts_rx[0:16]' beast-logs/beast.jsonl | uniq -c
 | `GET  /api/aircraft`| Current tracked aircraft, as JSON.                        |
 | `GET  /api/stats`   | Uptime, frame counter, connected websocket clients, etc.  |
 | `WS   /ws`          | Live aircraft snapshots, one per `SNAPSHOT_INTERVAL`.     |
+
+Aircraft values are always returned in canonical units (feet, knots, ft/min)
+so any client can convert them as it likes. Each aircraft also carries a
+`distance_km` field computed against the displayed receiver position
+(respecting `RECEIVER_ANON_KM` if set), and the snapshot includes `receiver`
+and `site_name` at the top level.
 
 ## Troubleshooting
 

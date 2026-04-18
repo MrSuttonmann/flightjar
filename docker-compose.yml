@@ -13,6 +13,9 @@ services:
       BEAST_HOST: ultrafeeder
       BEAST_PORT: "30005"
 
+      # Optional display name shown next to "Flightjar" in the UI and tab title.
+      # SITE_NAME: "Home Receiver"
+
       LAT_REF: "52.0"
       LON_REF: "-1.0"
 

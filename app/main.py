@@ -48,6 +48,7 @@ BEAST_PORT = int(os.environ.get("BEAST_PORT", "30005"))
 LAT_REF = env_float("LAT_REF")
 LON_REF = env_float("LON_REF")
 RECEIVER_ANON_KM = env_float("RECEIVER_ANON_KM") or 0.0
+SITE_NAME = os.environ.get("SITE_NAME", "").strip() or None
 
 
 def _snap_receiver(lat, lon, anon_km):
@@ -143,7 +144,8 @@ class Broadcaster:
 # ---------------- shared state ----------------
 
 registry = AircraftRegistry(
-    lat_ref=LAT_REF, lon_ref=LON_REF, receiver_info=RECEIVER_INFO
+    lat_ref=LAT_REF, lon_ref=LON_REF,
+    receiver_info=RECEIVER_INFO, site_name=SITE_NAME,
 )
 jsonl = JsonlWriter(JSONL_PATH, JSONL_ROTATE, JSONL_KEEP, JSONL_STDOUT)
 broadcaster = Broadcaster()
@@ -250,6 +252,7 @@ async def api_stats():
         "websocket_clients": len(broadcaster.clients),
         "beast_target": f"{BEAST_HOST}:{BEAST_PORT}",
         "receiver": RECEIVER_INFO,
+        "site_name": SITE_NAME,
     }
 
 
