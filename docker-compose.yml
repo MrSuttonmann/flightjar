@@ -5,7 +5,7 @@ services:
     container_name: flightjar
     restart: unless-stopped
     ports:
-      - "45443:8080"
+      - "8080:8080"
     environment:
       # Hostname or IP of the readsb/dump1090/ultrafeeder process exposing the BEAST feed.
       # If readsb runs in another compose project on the same host, either
