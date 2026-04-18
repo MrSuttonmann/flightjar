@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <title>Flightjar</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- OpenStreetMap's tile servers block requests with no Referer header. -->
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 <style>
@@ -99,7 +101,7 @@
 (() => {
   const map = L.map('map', { worldCopyJump: true }).setView([51.5, -0.1], 6);
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     maxZoom: 19,
   }).addTo(map);
 
