@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>BEAST Aircraft Map</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<style>
+  :root {
+    --bg: #0e1116;
+    --panel: #161a22;
+    --border: #2a313d;
+    --text: #d6dde6;
+    --muted: #8a94a3;
+    --accent: #5fa8ff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+               font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  #app { display: flex; height: 100vh; }
+  #sidebar { width: 320px; background: var(--panel); border-right: 1px solid var(--border);
+             display: flex; flex-direction: column; }
+  #header { padding: 12px 14px; border-bottom: 1px solid var(--border); }
+  #header h1 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: 0.3px; }
+  #status { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  #status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+                 background: #888; margin-right: 6px; vertical-align: middle; }
+  #status.live .dot { background: #4ade80; }
+  #status.dead .dot { background: #ef4444; }
+  #ac-list { flex: 1; overflow-y: auto; }
+  .ac-item { padding: 8px 14px; border-bottom: 1px solid var(--border); cursor: pointer;
+             font-size: 12px; line-height: 1.4; }
+  .ac-item:hover { background: #1d222b; }
+  .ac-item.selected { background: #1f2a3d; border-left: 3px solid var(--accent);
+                      padding-left: 11px; }
+  .ac-item .row1 { display: flex; justify-content: space-between; align-items: baseline; }
+  .ac-item .cs { font-family: ui-monospace, "SF Mono", Menlo, monospace;
+                 font-weight: 600; font-size: 13px; }
+  .ac-item .icao { font-family: ui-monospace, monospace; font-size: 10px;
+                   color: var(--muted); }
+  .ac-item .meta { color: var(--muted); font-size: 11px; margin-top: 2px;
+                   font-variant-numeric: tabular-nums; }
+  .ac-item .age { float: right; font-size: 10px; color: var(--muted); }
+  #map { flex: 1; background: #0a0c10; }
+  /* dim the OSM tiles a touch so plane icons pop */
+  .leaflet-tile-pane { filter: brightness(0.85) contrast(1.05); }
+  .leaflet-popup-content-wrapper, .leaflet-popup-tip {
+    background: var(--panel); color: var(--text); border: 1px solid var(--border);
+  }
+  .leaflet-popup-content { font-size: 12px; line-height: 1.5; margin: 8px 12px; }
+  .leaflet-popup-content code { font-size: 11px; color: var(--muted); }
+  .plane-icon { background: transparent !important; border: none !important; }
+  .plane-label { background: rgba(14,17,22,0.8); color: #fff; font-size: 10px;
+                 padding: 1px 4px; border-radius: 2px; white-space: nowrap;
+                 font-family: ui-monospace, monospace;
+                 border: 1px solid var(--border); }
+  @media (max-width: 600px) {
+    #app { flex-direction: column; }
+    #sidebar { width: 100%; height: 40vh; border-right: none;
+               border-bottom: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="sidebar">
+    <div id="header">
+      <h1>BEAST Aircraft</h1>
+      <div id="status"><span class="dot"></span><span id="status-text">Connecting…</span></div>
+    </div>
+    <div id="ac-list"></div>
+  </div>
+  <div id="map"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+(() => {
+  const map = L.map('map', { worldCopyJump: true }).setView([51.5, -0.1], 6);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap',
+    maxZoom: 19,
+  }).addTo(map);
+
+  const aircraft = new Map(); // icao -> { marker, trail, label, data }
+  let selectedIcao = null;
+  let showLabels = true;
+  let firstUpdate = true;
+
+  // Color scale: low altitude = warm, high altitude = cool.
+  function altColor(alt) {
+    if (alt == null) return '#888';
+    const t = Math.max(0, Math.min(1, alt / 40000));
+    const hue = 240 * t; // 0=red, 240=blue
+    return `hsl(${hue}, 75%, 55%)`;
+  }
+
+  function planeIcon(track, color, selected) {
+    const rot = track == null ? 0 : track;
+    const stroke = selected ? '#fff' : '#000';
+    const sw = selected ? 1.5 : 0.6;
+    const svg = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="-13 -13 26 26">
+        <path d="M0 -10 L7 8 L0 4 L-7 8 Z"
+              transform="rotate(${rot})"
+              fill="${color}" stroke="${stroke}" stroke-width="${sw}"
+              stroke-linejoin="round"/>
+      </svg>`;
+    return L.divIcon({
+      html: svg,
+      className: 'plane-icon',
+      iconSize: [26, 26],
+      iconAnchor: [13, 13],
+    });
+  }
+
+  function fmt(n, suffix = '', digits = 0) {
+    if (n == null || isNaN(n)) return '—';
+    return Number(n).toFixed(digits) + suffix;
+  }
+
+  function popupHtml(a) {
+    return `
+      <b>${a.callsign || '—'}</b> <code>${a.icao.toUpperCase()}</code><br>
+      Alt: <b>${fmt(a.altitude, ' ft')}</b><br>
+      Spd: ${fmt(a.speed, ' kt')} &nbsp; Hdg: ${fmt(a.track, '°')}<br>
+      VRate: ${fmt(a.vrate, ' fpm')}<br>
+      Sqwk: ${a.squawk || '—'}<br>
+      <code>${a.msg_count} msgs · ${fmt(a.age, 's')} ago</code>`;
+  }
+
+  function update(snap) {
+    const seen = new Set();
+
+    for (const a of snap.aircraft) {
+      seen.add(a.icao);
+      if (a.lat == null || a.lon == null) continue;
+
+      const color = altColor(a.altitude);
+      const isSelected = a.icao === selectedIcao;
+      const icon = planeIcon(a.track, color, isSelected);
+
+      let entry = aircraft.get(a.icao);
+      if (!entry) {
+        const marker = L.marker([a.lat, a.lon], { icon }).addTo(map);
+        const trail = L.polyline([], {
+          color, weight: 2, opacity: 0.55,
+        }).addTo(map);
+        marker.on('click', () => selectAircraft(a.icao));
+        entry = { marker, trail, label: null, data: a };
+        aircraft.set(a.icao, entry);
+      } else {
+        entry.marker.setLatLng([a.lat, a.lon]);
+        entry.marker.setIcon(icon);
+        entry.trail.setStyle({ color });
+      }
+
+      if (a.trail && a.trail.length > 1) {
+        entry.trail.setLatLngs(a.trail);
+      }
+      entry.marker.setPopupContent(popupHtml(a));
+      if (!entry.marker.getPopup()) entry.marker.bindPopup(popupHtml(a));
+
+      // Persistent label with callsign
+      const labelText = a.callsign || a.icao.toUpperCase();
+      if (showLabels) {
+        if (!entry.label) {
+          entry.marker.bindTooltip(labelText, {
+            permanent: true, direction: 'right', offset: [10, 0],
+            className: 'plane-label',
+          });
+          entry.label = true;
+        } else {
+          entry.marker.setTooltipContent(labelText);
+        }
+      }
+      entry.data = a;
+    }
+
+    // Drop aircraft no longer reported
+    for (const [icao, entry] of aircraft.entries()) {
+      if (!seen.has(icao)) {
+        map.removeLayer(entry.marker);
+        map.removeLayer(entry.trail);
+        aircraft.delete(icao);
+      }
+    }
+
+    renderSidebar(snap);
+
+    // Auto-fit on first populated update
+    if (firstUpdate && snap.positioned > 0) {
+      const bounds = L.latLngBounds(
+        snap.aircraft.filter(a => a.lat != null).map(a => [a.lat, a.lon])
+      );
+      if (bounds.isValid()) map.fitBounds(bounds.pad(0.2));
+      firstUpdate = false;
+    }
+  }
+
+  function renderSidebar(snap) {
+    const status = document.getElementById('status-text');
+    status.textContent =
+      `${snap.count} aircraft · ${snap.positioned} positioned`;
+
+    const list = document.getElementById('ac-list');
+    list.innerHTML = snap.aircraft.map(a => `
+      <div class="ac-item ${a.icao === selectedIcao ? 'selected' : ''}"
+           data-icao="${a.icao}">
+        <div class="row1">
+          <span class="cs">${a.callsign || '— — — —'}</span>
+          <span class="icao">${a.icao.toUpperCase()}</span>
+        </div>
+        <div class="meta">
+          ${fmt(a.altitude, ' ft')} ·
+          ${fmt(a.speed, ' kt')} ·
+          ${fmt(a.track, '°')}
+          <span class="age">${fmt(a.age, 's')}</span>
+        </div>
+      </div>
+    `).join('');
+
+    list.querySelectorAll('.ac-item').forEach(el => {
+      el.addEventListener('click', () => selectAircraft(el.dataset.icao));
+    });
+  }
+
+  function selectAircraft(icao) {
+    selectedIcao = icao;
+    const entry = aircraft.get(icao);
+    if (entry) {
+      map.panTo(entry.marker.getLatLng());
+      entry.marker.openPopup();
+      // Refresh icon stroke
+      const a = entry.data;
+      entry.marker.setIcon(planeIcon(a.track, altColor(a.altitude), true));
+    }
+    document.querySelectorAll('.ac-item').forEach(el => {
+      el.classList.toggle('selected', el.dataset.icao === icao);
+    });
+  }
+
+  // ---- WebSocket ----
+  let ws;
+  let reconnectTimer = null;
+  function setStatus(state, text) {
+    const s = document.getElementById('status');
+    s.classList.remove('live', 'dead');
+    if (state) s.classList.add(state);
+    if (text) document.getElementById('status-text').textContent = text;
+  }
+  function connect() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(`${proto}//${location.host}/ws`);
+    ws.onopen = () => setStatus('live', 'Connected');
+    ws.onmessage = (ev) => {
+      try { update(JSON.parse(ev.data)); }
+      catch (e) { console.error('bad snapshot', e); }
+    };
+    ws.onclose = () => {
+      setStatus('dead', 'Disconnected, retrying…');
+      clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(connect, 2000);
+    };
+    ws.onerror = () => ws.close();
+  }
+  connect();
+})();
+</script>
+</body>
+</html>

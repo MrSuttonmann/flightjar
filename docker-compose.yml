@@ -1,0 +1,40 @@
+services:
+  beast-logger:
+    build: .
+    image: beast-logger:latest
+    container_name: beast-logger
+    restart: unless-stopped
+    ports:
+      - "45443:8080"
+    environment:
+      # Hostname or IP of the readsb/dump1090 process that tar1090 sits on top of.
+      # If readsb runs in another compose project on the same host, either
+      # attach this service to that project's network or use network_mode: host.
+      BEAST_HOST: readsb
+      BEAST_PORT: "30005"
+
+      # Your receiver's coordinates — speeds up first fix and enables
+      # surface-position decoding. Leave unset if you don't know them.
+      # LAT_REF: "52.0"
+      # LON_REF: "-1.0"
+
+      # File output inside the container; host path is set by the volume below.
+      #BEAST_OUTFILE: /data/beast.jsonl
+      BEAST_ROTATE: daily        # none | hourly | daily
+      BEAST_ROTATE_KEEP: "14"
+      BEAST_STDOUT: "1"          # "0" to silence docker logs
+      # BEAST_NO_DECODE: "1"     # uncomment to skip pyModeS decoding
+
+      SNAPSHOT_INTERVAL: "1.0"
+
+    volumes:
+      - ./beast-logs:/data
+
+    # Uncomment one of the following if readsb isn't reachable by name:
+    # network_mode: host
+    # networks:
+    #   - readsb_default
+
+# networks:
+#   readsb_default:
+#     external: true

@@ -1,0 +1,18 @@
+# Runtime output
+beast-logs/
+*.jsonl
+*.jsonl.*
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
