@@ -3,7 +3,14 @@ FROM python:3.12-slim
 WORKDIR /app
  
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# pyModeS ships C extensions without arm64 wheels on PyPI, so we need a
+# compiler to build it from source. Install, build, then purge the toolchain
+# in a single layer to keep the image small.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential \
+    && pip install --no-cache-dir -r requirements.txt \
+    && apt-get purge -y --auto-remove build-essential \
+    && rm -rf /var/lib/apt/lists/*
  
 COPY app /app/app
  
