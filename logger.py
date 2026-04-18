@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Log BEAST messages from a readsb/dump1090 source (as used by tar1090).
+"""Log BEAST messages from a readsb / dump1090 / ultrafeeder source.
 
 Connects to a BEAST TCP port, parses frames, optionally decodes them with
 pyModeS, and writes one JSON object per line to stdout and/or a rotating file.

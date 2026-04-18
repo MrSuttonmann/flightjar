@@ -1,126 +1,154 @@
-# beast-logger
+# Flightjar
 
-Docker container that connects to a BEAST TCP source (the one that feeds
-tar1090 — usually readsb or dump1090-fa on port **30005**) and gives you:
+A small web app that shows the aircraft your ADS-B receiver can see, on a
+live map — with a rolling log of every message to disk for later analysis.
 
-1. **A live map UI** at `http://host:8080/` — Leaflet + OSM, planes coloured
-   by altitude, trails behind them, click for details.
-2. **JSONL logging** of every Mode S/AC message to `/data/beast.jsonl`,
-   rotated daily (or hourly).
-3. **A small JSON API** (`/api/aircraft`, `/api/stats`) and a **WebSocket**
-   stream at `/ws` if you want to plug in your own clients.
+It reads the BEAST feed from a running readsb, dump1090, or ultrafeeder
+instance — so you can point it at whatever's already decoding ADS-B on your
+network and get a lightweight map, log file, and simple API on top.
 
-Single Python process inside one container. No GPU, no SDR — it's a pure
-BEAST consumer.
+![Flightjar screenshot placeholder]
 
-## Quick start
+## What you get
 
-```bash
-# Edit docker-compose.yml so BEAST_HOST points at your readsb/dump1090.
-docker compose up --build -d
+- **Live map** at `http://<host>:8080/` with planes coloured by altitude,
+  short trails, and a callsign label on each one.
+- **Sidebar list** of currently tracked aircraft, sortable by callsign,
+  altitude, distance from the receiver, or age.
+- **A record of every message** written as JSON Lines to a file on disk,
+  rotated daily.
+- **Optional privacy** — you can fuzz the displayed receiver location so
+  sharing screenshots doesn't pin your home address on a map.
+- **A small HTTP / WebSocket API** if you want to build your own dashboard.
 
-# Map UI:
-open http://localhost:8080
+## Before you start
 
-# JSONL files land in ./beast-logs/beast.jsonl
+You'll need:
+
+- Docker and `docker compose`.
+- A running readsb, dump1090-fa, or ultrafeeder that exposes a **BEAST**
+  feed (usually TCP port **30005**).
+- Your receiver's latitude and longitude. Flightjar works without them, but
+  aircraft take a few seconds longer to appear on the map, and surface
+  (on-ground) positions won't decode at all.
+
+## Setup
+
+1. Clone the repo and open `docker-compose.yml`.
+2. Set your receiver coordinates:
+
+   ```yaml
+   LAT_REF: "52.98234"
+   LON_REF: "-1.20415"
+   ```
+
+3. Point `BEAST_HOST` at your BEAST source. The most common cases:
+
+   - **readsb / ultrafeeder running in another compose project on the same
+     host** — use its service name (e.g. `ultrafeeder`) and attach
+     Flightjar to that project's Docker network. The default compose file
+     assumes `ultrafeeder_default`; adjust the `networks:` block at the
+     bottom if yours is different.
+   - **readsb on the same host, port published to localhost** — uncomment
+     `network_mode: host` in `docker-compose.yml` and set
+     `BEAST_HOST: localhost`.
+   - **readsb on a different machine** — set `BEAST_HOST` to its IP or
+     hostname.
+
+4. Start it:
+
+   ```bash
+   docker compose up --build -d
+   ```
+
+5. Open the map at [http://localhost:8080](http://localhost:8080) (or wherever
+   you've published port 8080).
+
+Logs land in `./beast-logs/beast.jsonl` next to the compose file by default.
+
+## Using the map
+
+- **Click a plane** (on the map or in the sidebar) to centre on it and see
+  speed, altitude, heading, vertical rate and squawk.
+- **Sort the sidebar** with the chips at the top: Callsign, Alt, Dist
+  (distance from your receiver), or Age. Click the active one again to
+  reverse the direction.
+- **Title bar** shows how many aircraft are currently being tracked —
+  handy when the tab is in the background.
+
+## Privacy: hiding your receiver location
+
+By default the receiver is shown as a blue dot at the exact coordinates you
+set. If you're sharing screenshots or hosting the map publicly, you can fuzz
+that location without affecting how the app decodes positions internally:
+
+```yaml
+RECEIVER_ANON_KM: "1"    # snap to a ~1 km grid
+# or
+RECEIVER_ANON_KM: "10"   # snap to a ~10 km grid
 ```
 
-## What you see on the map
+When enabled, the displayed receiver shifts to a grid point and a translucent
+circle of the chosen radius is drawn around it, so viewers know the true
+location is *somewhere* inside that area. Your real coords never leave the
+container — they're still used internally to decode aircraft positions
+accurately.
 
-- Triangle marker per aircraft, rotated to its ground track.
-- Colour scale from red (low) → yellow → green → blue (high), 0–40,000 ft.
-- A polyline trail of recent positions (last ~60 fixes, ~1 minute).
-- Sidebar list sorted by most-recent message; click to centre and open the
-  popup.
-- Aircraft drop off the map ~60s after their last message.
+## Configuration reference
 
-A note on first-fix time: ADS-B position decode (CPR) needs a fresh
-even+odd message pair, so a brand-new aircraft typically takes a couple of
-seconds to appear with a position. Setting `LAT_REF`/`LON_REF` (your
-receiver coordinates) lets the decoder do *local* decode from a single
-message, which makes positions appear instantly and is required for any
-surface-position decoding.
+| Setting               | Default             | What it does                                                   |
+|-----------------------|---------------------|----------------------------------------------------------------|
+| `BEAST_HOST`          | `readsb`            | Hostname or IP of your BEAST source.                           |
+| `BEAST_PORT`          | `30005`             | TCP port for the BEAST feed.                                   |
+| `LAT_REF`             | (unset)             | Receiver latitude. Faster first fix + surface decoding.        |
+| `LON_REF`             | (unset)             | Receiver longitude.                                            |
+| `RECEIVER_ANON_KM`    | `0`                 | Fuzz the displayed receiver location (km). `0` = exact.        |
+| `BEAST_OUTFILE`       | `/data/beast.jsonl` | Log file inside the container. Empty disables file logging.    |
+| `BEAST_ROTATE`        | `daily`             | `none`, `hourly`, or `daily`.                                  |
+| `BEAST_ROTATE_KEEP`   | `14`                | How many rotated log files to keep.                            |
+| `BEAST_STDOUT`        | `0`                 | Also print messages to the container log (for debugging).      |
+| `SNAPSHOT_INTERVAL`   | `1.0`               | How often the map refreshes, in seconds.                       |
 
-## Which port to point at
+## The log file
 
-`tar1090` is just the web UI; BEAST output comes from the decoder underneath:
-
-| Decoder              | BEAST out port |
-|----------------------|----------------|
-| readsb               | 30005          |
-| dump1090-fa          | 30005          |
-| dump1090-mutability  | 30005          |
-
-## Networking
-
-Three common setups:
-
-1. **readsb on the same host, port published** — set `BEAST_HOST` to the
-   host IP / `host.docker.internal`, or uncomment `network_mode: host`.
-2. **readsb in another compose project on the same host** — join its
-   network. `docker network ls` to find the name, then uncomment the
-   `networks:` block in `docker-compose.yml` and put the right name in.
-   `BEAST_HOST` is then the service name (`readsb`, `ultrafeeder`, etc.).
-3. **readsb on a different host** — set `BEAST_HOST` to its IP/hostname.
-
-## JSONL format
-
-Each line is one Mode S/AC message:
+Each line is one Mode S / Mode AC message:
 
 ```json
 {"ts_rx":"2026-04-18T10:15:22.413291+00:00","mlat_ticks":127548213984,"type":"mode_s_long","signal":184,"hex":"8d4ca2d158c901a0c0b8a0cbd1e7"}
 ```
 
-Querying with `jq`:
+A couple of `jq` one-liners to get you started:
 
 ```bash
-# All messages from one aircraft
+# Every message from one specific aircraft (ICAO 8d4ca2d1…)
 jq -c 'select(.hex | startswith("8d4ca2d1"))' beast-logs/beast.jsonl
 
-# Message rate by minute
+# Rough message rate, grouped by minute
 jq -r '.ts_rx[0:16]' beast-logs/beast.jsonl | uniq -c
 ```
 
-If you want decoded fields in the JSONL too, that's currently in the
-aircraft state but not the per-message log. Easy to add — drop me a line
-or look at `app/aircraft.py` for the decoding helpers.
+## API
 
-## API endpoints
+| Path                | Returns                                                   |
+|---------------------|-----------------------------------------------------------|
+| `GET  /`            | The map UI.                                               |
+| `GET  /api/aircraft`| Current tracked aircraft, as JSON.                        |
+| `GET  /api/stats`   | Uptime, frame counter, connected websocket clients, etc.  |
+| `WS   /ws`          | Live aircraft snapshots, one per `SNAPSHOT_INTERVAL`.     |
 
-| Path             | Description                                           |
-|------------------|-------------------------------------------------------|
-| `GET /`          | Map UI                                                |
-| `GET /api/aircraft` | Current snapshot of all tracked aircraft (JSON)    |
-| `GET /api/stats` | Frame counter, uptime, websocket client count, etc.   |
-| `WS  /ws`        | Push channel — one snapshot per second                |
+## Troubleshooting
 
-## Config reference
-
-| Env var             | Default             | Meaning                                      |
-|---------------------|---------------------|----------------------------------------------|
-| `BEAST_HOST`        | `readsb`            | BEAST source hostname/IP.                    |
-| `BEAST_PORT`        | `30005`             | BEAST TCP port.                              |
-| `LAT_REF`           | (unset)             | Receiver latitude — speeds up first fix.     |
-| `LON_REF`           | (unset)             | Receiver longitude.                          |
-| `BEAST_OUTFILE`     | `/data/beast.jsonl` | JSONL output path. Empty string disables.    |
-| `BEAST_ROTATE`      | `daily`             | `none`, `hourly`, or `daily`.                |
-| `BEAST_ROTATE_KEEP` | `14`                | Number of rotated files to keep.             |
-| `BEAST_STDOUT`      | `0`                 | Mirror JSONL to stdout (docker logs).        |
-| `SNAPSHOT_INTERVAL` | `1.0`               | Seconds between WebSocket snapshot pushes.   |
-
-## Files
-
-```
-beast-logger/
-├── Dockerfile
-├── docker-compose.yml
-├── requirements.txt
-├── README.md
-└── app/
-    ├── __init__.py
-    ├── beast.py        # BEAST wire format parser
-    ├── aircraft.py     # Per-ICAO state, CPR position decoding
-    ├── main.py         # FastAPI app, BEAST consumer, broadcaster
-    └── static/
-        └── index.html  # Leaflet map UI
-```
+- **No aircraft appear, status shows "Connected".** Your receiver is reachable
+  but isn't sending anything decodable yet. Give it a minute — or check that
+  your SDR is actually picking up traffic (e.g. via your existing decoder's
+  own web UI).
+- **Status shows "Disconnected, retrying…".** Flightjar can't reach
+  `BEAST_HOST:BEAST_PORT`. Double-check the hostname/IP and that the BEAST
+  port is exposed. `docker compose logs -f flightjar` usually makes the
+  reason obvious.
+- **Aircraft show up as dots with no callsign/altitude for a while.** Normal
+  — it can take a few messages before an aircraft reveals its callsign.
+  Setting `LAT_REF` / `LON_REF` speeds this up noticeably.
+- **The receiver dot is in the wrong place.** Check `LAT_REF` / `LON_REF` are
+  the right way round, and remember `RECEIVER_ANON_KM` deliberately shifts
+  the dot if it's non-zero.

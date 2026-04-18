@@ -51,10 +51,13 @@ class Aircraft:
 
 class AircraftRegistry:
     def __init__(self, lat_ref: Optional[float] = None,
-                 lon_ref: Optional[float] = None):
+                 lon_ref: Optional[float] = None,
+                 receiver_info: Optional[dict] = None):
         self.aircraft: dict[str, Aircraft] = {}
         self.lat_ref = lat_ref
         self.lon_ref = lon_ref
+        # Info shown to clients; may be anonymised relative to lat_ref/lon_ref.
+        self.receiver_info = receiver_info
 
     # -------- ingest --------
 
@@ -271,9 +274,10 @@ class AircraftRegistry:
             now = time.time()
         out = []
         for ac in self.aircraft.values():
-            # Skip aircraft we know nothing useful about yet
-            if (ac.lat is None and ac.callsign is None
-                    and ac.altitude is None and ac.squawk is None):
+            # Skip aircraft with no callsign AND no position/speed/altitude —
+            # a lone squawk or ICAO isn't enough to be worth listing.
+            if (ac.callsign is None and ac.lat is None
+                    and ac.speed is None and ac.altitude is None):
                 continue
             out.append({
                 "icao": ac.icao,
@@ -297,7 +301,6 @@ class AircraftRegistry:
             "now": now,
             "count": len(out),
             "positioned": sum(1 for a in out if a["lat"] is not None),
-            "lat_ref": self.lat_ref,
-            "lon_ref": self.lon_ref,
+            "receiver": self.receiver_info,
             "aircraft": out,
         }

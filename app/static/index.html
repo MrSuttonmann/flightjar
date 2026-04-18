@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>BEAST Aircraft Map</title>
+<title>Flightjar</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
@@ -60,6 +60,10 @@
   .leaflet-popup-content { font-size: 12px; line-height: 1.5; margin: 8px 12px; }
   .leaflet-popup-content code { font-size: 11px; color: var(--muted); }
   .plane-icon { background: transparent !important; border: none !important; }
+  .receiver-icon { background: transparent !important; border: none !important; }
+  .receiver-dot { width: 10px; height: 10px; border-radius: 50%;
+                  background: var(--accent); border: 2px solid #0e1116;
+                  box-shadow: 0 0 0 1px var(--accent); margin: 1px; }
   .plane-label { background: rgba(14,17,22,0.8); color: #fff; font-size: 10px;
                  padding: 1px 4px; border-radius: 2px; white-space: nowrap;
                  font-family: ui-monospace, monospace;
@@ -75,7 +79,7 @@
 <div id="app">
   <div id="sidebar">
     <div id="header">
-      <h1>BEAST Aircraft</h1>
+      <h1>Flightjar</h1>
       <div id="status"><span class="dot"></span><span id="status-text">Connecting…</span></div>
     </div>
     <div id="sort-bar">
@@ -104,6 +108,7 @@
   let showLabels = true;
   let firstUpdate = true;
   let lastSnap = null;
+  let receiverLayer = null;  // L.LayerGroup containing marker + optional anon circle
 
   // Sidebar sort state. `dir` is 1 (asc) or -1 (desc).
   // Default direction per key — matches what feels natural for each column.
@@ -124,7 +129,7 @@
       case 'callsign': return (a.callsign || '').trim() || null;
       case 'altitude': return a.altitude;
       case 'age':      return a.age;
-      case 'distance': return distanceFrom(a, snap.lat_ref, snap.lon_ref);
+      case 'distance': return distanceFrom(a, snap.receiver?.lat, snap.receiver?.lon);
     }
     return null;
   }
@@ -171,8 +176,34 @@
       <code>${a.msg_count} msgs · ${fmt(a.age, 's')} ago</code>`;
   }
 
+  function renderReceiver(rx) {
+    if (!rx || rx.lat == null || rx.lon == null) return;
+    if (receiverLayer) return;  // draw once; position doesn't change mid-session
+
+    const group = L.layerGroup().addTo(map);
+    const label = rx.anon_km > 0
+      ? `Receiver area (±${rx.anon_km} km)`
+      : 'Receiver';
+    const icon = L.divIcon({
+      className: 'receiver-icon',
+      html: '<div class="receiver-dot"></div>',
+      iconSize: [14, 14],
+      iconAnchor: [7, 7],
+    });
+    L.marker([rx.lat, rx.lon], { icon, title: label, interactive: false }).addTo(group);
+    if (rx.anon_km > 0) {
+      L.circle([rx.lat, rx.lon], {
+        radius: rx.anon_km * 1000,
+        color: '#5fa8ff', weight: 1, opacity: 0.6,
+        fillColor: '#5fa8ff', fillOpacity: 0.08, interactive: false,
+      }).addTo(group);
+    }
+    receiverLayer = group;
+  }
+
   function update(snap) {
     lastSnap = snap;
+    renderReceiver(snap.receiver);
     const seen = new Set();
 
     for (const a of snap.aircraft) {
@@ -236,7 +267,7 @@
       const bounds = L.latLngBounds(
         snap.aircraft.filter(a => a.lat != null).map(a => [a.lat, a.lon])
       );
-      if (bounds.isValid()) map.fitBounds(bounds.pad(0.2));
+      if (bounds.isValid()) map.fitBounds(bounds.pad(0.2), { maxZoom: 7 });
       firstUpdate = false;
     }
   }
@@ -253,6 +284,7 @@
     const status = document.getElementById('status-text');
     status.textContent =
       `${snap.count} aircraft · ${snap.positioned} positioned`;
+    document.title = `Flightjar (${snap.count})`;
 
     // Sort a copy so we don't mutate the snapshot used elsewhere.
     const rows = snap.aircraft.slice().sort((a, b) => {

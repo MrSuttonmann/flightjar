@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Overview
 
 Single-process Python service that connects to a BEAST TCP feed (readsb/dump1090-fa,
-typically port 30005 — the same feed that drives tar1090), decodes Mode S / ADS-B
+typically port 30005), decodes Mode S / ADS-B
 messages with pyModeS, and exposes: a Leaflet map at `/`, `/api/aircraft`,
 `/api/stats`, a `/ws` WebSocket pushing snapshots, and per-message JSONL logging
 to `/data/beast.jsonl`.
@@ -15,7 +15,7 @@ to `/data/beast.jsonl`.
 ```bash
 # Build + run the container (reads docker-compose.yml for BEAST_HOST etc.)
 docker compose up --build -d
-docker compose logs -f beast-logger
+docker compose logs -f flightjar
 docker compose down
 
 # Run the FastAPI app directly (without Docker)

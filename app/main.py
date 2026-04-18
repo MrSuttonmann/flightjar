@@ -47,6 +47,23 @@ BEAST_HOST = os.environ.get("BEAST_HOST", "readsb")
 BEAST_PORT = int(os.environ.get("BEAST_PORT", "30005"))
 LAT_REF = env_float("LAT_REF")
 LON_REF = env_float("LON_REF")
+RECEIVER_ANON_KM = env_float("RECEIVER_ANON_KM") or 0.0
+
+
+def _snap_receiver(lat, lon, anon_km):
+    """Snap to a ~anon_km grid so the true position never leaves the process."""
+    if lat is None or lon is None or anon_km <= 0:
+        return lat, lon
+    step = anon_km / 111.0  # ~111 km per degree; slightly over-anonymises longitude at high lat, which is fine
+    return round(lat / step) * step, round(lon / step) * step
+
+
+_DISPLAY_LAT, _DISPLAY_LON = _snap_receiver(LAT_REF, LON_REF, RECEIVER_ANON_KM)
+RECEIVER_INFO = {
+    "lat": _DISPLAY_LAT,
+    "lon": _DISPLAY_LON,
+    "anon_km": RECEIVER_ANON_KM,
+}
 
 JSONL_PATH = os.environ.get("BEAST_OUTFILE", "/data/beast.jsonl").strip()
 JSONL_ROTATE = os.environ.get("BEAST_ROTATE", "daily")
@@ -125,7 +142,9 @@ class Broadcaster:
 
 # ---------------- shared state ----------------
 
-registry = AircraftRegistry(lat_ref=LAT_REF, lon_ref=LON_REF)
+registry = AircraftRegistry(
+    lat_ref=LAT_REF, lon_ref=LON_REF, receiver_info=RECEIVER_INFO
+)
 jsonl = JsonlWriter(JSONL_PATH, JSONL_ROTATE, JSONL_KEEP, JSONL_STDOUT)
 broadcaster = Broadcaster()
 stats = {"frames": 0, "started": time.time()}
@@ -195,7 +214,7 @@ async def snapshot_pusher():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    log.info("starting beast-logger (BEAST=%s:%d, ref=%s,%s, jsonl=%s)",
+    log.info("starting Flightjar (BEAST=%s:%d, ref=%s,%s, jsonl=%s)",
              BEAST_HOST, BEAST_PORT, LAT_REF, LON_REF, jsonl.enabled)
     consumer = asyncio.create_task(beast_consumer(), name="beast_consumer")
     pusher = asyncio.create_task(snapshot_pusher(), name="snapshot_pusher")
@@ -207,7 +226,7 @@ async def lifespan(app: FastAPI):
         await asyncio.gather(consumer, pusher, return_exceptions=True)
 
 
-app = FastAPI(lifespan=lifespan, title="beast-logger")
+app = FastAPI(lifespan=lifespan, title="Flightjar")
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -230,8 +249,7 @@ async def api_stats():
         "aircraft_tracked": len(registry.aircraft),
         "websocket_clients": len(broadcaster.clients),
         "beast_target": f"{BEAST_HOST}:{BEAST_PORT}",
-        "lat_ref": LAT_REF,
-        "lon_ref": LON_REF,
+        "receiver": RECEIVER_INFO,
     }
 
 
