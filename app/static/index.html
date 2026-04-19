@@ -293,13 +293,42 @@
     return null;
   }
 
-  // Color scale: low altitude = warm, high altitude = cool.
+  // Altitude → colour ramp. Stops picked from ColorBrewer's Spectral (reversed)
+  // for a smooth, perceptually-even transition: warm red at low altitudes,
+  // through yellow/green at mid, to cool blue/violet at high. Linear
+  // interpolation in RGB between adjacent stops.
+  const ALT_STOPS = [
+    [    0, [213,  62,  79]],  // #d53e4f  low
+    [ 4000, [244, 109,  67]],  // #f46d43
+    [ 8000, [253, 174,  97]],  // #fdae61
+    [13000, [254, 224, 139]],  // #fee08b
+    [18000, [230, 245, 152]],  // #e6f598
+    [23000, [171, 221, 164]],  // #abdda4
+    [28000, [102, 194, 165]],  // #66c2a5
+    [33000, [ 50, 136, 189]],  // #3288bd
+    [40000, [ 94,  79, 162]],  // #5e4fa2  high
+  ];
+
   function altColor(alt) {
-    if (alt == null) return '#888';
-    const t = Math.max(0, Math.min(1, alt / 40000));
-    const hue = 240 * t; // 0=red, 240=blue
-    return `hsl(${hue}, 75%, 55%)`;
+    if (alt == null) return '#8a94a3';
+    if (alt <= ALT_STOPS[0][0]) return _rgb(ALT_STOPS[0][1]);
+    const last = ALT_STOPS[ALT_STOPS.length - 1];
+    if (alt >= last[0]) return _rgb(last[1]);
+    for (let i = 1; i < ALT_STOPS.length; i++) {
+      const [a1, c1] = ALT_STOPS[i];
+      if (alt <= a1) {
+        const [a0, c0] = ALT_STOPS[i - 1];
+        const t = (alt - a0) / (a1 - a0);
+        return _rgb([
+          Math.round(c0[0] + t * (c1[0] - c0[0])),
+          Math.round(c0[1] + t * (c1[1] - c0[1])),
+          Math.round(c0[2] + t * (c1[2] - c0[2])),
+        ]);
+      }
+    }
+    return _rgb(last[1]);
   }
+  function _rgb([r, g, b]) { return `rgb(${r},${g},${b})`; }
 
   // Top-down silhouettes. All designed around viewBox -14 -14 28 28 so a single
   // planeIcon() can swap paths. Rotated to match the aircraft's ground track.
