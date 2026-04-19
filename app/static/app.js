@@ -553,7 +553,32 @@
     });
   }
 
+  // Tiny sparkline showing count-over-time in the header. ~1 minute of
+  // history at 1Hz snapshot rate.
+  const countHistory = [];
+  const COUNT_HISTORY_LEN = 60;
+
+  function renderSparkline() {
+    const el = document.getElementById('sparkline');
+    if (countHistory.length < 2) { el.innerHTML = ''; return; }
+    const max = Math.max(1, ...countHistory);
+    const w = 60, h = 12;
+    const step = w / Math.max(1, COUNT_HISTORY_LEN - 1);
+    // Align to the right so the newest sample is always at x = w.
+    const offset = w - (countHistory.length - 1) * step;
+    const pts = countHistory.map((c, i) => {
+      const x = offset + i * step;
+      const y = h - (c / max) * (h - 2) - 1;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+    el.innerHTML = `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline points="${pts}" fill="none" stroke="currentColor" stroke-width="1" stroke-linejoin="round" stroke-linecap="round" opacity="0.75"/></svg>`;
+  }
+
   function renderSidebar(snap) {
+    // Push the current count onto the sparkline buffer before drawing.
+    countHistory.push(snap.count);
+    if (countHistory.length > COUNT_HISTORY_LEN) countHistory.shift();
+    renderSparkline();
     const status = document.getElementById('status-text');
     status.textContent =
       `${snap.count} aircraft · ${snap.positioned} positioned`;
