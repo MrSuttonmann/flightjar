@@ -76,6 +76,17 @@ You'll need:
    docker compose up --build -d
    ```
 
+   Or skip the build and pull the prebuilt image from Docker Hub — replace
+   the `build: .` line in `docker-compose.yml` with:
+
+   ```yaml
+   image: mrsuttonmann/flightjar:latest
+   ```
+
+   then just `docker compose up -d`. Multi-arch (amd64 + arm64) so it runs
+   on a Raspberry Pi too. For rollbacks, each release is also tagged
+   `mrsuttonmann/flightjar:git-<short-sha>`.
+
 5. Open the map at [http://localhost:8080](http://localhost:8080) (or wherever
    you've published port 8080).
 
