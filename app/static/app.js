@@ -745,11 +745,13 @@
   renderSortBar();
 
   function renderUnitSwitch() {
-    document.querySelectorAll('.unit-btn').forEach(el => {
+    // Scoped to #unit-switch so the view toggles (which share .unit-btn for
+    // styling) aren't dragged into the unit-switch's active-state bookkeeping.
+    document.querySelectorAll('#unit-switch .unit-btn').forEach(el => {
       el.classList.toggle('active', el.dataset.unit === unitSystem);
     });
   }
-  document.querySelectorAll('.unit-btn').forEach(el => {
+  document.querySelectorAll('#unit-switch .unit-btn').forEach(el => {
     el.addEventListener('click', () => {
       unitSystem = el.dataset.unit;
       try { localStorage.setItem('flightjar.units', unitSystem); } catch (_) {}

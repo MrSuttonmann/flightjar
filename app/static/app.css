@@ -28,11 +28,15 @@
                  background: #888; margin-right: 6px; vertical-align: middle; }
   #status.live .dot { background: #4ade80; }
   #status.dead .dot { background: #ef4444; }
-  #view-controls { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+  #view-controls { display: flex; flex-direction: column; gap: 4px;
+                   align-items: flex-start; flex-shrink: 0; }
+  .view-row { display: flex; gap: 4px; flex-wrap: wrap; }
   #labels-toggle, #trails-toggle, #follow-toggle, #compact-toggle {
     border: 1px solid var(--border); border-radius: 3px;
   }
-  #sidebar-restore { display: none; position: fixed; top: 12px; left: 12px;
+  /* Top-left but below Leaflet's zoom control (two 26px buttons + padding
+     ≈ 66px), so the zoom +/- buttons remain reachable in compact mode. */
+  #sidebar-restore { display: none; position: fixed; top: 76px; left: 10px;
                      z-index: 1001; padding: 5px 10px;
                      background: var(--panel); color: var(--text);
                      border: 1px solid var(--border); border-radius: 4px;
