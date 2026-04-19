@@ -9,18 +9,11 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
     .setView([51.5, -0.1], 6);
   L.control.zoom({ position: 'bottomleft' }).addTo(map);
 
-  // Trails are drawn as a dark outline + altitude-coloured core to stay
-  // legible over both the pale OSM tiles and the busy satellite imagery.
-  // Using two separate canvas panes guarantees clean layering across
-  // aircraft: all outlines paint under all cores, regardless of the order
-  // individual trails got rebuilt. z-indices sit between the tile pane
-  // (200) and the marker pane (600), below airport markers.
-  map.createPane('trailsOutlinePane');
-  map.getPane('trailsOutlinePane').style.zIndex = '375';
-  map.createPane('trailsCorePane');
-  map.getPane('trailsCorePane').style.zIndex = '380';
-  const trailsOutlineCanvas = L.canvas({ pane: 'trailsOutlinePane', padding: 0.3 });
-  const trailsCoreCanvas = L.canvas({ pane: 'trailsCorePane', padding: 0.3 });
+  // Canvas renderer for trails — one element handles hundreds of short
+  // polyline segments far more cheaply than an SVG path each. Lives in
+  // the default overlay pane alongside the airports canvas; no custom
+  // pane needed.
+  const trailsCanvas = L.canvas({ padding: 0.1 });
 
   // Altitude colour legend pinned above the map's bottom edge. A horizontal
   // gradient built from the ALT_STOPS palette; tick labels re-render on
@@ -438,25 +431,13 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
       // Colour by the later point's altitude (falls back to earlier point).
       const alt = p1[2] != null ? p1[2] : p0[2];
       const color = altColor(alt);
-      // Fade older segments gently. The outline is what actually rescues
-      // contrast on light tiles, so we can afford a lower opacity floor
-      // here than a single-stroke version would need.
-      const opacity = 0.5 + 0.4 * (i / points.length);
-      const latlngs = [[p0[0], p0[1]], [p1[0], p1[1]]];
-      L.polyline(latlngs, {
-        renderer: trailsOutlineCanvas,
-        color: '#0b0e14',
-        weight: 3.5,
-        opacity: opacity * 0.8,
-        lineCap: 'round',
-        lineJoin: 'round',
-        smoothFactor: 0,
-        interactive: false,
-      }).addTo(entry.trail);
-      L.polyline(latlngs, {
-        renderer: trailsCoreCanvas,
+      // Fade older segments, but keep a high floor so the whole trail
+      // stays legible against busy base tiles.
+      const opacity = 0.65 + 0.3 * (i / points.length);
+      L.polyline([[p0[0], p0[1]], [p1[0], p1[1]]], {
+        renderer: trailsCanvas,
         color,
-        weight: 2,
+        weight: 3,
         opacity,
         lineCap: 'round',
         lineJoin: 'round',
