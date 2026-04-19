@@ -258,17 +258,23 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
 
   // Route string (e.g. "EGLL → KJFK") from snapshot fields. Returns '' when
   // the server hasn't enriched yet (adsbdb lookup still pending or the
-  // feature is disabled). Wraps each airport code in a span with a `title`
-  // attribute so hovering shows the full airport name when we have it.
-  // Both the visible code and the title attribute go through escapeHtml;
-  // OurAirports names and adsbdb codes are upstream data.
+  // feature is disabled). Each airport code that resolves to a known name
+  // gets a `data-title` attribute; a delegated click/hover handler shows a
+  // body-mounted tooltip so it escapes the sidebar row's overflow:hidden
+  // and works on iPad Safari (where the native `title` attribute is inert).
+  // OurAirports names and adsbdb codes are upstream data, so both go
+  // through escapeHtml before interpolation.
   function routeLabel(a, airports) {
     if (!a.origin && !a.destination) return '';
     const code = (icao) => {
       if (!icao) return '?';
       const info = airports && airports[icao];
-      const title = info && info.name ? info.name : icao;
-      return `<span title="${escapeHtml(title)}">${escapeHtml(icao)}</span>`;
+      const name = info && info.name ? info.name : null;
+      if (!name) return `<span class="airport-code">${escapeHtml(icao)}</span>`;
+      return (
+        `<span class="airport-code" data-title="${escapeHtml(name)}">` +
+        `${escapeHtml(icao)}</span>`
+      );
     };
     return `${code(a.origin)} → ${code(a.destination)}`;
   }
@@ -301,6 +307,67 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
     for (const entry of aircraft.values()) updateLabelFor(entry);
     document.getElementById('labels-toggle').classList.toggle('active', showLabels);
   }
+
+  // Singleton floating tooltip for airport codes. Mounted on <body> so it
+  // can paint over the sidebar row's overflow:hidden, and driven by
+  // delegated hover + click listeners so it works uniformly across desktop
+  // and iPad Safari (where the native `title` attribute is inert).
+  const airportTooltip = document.createElement('div');
+  airportTooltip.id = 'airport-tooltip';
+  airportTooltip.hidden = true;
+  document.body.appendChild(airportTooltip);
+  let airportTooltipHideTimer = null;
+
+  function hideAirportTooltip() {
+    airportTooltip.hidden = true;
+    clearTimeout(airportTooltipHideTimer);
+    airportTooltipHideTimer = null;
+  }
+
+  function showAirportTooltip(el, persistent) {
+    const name = el.dataset.title;
+    if (!name) return;
+    airportTooltip.textContent = name;
+    airportTooltip.hidden = false;
+    // Measure after unhiding so offsetWidth is meaningful.
+    const r = el.getBoundingClientRect();
+    const tw = airportTooltip.offsetWidth;
+    const th = airportTooltip.offsetHeight;
+    const left = Math.max(4, Math.min(window.innerWidth - tw - 4, r.left + r.width / 2 - tw / 2));
+    const top = r.top - th - 6 >= 4 ? r.top - th - 6 : r.bottom + 6;
+    airportTooltip.style.left = `${left}px`;
+    airportTooltip.style.top = `${top}px`;
+    clearTimeout(airportTooltipHideTimer);
+    airportTooltipHideTimer = persistent ? setTimeout(hideAirportTooltip, 3500) : null;
+  }
+
+  // Click anywhere: if it's an airport code, show the tooltip (and swallow
+  // the event so the enclosing sidebar row doesn't also select the plane).
+  // Clicks elsewhere dismiss any open tooltip.
+  document.addEventListener(
+    'click',
+    (e) => {
+      const hit = e.target.closest('.airport-code[data-title]');
+      if (hit) {
+        e.stopPropagation();
+        showAirportTooltip(hit, true);
+      } else if (!airportTooltip.hidden) {
+        hideAirportTooltip();
+      }
+    },
+    true,
+  );
+
+  // Desktop hover: show while the pointer is over a code.
+  document.addEventListener('mouseover', (e) => {
+    const hit = e.target.closest('.airport-code[data-title]');
+    if (hit) showAirportTooltip(hit, false);
+  });
+  document.addEventListener('mouseout', (e) => {
+    if (e.target.closest('.airport-code[data-title]') && airportTooltipHideTimer === null) {
+      hideAirportTooltip();
+    }
+  });
 
   function applyTrailsVisibility() {
     for (const entry of aircraft.values()) {
