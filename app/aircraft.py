@@ -410,7 +410,6 @@ class AircraftRegistry:
                     "emergency": EMERGENCY_SQUAWKS.get(ac.squawk) if ac.squawk else None,
                     "on_ground": ac.on_ground,
                     "last_seen": ac.last_seen,
-                    "age": round(now - ac.last_seen, 1),
                     "msg_count": ac.msg_count,
                     "distance_km": distance_km,
                     "trail": [[lat, lon, alt] for lat, lon, alt, _ in ac.trail],

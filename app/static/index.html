@@ -288,11 +288,11 @@
     return (Number(value) * u.mul).toFixed(u.digits) + u.suf;
   }
 
-  function sortValue(a, key) {
+  function sortValue(a, key, now) {
     switch (key) {
       case 'callsign': return (a.callsign || '').trim() || null;
       case 'altitude': return a.altitude;
-      case 'age':      return a.age;
+      case 'age':      return ageOf(a, now);
       case 'distance': return a.distance_km;
     }
     return null;
@@ -484,7 +484,12 @@
     return { dir, arrow: `<span class="trend">${glyph}</span>`, cls };
   }
 
-  function popupHtml(a) {
+  function ageOf(a, now) {
+    if (now == null || a.last_seen == null) return null;
+    return Math.max(0, now - a.last_seen);
+  }
+
+  function popupHtml(a, now) {
     const emergency = a.emergency
       ? `<span class="emergency-label">EMERGENCY · ${a.emergency}</span><br>`
       : '';
@@ -512,7 +517,7 @@
       Spd: <span class="${tSpd.cls}">${uconv('spd', a.speed)}${tSpd.arrow}</span> &nbsp; Hdg: ${fmt(a.track, '°')}${compassIcon(a.track)}<br>
       VRate: ${uconv('vrt', a.vrate)}<br>
       Sqwk: ${a.squawk || '—'}<br>
-      <code>${a.msg_count} msgs · ${fmt(a.age, 's')} ago</code>`;
+      <code>${a.msg_count} msgs · ${fmt(ageOf(a, now), 's', 1)} ago</code>`;
   }
 
   // What text to show as the permanent on-map label.
@@ -676,13 +681,13 @@
         entry.trail.clearLayers();
         entry.trailLen = 0;
       }
-      entry.marker.setPopupContent(popupHtml(a));
+      entry.marker.setPopupContent(popupHtml(a, snap.now));
       if (!entry.marker.getPopup()) {
         // autoPan=false stops the map from drifting when the aircraft moves
         // while its popup is open (e.g. after returning from a hidden tab).
         // We pan explicitly on sidebar-triggered selections so the popup is
         // still in view when it first opens.
-        entry.marker.bindPopup(popupHtml(a), { autoPan: false });
+        entry.marker.bindPopup(popupHtml(a, snap.now), { autoPan: false });
       }
 
       entry.data = a;
@@ -750,8 +755,8 @@
 
     // Sort a copy so we don't mutate the snapshot used elsewhere.
     const rows = filtered.slice().sort((a, b) => {
-      const av = sortValue(a, sortKey);
-      const bv = sortValue(b, sortKey);
+      const av = sortValue(a, sortKey, snap.now);
+      const bv = sortValue(b, sortKey, snap.now);
       // Null always sinks to the bottom regardless of direction.
       if (av == null && bv == null) return a.icao.localeCompare(b.icao);
       if (av == null) return 1;
@@ -777,7 +782,7 @@
       const tDst = trendInfo(entry, 'dst');
       return `
       <div class="${classes}" data-icao="${a.icao}">
-        <span class="age">${fmt(a.age, 's')}</span>
+        <span class="age">${fmt(ageOf(a, snap.now), 's', 1)}</span>
         <div class="row1">
           <span class="cs">${a.callsign || '— — — —'} ${emergencyBadge}</span>
           <span class="icao">${subtitle || a.icao.toUpperCase()}</span>
@@ -883,7 +888,7 @@
         renderSidebar(lastSnap);
         // Refresh open popups so their units update immediately.
         for (const entry of aircraft.values()) {
-          entry.marker.setPopupContent(popupHtml(entry.data));
+          entry.marker.setPopupContent(popupHtml(entry.data, lastSnap?.now));
         }
       }
     });
