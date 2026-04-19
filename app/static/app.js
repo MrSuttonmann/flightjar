@@ -1,6 +1,6 @@
 import { fmt, ageOf, compassIcon } from './format.js';
 import { UNIT_SYSTEMS, getUnitSystem, setUnitSystem, uconv } from './units.js';
-import { altColor } from './altitude.js';
+import { ALT_STOPS, altColor } from './altitude.js';
 import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
 import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
 
@@ -8,6 +8,23 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
   const map = L.map('map', { worldCopyJump: true, zoomControl: false })
     .setView([51.5, -0.1], 6);
   L.control.zoom({ position: 'bottomleft' }).addTo(map);
+
+  // Altitude colour legend pinned above the map's bottom edge. A horizontal
+  // gradient built from the ALT_STOPS palette; tick labels re-render on
+  // unit-system change so they always match the rest of the UI.
+  const altLegend = L.DomUtil.create('div', 'alt-legend');
+  const altLegendBar = L.DomUtil.create('div', 'alt-legend-bar', altLegend);
+  const altLegendTicks = L.DomUtil.create('div', 'alt-legend-ticks', altLegend);
+  altLegendBar.style.background = 'linear-gradient(to right, ' +
+    ALT_STOPS.map(([, [r, g, b]]) => `rgb(${r},${g},${b})`).join(', ') + ')';
+  const LEGEND_TICK_FT = [0, 10000, 20000, 30000, 40000];
+  function renderAltLegend() {
+    altLegendTicks.innerHTML = LEGEND_TICK_FT
+      .map(ft => `<span>${uconv('alt', ft)}</span>`)
+      .join('');
+  }
+  renderAltLegend();
+  map.getContainer().appendChild(altLegend);
 
   const baseLayers = {
     'OpenStreetMap': L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -682,6 +699,7 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
       setUnitSystem(el.dataset.unit);
       try { localStorage.setItem('flightjar.units', getUnitSystem()); } catch (_) {}
       renderUnitSwitch();
+      renderAltLegend();
       if (lastSnap) {
         renderSidebar(lastSnap);
         // Refresh open popups so their units update immediately.

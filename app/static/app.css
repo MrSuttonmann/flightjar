@@ -95,6 +95,17 @@
   #ac-list { flex: 1; overflow-y: auto; }
   .ac-empty { padding: 24px 16px; text-align: center; color: var(--muted);
               font-size: 12px; font-style: italic; }
+  .alt-legend { position: absolute; bottom: 8px; left: 50%;
+                transform: translateX(-50%); z-index: 500;
+                background: rgba(14, 17, 22, 0.85);
+                border: 1px solid var(--border); border-radius: 4px;
+                padding: 6px 10px 4px; font-size: 10px; color: var(--muted);
+                font-variant-numeric: tabular-nums; pointer-events: none;
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+                user-select: none; }
+  .alt-legend-bar { height: 8px; width: 240px; border-radius: 2px;
+                    margin-bottom: 2px; }
+  .alt-legend-ticks { display: flex; justify-content: space-between; }
   #msg-rate { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
   #msg-rate:empty { display: none; }
   #msg-rate::before { content: "· "; }
