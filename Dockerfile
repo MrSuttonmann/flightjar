@@ -17,6 +17,11 @@ RUN python -c "import urllib.request; urllib.request.urlretrieve('${AIRCRAFT_DB_
 ARG AIRPORTS_DB_URL=https://raw.githubusercontent.com/davidmegginson/ourairports-data/main/airports.csv
 RUN python -c "import urllib.request; urllib.request.urlretrieve('${AIRPORTS_DB_URL}', '/app/app/airports.csv')"
 
+# Tar1090 per-type aircraft silhouettes (GPL-2.0+) — SVG polygon paths
+# exposed as an ES module for the frontend to import.
+COPY scripts/fetch_plane_shapes.py /tmp/fetch_plane_shapes.py
+RUN python /tmp/fetch_plane_shapes.py && rm /tmp/fetch_plane_shapes.py
+
 VOLUME ["/data"]
 
 ENV BEAST_HOST=readsb \

@@ -116,6 +116,31 @@
   #sidebar-footer a:hover { color: var(--text); }
   #sidebar-footer svg { width: 14px; height: 14px; fill: currentColor; }
   #sidebar-footer img { display: block; height: 28px; width: auto; }
+  #about-btn { color: var(--muted); background: transparent; border: 0;
+               font-size: 11px; font-family: inherit; cursor: pointer;
+               padding: 0; }
+  #about-btn:hover { color: var(--text); }
+  #about-dialog { max-width: 540px; width: 90vw; border: 1px solid var(--border);
+                  border-radius: 6px; background: var(--panel); color: var(--text);
+                  padding: 20px 24px 24px; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+                  font-size: 13px; line-height: 1.45; }
+  #about-dialog::backdrop { background: rgba(0,0,0,0.55); }
+  #about-dialog h2 { margin: 0 0 8px; font-size: 18px; font-weight: 600; }
+  #about-dialog h3 { margin: 16px 0 6px; font-size: 12px;
+                     text-transform: uppercase; letter-spacing: 0.5px;
+                     color: var(--muted); font-weight: 600; }
+  #about-dialog p { margin: 0 0 8px; color: var(--muted); }
+  #about-dialog a { color: var(--accent); text-decoration: none; }
+  #about-dialog a:hover { text-decoration: underline; }
+  #about-dialog .about-list { margin: 0; padding-left: 18px; }
+  #about-dialog .about-list li { margin-bottom: 4px; }
+  #about-dialog .about-close-form { margin: 0; padding: 0; display: flex;
+                                    justify-content: flex-end; }
+  #about-dialog .about-close { background: transparent; border: 0;
+                               color: var(--muted); font-size: 22px;
+                               line-height: 1; cursor: pointer;
+                               padding: 0 4px; margin: -8px -8px 0 0; }
+  #about-dialog .about-close:hover { color: var(--text); }
   .ac-item { position: relative; padding: 8px 14px; border-bottom: 1px solid var(--border);
              cursor: pointer; font-size: 12px; line-height: 1.4; }
   .ac-item:hover, .ac-item.peek { background: #1d222b; }

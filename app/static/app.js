@@ -103,7 +103,80 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
     return null;
   }
 
-  function planeIcon(track, color, selected, emergency, shapeName) {
+  // tar1090 per-type silhouettes — loaded asynchronously so a missing
+  // tar1090_shapes.js (e.g. first run before the fetch script has run)
+  // doesn't break the app. Until it resolves, planeIcon falls back to
+  // the built-in hand-drawn silhouettes in silhouette.js.
+  let tar1090Shapes = null;
+  let tar1090TypeIcons = null;
+  import('./tar1090_shapes.js').then(mod => {
+    tar1090Shapes = mod.shapes;
+    tar1090TypeIcons = mod.TypeDesignatorIcons;
+  }).catch(e => {
+    console.warn('tar1090 shapes unavailable — using built-in silhouettes', e);
+  });
+
+  function tar1090ShapeFor(typeIcao) {
+    if (!tar1090Shapes || !tar1090TypeIcons || !typeIcao) return null;
+    const entry = tar1090TypeIcons[typeIcao.toUpperCase()];
+    if (!entry) return null;
+    const [shapeName, scaleFactor] = entry;
+    const shape = tar1090Shapes[shapeName];
+    return shape ? { shape, scaleFactor } : null;
+  }
+
+  // Render a tar1090-shaped marker. Follows the layout from tar1090's own
+  // svgShapeToSVG: stroke width is a small reference (0.5 px in viewBox
+  // units) multiplied by shape.strokeScale, so the viewBox-unit scale
+  // varies across shapes but the on-screen stroke stays consistent. Main
+  // path uses paint-order="stroke" (stroke under fill, so only the
+  // outline shows). Accent paths render as fill="none" lines.
+  function tar1090Icon(track, color, selected, emergency, shape, scaleFactor) {
+    const rot = track == null ? 0 : track;
+    const target = 32;  // target pixel size of the longer edge at scaleFactor=1
+    const longest = Math.max(shape.w, shape.h);
+    const scale = (scaleFactor || 1) * (target / longest);
+    const w = Math.round(shape.w * scale);
+    const h = Math.round(shape.h * scale);
+    let baseStroke = 0.5;
+    let stroke = selected ? '#ffffff' : '#000000';
+    if (emergency) { stroke = '#ef4444'; baseStroke = 0.8; }
+    const ss = shape.strokeScale || 1;
+    const strokeWidth = 2 * baseStroke * ss;
+    const accentWidth = 0.6 * (shape.accentMult ? shape.accentMult * baseStroke : baseStroke) * ss;
+
+    const paths = Array.isArray(shape.path) ? shape.path : [shape.path];
+    let body = paths.map(d =>
+      `<path paint-order="stroke" fill="${color}" stroke="${stroke}" ` +
+      `stroke-width="${strokeWidth}" d="${d}"/>`
+    ).join('');
+    if (shape.accent) {
+      const accents = Array.isArray(shape.accent) ? shape.accent : [shape.accent];
+      body += accents.map(d =>
+        `<path fill="none" stroke="${stroke}" stroke-width="${accentWidth}" d="${d}"/>`
+      ).join('');
+    }
+    const innerTransform = shape.transform ? ` transform="${shape.transform}"` : '';
+    const svg =
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" ` +
+      `viewBox="${shape.viewBox}"` +
+      (shape.noAspect ? ' preserveAspectRatio="none"' : '') +
+      ` style="transform: rotate(${rot}deg); transform-origin: center;">` +
+      `<g${innerTransform}>${body}</g></svg>`;
+    return L.divIcon({
+      html: svg,
+      className: 'plane-icon',
+      iconSize: [w, h],
+      iconAnchor: [w / 2, h / 2],
+    });
+  }
+
+  function planeIcon(track, color, selected, emergency, shapeName, typeIcao) {
+    // Prefer tar1090's per-type silhouette when we have one for this ICAO
+    // type code; fall back to the hand-drawn family silhouettes otherwise.
+    const tar = tar1090ShapeFor(typeIcao);
+    if (tar) return tar1090Icon(track, color, selected, emergency, tar.shape, tar.scaleFactor);
+
     const shape = PLANE_SHAPES[shapeName] || PLANE_SHAPES.generic;
     const rot = track == null ? 0 : track;
     let stroke = selected ? '#fff' : '#000';
@@ -311,7 +384,7 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
       const color = altColor(a.altitude);
       const isSelected = a.icao === selectedIcao;
       const shape = silhouette(a);
-      const icon = planeIcon(a.track, color, isSelected, !!a.emergency, shape);
+      const icon = planeIcon(a.track, color, isSelected, !!a.emergency, shape, a.type_icao);
 
       let entry = aircraft.get(a.icao);
       if (!entry) {
@@ -547,7 +620,7 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
     const entry = aircraft.get(icao);
     if (entry) {
       const a = entry.data;
-      entry.marker.setIcon(planeIcon(a.track, altColor(a.altitude), true, !!a.emergency, silhouette(a)));
+      entry.marker.setIcon(planeIcon(a.track, altColor(a.altitude), true, !!a.emergency, silhouette(a), a.type_icao));
     }
     document.querySelectorAll('.ac-item').forEach(el => {
       el.classList.toggle('selected', el.dataset.icao === icao);
@@ -563,7 +636,7 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
     const entry = aircraft.get(icao);
     if (entry) {
       const a = entry.data;
-      entry.marker.setIcon(planeIcon(a.track, altColor(a.altitude), false, !!a.emergency, silhouette(a)));
+      entry.marker.setIcon(planeIcon(a.track, altColor(a.altitude), false, !!a.emergency, silhouette(a), a.type_icao));
     }
     document.querySelectorAll('.ac-item').forEach(el => {
       if (el.dataset.icao === icao) el.classList.remove('selected');
@@ -628,6 +701,23 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
     applyLabelsVisibility();
   });
   applyLabelsVisibility();
+
+  // ---- About dialog ----
+  const aboutDialog = document.getElementById('about-dialog');
+  document.getElementById('about-btn').addEventListener('click', () => {
+    if (typeof aboutDialog.showModal === 'function') {
+      aboutDialog.showModal();
+    } else {
+      aboutDialog.setAttribute('open', '');  // graceful fallback
+    }
+  });
+  // Clicking the backdrop (i.e. outside the dialog content) also closes it.
+  aboutDialog.addEventListener('click', (e) => {
+    const r = aboutDialog.getBoundingClientRect();
+    const inside = e.clientX >= r.left && e.clientX <= r.right
+                && e.clientY >= r.top && e.clientY <= r.bottom;
+    if (!inside) aboutDialog.close();
+  });
 
   document.getElementById('trails-toggle').addEventListener('click', () => {
     showTrails = !showTrails;

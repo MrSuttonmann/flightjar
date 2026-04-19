@@ -24,6 +24,9 @@ docker-compose.override.yml
 
 # Locally-downloaded aircraft DB (baked at image build time).
 app/aircraft_db.csv.gz
+# Locally-downloaded airport DB + tar1090 plane shapes (baked at build time).
+app/airports.csv
+app/static/tar1090_shapes.js
 
 # Editors / OS
 .vscode/

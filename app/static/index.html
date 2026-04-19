@@ -57,11 +57,54 @@
       </svg>
       GitHub
     </a>
+    <button id="about-btn" type="button" title="Credits and dependencies">About</button>
     <a href="https://www.buymeacoffee.com/mrsuttonmann" target="_blank" rel="noopener"
        title="Buy me a coffee">
       <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee">
     </a>
   </div>
+
+<dialog id="about-dialog">
+  <form method="dialog" class="about-close-form">
+    <button class="about-close" value="close" aria-label="Close">&times;</button>
+  </form>
+  <h2>Flightjar</h2>
+  <p>A live ADS-B map + logger, licensed under the
+    <a href="https://github.com/MrSuttonmann/flightjar/blob/main/LICENSE"
+       target="_blank" rel="noopener">GNU General Public License v3.0</a>.</p>
+
+  <h3>Runtime libraries</h3>
+  <ul class="about-list">
+    <li><a href="https://leafletjs.com/" target="_blank" rel="noopener">Leaflet</a>
+        — BSD-2-Clause. Map engine + controls.</li>
+    <li><a href="https://fastapi.tiangolo.com/" target="_blank" rel="noopener">FastAPI</a>
+        — MIT. HTTP / WebSocket framework.</li>
+    <li><a href="https://www.uvicorn.org/" target="_blank" rel="noopener">uvicorn</a>
+        — BSD-3-Clause. ASGI server.</li>
+    <li><a href="https://github.com/junzis/pyModeS" target="_blank" rel="noopener">pyModeS</a>
+        — GPL-3.0-or-later. Mode S / ADS-B decoder.</li>
+    <li><a href="https://www.python-httpx.org/" target="_blank" rel="noopener">httpx</a>
+        — BSD-3-Clause. Async HTTP client (OpenSky calls).</li>
+  </ul>
+
+  <h3>Data &amp; assets</h3>
+  <ul class="about-list">
+    <li><a href="https://github.com/wiedehopf/tar1090-db" target="_blank" rel="noopener">tar1090-db / Mictronics</a>
+        — aircraft registry (ICAO24 → registration / type). CC0.</li>
+    <li><a href="https://github.com/wiedehopf/tar1090" target="_blank" rel="noopener">tar1090</a>
+        — per-type aircraft silhouettes (<code>markers.js</code>). GPL-2.0+.</li>
+    <li><a href="https://ourairports.com/" target="_blank" rel="noopener">OurAirports</a>
+        — global airport database + coordinates. Public domain.</li>
+    <li><a href="https://www.openstreetmap.org/" target="_blank" rel="noopener">OpenStreetMap</a>
+        contributors — base map tiles. ODbL.</li>
+    <li><a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>
+        — Dark base tiles (on top of OSM data).</li>
+    <li><a href="https://www.esri.com/" target="_blank" rel="noopener">Esri</a>
+        — satellite imagery tiles.</li>
+    <li><a href="https://opensky-network.org/" target="_blank" rel="noopener">OpenSky Network</a>
+        — origin / destination lookups (optional).</li>
+  </ul>
+</dialog>
 </div>
 
 <button id="sidebar-restore" title="Show sidebar (C)">☰ sidebar</button>
