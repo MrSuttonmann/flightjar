@@ -75,6 +75,16 @@
   .ac-item:hover, .ac-item.peek { background: #1d222b; }
   .ac-item.selected { background: #1f2a3d; border-left: 3px solid var(--accent);
                       padding-left: 11px; }
+  .ac-item.emergency { background: #3a1212; border-left: 3px solid #ef4444;
+                       padding-left: 11px; }
+  .ac-item.emergency .cs { color: #fecaca; }
+  .ac-item.emergency.selected { background: #4a1818; }
+  .emergency-label { display: inline-block; background: #ef4444; color: #fff;
+                     font-size: 9px; font-weight: 700; text-transform: uppercase;
+                     padding: 1px 4px; border-radius: 2px; margin-left: 4px;
+                     letter-spacing: 0.5px; vertical-align: middle; }
+  .range-label span { color: #5fa8ff; font-size: 10px; background: rgba(14,17,22,0.7);
+                      padding: 0 3px; border-radius: 2px; white-space: nowrap; }
   .ac-item .row1 { display: flex; justify-content: space-between; align-items: baseline;
                    padding-right: 36px; }
   .ac-item .cs { font-family: ui-monospace, "SF Mono", Menlo, monospace;
@@ -162,10 +172,52 @@
 <script>
 (() => {
   const map = L.map('map', { worldCopyJump: true }).setView([51.5, -0.1], 6);
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    maxZoom: 19,
-  }).addTo(map);
+
+  const baseLayers = {
+    'OpenStreetMap': L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxZoom: 19,
+    }),
+    'Carto Dark': L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+      subdomains: 'abcd', maxZoom: 19,
+    }),
+    'Satellite': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      attribution: 'Tiles &copy; Esri', maxZoom: 19,
+    }),
+  };
+  const savedBase = localStorage.getItem('flightjar.basemap');
+  const defaultBaseName = savedBase && baseLayers[savedBase] ? savedBase : 'Carto Dark';
+  baseLayers[defaultBaseName].addTo(map);
+
+  // Range-ring overlay (centred on receiver; rebuilt when receiver is known).
+  const rangeRings = L.layerGroup();
+  function buildRangeRings(rx) {
+    rangeRings.clearLayers();
+    if (!rx || rx.lat == null || rx.lon == null) return;
+    // 50 / 100 / 200 NM. 1 NM = 1852 m.
+    for (const nm of [50, 100, 200]) {
+      L.circle([rx.lat, rx.lon], {
+        radius: nm * 1852,
+        color: '#5fa8ff', weight: 1, opacity: 0.35,
+        fill: false, dashArray: '3 4', interactive: false,
+      }).addTo(rangeRings);
+      L.marker([rx.lat, rx.lon], {
+        interactive: false,
+        icon: L.divIcon({
+          className: 'range-label',
+          html: `<span>${nm} NM</span>`,
+          iconSize: [0, 0],
+        }),
+      }).addTo(rangeRings).setLatLng([rx.lat + (nm * 1852) / 111000, rx.lon]);
+    }
+  }
+  const overlays = { 'Range rings': rangeRings };
+  L.control.layers(baseLayers, overlays, { position: 'topright' }).addTo(map);
+
+  map.on('baselayerchange', (e) => {
+    try { localStorage.setItem('flightjar.basemap', e.name); } catch (_) {}
+  });
 
   const aircraft = new Map(); // icao -> { marker, trail, label, data }
   let selectedIcao = null;
@@ -231,10 +283,11 @@
     return `hsl(${hue}, 75%, 55%)`;
   }
 
-  function planeIcon(track, color, selected) {
+  function planeIcon(track, color, selected, emergency = false) {
     const rot = track == null ? 0 : track;
-    const stroke = selected ? '#fff' : '#000';
-    const sw = selected ? 1.5 : 0.6;
+    let stroke = selected ? '#fff' : '#000';
+    let sw = selected ? 1.5 : 0.6;
+    if (emergency) { stroke = '#ef4444'; sw = 2; }
     const svg = `
       <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="-13 -13 26 26">
         <path d="M0 -10 L7 8 L0 4 L-7 8 Z"
@@ -256,8 +309,11 @@
   }
 
   function popupHtml(a) {
+    const emergency = a.emergency
+      ? `<span class="emergency-label">EMERGENCY · ${a.emergency}</span><br>`
+      : '';
     return `
-      <b>${a.callsign || '—'}</b> <code>${a.icao.toUpperCase()}</code><br>
+      <b>${a.callsign || '—'}</b> <code>${a.icao.toUpperCase()}</code> ${emergency}<br>
       Alt: <b>${uconv('alt', a.altitude)}</b><br>
       Spd: ${uconv('spd', a.speed)} &nbsp; Hdg: ${fmt(a.track, '°')}<br>
       VRate: ${uconv('vrt', a.vrate)}<br>
@@ -316,6 +372,7 @@
   function renderReceiver(rx) {
     if (!rx || rx.lat == null || rx.lon == null) return;
     if (receiverLayer) return;  // draw once; position doesn't change mid-session
+    buildRangeRings(rx);
 
     const group = L.layerGroup().addTo(map);
     const label = rx.anon_km > 0
@@ -349,7 +406,7 @@
 
       const color = altColor(a.altitude);
       const isSelected = a.icao === selectedIcao;
-      const icon = planeIcon(a.track, color, isSelected);
+      const icon = planeIcon(a.track, color, isSelected, !!a.emergency);
 
       let entry = aircraft.get(a.icao);
       if (!entry) {
@@ -436,12 +493,19 @@
 
     const list = document.getElementById('ac-list');
     list.innerHTML = rows.map(a => {
+      const classes = [
+        'ac-item',
+        a.icao === selectedIcao ? 'selected' : '',
+        a.emergency ? 'emergency' : '',
+      ].filter(Boolean).join(' ');
+      const emergencyBadge = a.emergency
+        ? `<span class="emergency-label">${a.emergency}</span>`
+        : '';
       return `
-      <div class="ac-item ${a.icao === selectedIcao ? 'selected' : ''}"
-           data-icao="${a.icao}">
+      <div class="${classes}" data-icao="${a.icao}">
         <span class="age">${fmt(a.age, 's')}</span>
         <div class="row1">
-          <span class="cs">${a.callsign || '— — — —'}</span>
+          <span class="cs">${a.callsign || '— — — —'} ${emergencyBadge}</span>
           <span class="icao">${a.icao.toUpperCase()}</span>
         </div>
         <div class="meta">
@@ -480,7 +544,7 @@
     const entry = aircraft.get(icao);
     if (entry) {
       const a = entry.data;
-      entry.marker.setIcon(planeIcon(a.track, altColor(a.altitude), true));
+      entry.marker.setIcon(planeIcon(a.track, altColor(a.altitude), true, !!a.emergency));
     }
     document.querySelectorAll('.ac-item').forEach(el => {
       el.classList.toggle('selected', el.dataset.icao === icao);
