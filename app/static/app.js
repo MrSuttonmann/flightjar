@@ -51,6 +51,7 @@
   let selectedIcao = null;
   let showLabels = localStorage.getItem('flightjar.labels') !== '0';
   let showTrails = localStorage.getItem('flightjar.trails') !== '0';
+  let followSelected = localStorage.getItem('flightjar.follow') === '1';
   let firstUpdate = true;
   let lastSnap = null;
   let lastSnapAt = 0;  // Date.now() of the most recent snapshot, for the heartbeat.
@@ -505,6 +506,13 @@
       updateLabelFor(entry);
     }
 
+    // Keep the selected aircraft centred when "Follow" is on. Cheap pan
+    // (no animation) so busy skies don't feel jumpy.
+    if (followSelected && selectedIcao) {
+      const entry = aircraft.get(selectedIcao);
+      if (entry) map.panTo(entry.marker.getLatLng(), { animate: false });
+    }
+
     // Drop aircraft no longer reported
     for (const [icao, entry] of aircraft.entries()) {
       if (!seen.has(icao)) {
@@ -727,6 +735,21 @@
     applyTrailsVisibility();
   });
   applyTrailsVisibility();
+
+  function applyFollowState() {
+    document.getElementById('follow-toggle').classList.toggle('active', followSelected);
+    // Snap the map to the selected aircraft the moment Follow is switched on.
+    if (followSelected && selectedIcao) {
+      const entry = aircraft.get(selectedIcao);
+      if (entry) map.panTo(entry.marker.getLatLng(), { animate: true });
+    }
+  }
+  document.getElementById('follow-toggle').addEventListener('click', () => {
+    followSelected = !followSelected;
+    try { localStorage.setItem('flightjar.follow', followSelected ? '1' : '0'); } catch (_) {}
+    applyFollowState();
+  });
+  applyFollowState();
 
   // ---- sidebar search ----
   const searchInput = document.getElementById('search');

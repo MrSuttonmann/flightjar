@@ -98,6 +98,8 @@ Logs land in `./beast-logs/beast.jsonl` next to the compose file by default.
   next to each plane on the map. Your preference is remembered.
 - **Trails** — the Trails button toggles altitude-coloured trails for
   every aircraft. Same persistence.
+- **Follow** — when a plane is selected and Follow is on, the map
+  auto-pans to keep it centred. Toggle off for a static view.
 - **Base map** — the layers control (top-right of the map) swaps between
   OpenStreetMap, Carto Dark, and Esri Satellite tiles. Choice is remembered.
 - **Range rings** — optional overlay at 50 / 100 / 200 NM around the

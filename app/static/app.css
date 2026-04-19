@@ -29,7 +29,7 @@
   #status.live .dot { background: #4ade80; }
   #status.dead .dot { background: #ef4444; }
   #view-controls { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
-  #labels-toggle, #trails-toggle { border: 1px solid var(--border); border-radius: 3px; }
+  #labels-toggle, #trails-toggle, #follow-toggle { border: 1px solid var(--border); border-radius: 3px; }
   #unit-switch { display: flex; border: 1px solid var(--border); border-radius: 3px;
                  overflow: hidden; flex-shrink: 0; }
   .unit-btn { background: transparent; color: var(--muted); border: 0; padding: 2px 6px;
