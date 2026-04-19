@@ -40,10 +40,12 @@ def _parse_retry_after(resp: "httpx.Response") -> float:
         return float(raw)
     except ValueError:
         from email.utils import parsedate_to_datetime
+
         try:
             return max(0.0, (parsedate_to_datetime(raw).timestamp() - time.time()))
         except Exception:
             return DEFAULT_429_COOLDOWN
+
 
 OPENSKY_TOKEN_URL = (
     "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token"
@@ -152,11 +154,11 @@ class OpenSkyClient:
                         self._cooldown_until = time.time() + retry_after
                         log.warning(
                             "opensky 429 for %s — cooling down for %.0fs",
-                            key, retry_after,
+                            key,
+                            retry_after,
                         )
                     else:
-                        log.warning("opensky HTTP %s for %s: %s",
-                                    e.response.status_code, key, e)
+                        log.warning("opensky HTTP %s for %s: %s", e.response.status_code, key, e)
                     return cached["data"] if cached else None
                 except Exception as e:
                     log.warning("opensky lookup failed for %s: %s", key, e)
