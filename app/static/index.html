@@ -49,6 +49,14 @@
   .unit-btn:last-child { border-right: 0; }
   .unit-btn:hover { color: var(--text); }
   .unit-btn.active { background: #1d2533; color: var(--text); }
+  #search-bar { padding: 6px 8px; border-bottom: 1px solid var(--border);
+                background: #131821; }
+  #search { width: 100%; box-sizing: border-box; padding: 4px 8px;
+            background: var(--bg); color: var(--text);
+            border: 1px solid var(--border); border-radius: 3px;
+            font-size: 11px; font-family: inherit; }
+  #search:focus { outline: none; border-color: var(--accent); }
+  #search::-webkit-search-cancel-button { filter: invert(0.6); }
   #sort-bar { display: flex; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--border);
               background: #131821; }
   .sort-chip { flex: 1; padding: 4px 6px; font-size: 11px; text-align: center;
@@ -143,6 +151,10 @@
         </div>
       </div>
     </div>
+    <div id="search-bar">
+      <input id="search" type="search" autocomplete="off"
+             placeholder="Search callsign or ICAO (/)">
+    </div>
     <div id="sort-bar">
       <div class="sort-chip" data-key="callsign">Callsign<span class="arrow"></span></div>
       <div class="sort-chip" data-key="altitude">Alt<span class="arrow"></span></div>
@@ -228,6 +240,8 @@
   let hoveredFromListIcao = null;  // icao currently hovered in the sidebar
   let hoveredFromMapIcao  = null;  // icao whose marker is currently hovered
   let hoverHalo = null;            // L.circleMarker drawn around the hovered aircraft
+  let searchFilter = '';           // lowercased substring filter for the sidebar
+  let pendingDeepLinkIcao = null;  // icao from URL hash, applied after first snapshot
 
   // Sidebar sort state. `dir` is 1 (asc) or -1 (desc).
   // Default direction per key — matches what feels natural for each column.
@@ -451,6 +465,15 @@
 
     renderSidebar(snap);
 
+    // Resolve any pending #icao= deep link once its aircraft appears.
+    if (pendingDeepLinkIcao) {
+      const hit = snap.aircraft.find(a => a.icao === pendingDeepLinkIcao);
+      if (hit) {
+        selectAircraft(pendingDeepLinkIcao);
+        pendingDeepLinkIcao = null;
+      }
+    }
+
     // Auto-fit on first populated update
     if (firstUpdate && snap.positioned > 0) {
       const bounds = L.latLngBounds(
@@ -479,8 +502,16 @@
       ? `Flightjar — ${site} (${snap.count})`
       : `Flightjar (${snap.count})`;
 
+    // Filter by search text (callsign or icao substring, case-insensitive).
+    const q = searchFilter;
+    const filtered = q
+      ? snap.aircraft.filter(a =>
+          (a.callsign || '').toLowerCase().includes(q) ||
+          a.icao.toLowerCase().includes(q))
+      : snap.aircraft;
+
     // Sort a copy so we don't mutate the snapshot used elsewhere.
-    const rows = snap.aircraft.slice().sort((a, b) => {
+    const rows = filtered.slice().sort((a, b) => {
       const av = sortValue(a, sortKey);
       const bv = sortValue(b, sortKey);
       // Null always sinks to the bottom regardless of direction.
@@ -541,6 +572,7 @@
   // markers, or directly for aircraft with no position).
   function onSelected(icao) {
     selectedIcao = icao;
+    writeDeepLink(icao);
     const entry = aircraft.get(icao);
     if (entry) {
       const a = entry.data;
@@ -605,6 +637,61 @@
     applyLabelsVisibility();
   });
   applyLabelsVisibility();
+
+  // ---- sidebar search ----
+  const searchInput = document.getElementById('search');
+  searchInput.addEventListener('input', () => {
+    searchFilter = searchInput.value.trim().toLowerCase();
+    if (lastSnap) renderSidebar(lastSnap);
+  });
+
+  // ---- URL deep link (#icao=XXXXXX) ----
+  function readDeepLink() {
+    const m = /[#&]icao=([0-9a-fA-F]{6})/.exec(location.hash);
+    return m ? m[1].toLowerCase() : null;
+  }
+  function writeDeepLink(icao) {
+    const target = icao ? `#icao=${icao.toUpperCase()}` : '';
+    if (location.hash !== target) history.replaceState(null, '', location.pathname + location.search + target);
+  }
+  pendingDeepLinkIcao = readDeepLink();
+  window.addEventListener('hashchange', () => {
+    const icao = readDeepLink();
+    if (icao && icao !== selectedIcao) selectAircraft(icao);
+  });
+
+  // ---- keyboard shortcuts ----
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const tag = (e.target && e.target.tagName) || '';
+    const inField = tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable;
+    if (e.key === '/' && !inField) {
+      e.preventDefault();
+      searchInput.focus();
+      searchInput.select();
+      return;
+    }
+    if (e.key === 'Escape') {
+      if (inField) { searchInput.blur(); return; }
+      map.closePopup();
+      selectedIcao = null;
+      writeDeepLink(null);
+      document.querySelectorAll('.ac-item').forEach(el => el.classList.remove('selected'));
+      return;
+    }
+    if (inField) return;
+    if (e.key === 'l' || e.key === 'L') {
+      document.getElementById('labels-toggle').click();
+    } else if (e.key === 'f' || e.key === 'F') {
+      const pts = [];
+      for (const entry of aircraft.values()) pts.push(entry.marker.getLatLng());
+      if (pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.2), { maxZoom: 10 });
+    } else if (e.key === 'u' || e.key === 'U') {
+      const order = ['metric', 'imperial', 'nautical'];
+      const next = order[(order.indexOf(unitSystem) + 1) % order.length];
+      document.querySelector(`.unit-btn[data-unit="${next}"]`)?.click();
+    }
+  });
 
   // ---- WebSocket ----
   let ws;

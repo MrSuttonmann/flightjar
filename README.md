@@ -93,6 +93,16 @@ Logs land in `./beast-logs/beast.jsonl` next to the compose file by default.
 - **Emergency alerts** — aircraft squawking 7500 (hijack), 7600 (radio),
   or 7700 (general) get a red marker outline, a red-tinted sidebar row,
   and a prominent label in the popup.
+- **Search** — a search box filters the sidebar by callsign or ICAO.
+  Press `/` to jump straight into it.
+- **Deep links** — the URL fragment tracks the selected aircraft
+  (`#icao=4CA2D1`), so you can share a link that pre-selects a plane.
+- **Keyboard shortcuts**:
+  - `/` — focus the search box
+  - `L` — toggle aircraft labels
+  - `F` — fit the map to current aircraft
+  - `U` — cycle units (Metric → Imperial → Nautical)
+  - `Esc` — close the popup and clear selection
 - **Title bar** shows how many aircraft are currently being tracked (and
   your site name, if set) — handy when the tab is in the background.
 
