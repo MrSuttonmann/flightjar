@@ -308,7 +308,7 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
         rebuildTrail(entry, entry.data.trail);
       } else {
         entry.trail.clearLayers();
-        entry.trailLen = 0;
+        entry.trailFp = null;
       }
     }
     document.getElementById('trails-toggle').classList.toggle('active', showTrails);
@@ -338,12 +338,18 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
   // round lineJoin gives a smooth curved look without a splines library.
   function rebuildTrail(entry, points) {
     if (!points || points.length < 2) {
-      if (entry.trailLen !== 0) { entry.trail.clearLayers(); entry.trailLen = 0; }
+      if (entry.trailFp != null) { entry.trail.clearLayers(); entry.trailFp = null; }
       return;
     }
     // Skip rebuild if nothing changed (common between snapshot ticks when
-    // the aircraft hasn't reported a new position).
-    if (points.length === entry.trailLen) return;
+    // the aircraft hasn't reported a new position). Comparing length alone
+    // breaks once the server's trail deque is full and starts rotating —
+    // same length, different contents — so fingerprint the endpoints too.
+    const last = points[points.length - 1];
+    const first = points[0];
+    const fp = `${points.length}:${first[0]},${first[1]}:${last[0]},${last[1]}`;
+    if (fp === entry.trailFp) return;
+    entry.trailFp = fp;
 
     entry.trail.clearLayers();
     for (let i = 1; i < points.length; i++) {
@@ -364,7 +370,6 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
         interactive: false,
       }).addTo(entry.trail);
     }
-    entry.trailLen = points.length;
   }
 
   function renderReceiver(rx) {
@@ -417,7 +422,7 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
         marker.on('mouseover', () => peekListItem(a.icao, true));
         marker.on('mouseout',  () => peekListItem(a.icao, false));
         entry = {
-          marker, trail, label: null, data: a, trailLen: 0,
+          marker, trail, label: null, data: a, trailFp: null,
           hist: { alt: [], spd: [], dst: [] },
         };
         aircraft.set(a.icao, entry);
@@ -431,9 +436,9 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
 
       if (showTrails) {
         rebuildTrail(entry, a.trail);
-      } else if (entry.trailLen !== 0) {
+      } else if (entry.trailFp != null) {
         entry.trail.clearLayers();
-        entry.trailLen = 0;
+        entry.trailFp = null;
       }
       entry.marker.setPopupContent(popupHtml(a, snap.now, snap.airports));
       if (!entry.marker.getPopup()) {
