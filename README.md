@@ -7,8 +7,6 @@ It reads the BEAST feed from a running readsb, dump1090, or ultrafeeder
 instance — so you can point it at whatever's already decoding ADS-B on your
 network and get a lightweight map, log file, and simple API on top.
 
-![Flightjar screenshot placeholder]
-
 ## What you get
 
 - **Live map** at `http://<host>:8080/` with per-type plane silhouettes
