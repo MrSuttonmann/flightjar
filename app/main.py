@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 
 from .aircraft import AircraftRegistry
 from .beast import iter_frames
+from .config import Config
 
 log = logging.getLogger("beast")
 logging.basicConfig(
@@ -28,55 +29,26 @@ logging.basicConfig(
 )
 
 
-def env_bool(name: str, default: str) -> bool:
-    return os.environ.get(name, default).lower() in ("1", "true", "yes", "on")
-
-
-def env_float(name: str) -> float | None:
-    v = os.environ.get(name, "").strip()
-    if not v:
-        return None
-    try:
-        return float(v)
-    except ValueError:
-        log.warning("ignoring non-numeric %s=%r", name, v)
-        return None
-
-
 # ---------------- config ----------------
 
-BEAST_HOST = os.environ.get("BEAST_HOST", "readsb")
-BEAST_PORT = int(os.environ.get("BEAST_PORT", "30005"))
-LAT_REF = env_float("LAT_REF")
-LON_REF = env_float("LON_REF")
-RECEIVER_ANON_KM = env_float("RECEIVER_ANON_KM") or 0.0
-SITE_NAME = os.environ.get("SITE_NAME", "").strip() or None
+cfg = Config.from_env()
 
 
 def _snap_receiver(lat, lon, anon_km):
     """Snap to a ~anon_km grid so the true position never leaves the process."""
     if lat is None or lon is None or anon_km <= 0:
         return lat, lon
-    step = (
-        anon_km / 111.0
-    )  # ~111 km per degree; slightly over-anonymises longitude at high lat, which is fine
+    # ~111 km per degree; slightly over-anonymises longitude at high lat, which is fine.
+    step = anon_km / 111.0
     return round(lat / step) * step, round(lon / step) * step
 
 
-_DISPLAY_LAT, _DISPLAY_LON = _snap_receiver(LAT_REF, LON_REF, RECEIVER_ANON_KM)
+_DISPLAY_LAT, _DISPLAY_LON = _snap_receiver(cfg.lat_ref, cfg.lon_ref, cfg.receiver_anon_km)
 RECEIVER_INFO = {
     "lat": _DISPLAY_LAT,
     "lon": _DISPLAY_LON,
-    "anon_km": RECEIVER_ANON_KM,
+    "anon_km": cfg.receiver_anon_km,
 }
-
-JSONL_PATH = os.environ.get("BEAST_OUTFILE", "/data/beast.jsonl").strip()
-JSONL_ROTATE = os.environ.get("BEAST_ROTATE", "daily")
-JSONL_KEEP = int(os.environ.get("BEAST_ROTATE_KEEP", "14"))
-JSONL_STDOUT = env_bool("BEAST_STDOUT", "0")
-JSONL_DECODE = not env_bool("BEAST_NO_DECODE", "0")
-
-SNAPSHOT_INTERVAL = float(os.environ.get("SNAPSHOT_INTERVAL", "1.0"))
 
 
 # ---------------- jsonl writer ----------------
@@ -164,12 +136,12 @@ class Broadcaster:
 # ---------------- shared state ----------------
 
 registry = AircraftRegistry(
-    lat_ref=LAT_REF,
-    lon_ref=LON_REF,
+    lat_ref=cfg.lat_ref,
+    lon_ref=cfg.lon_ref,
     receiver_info=RECEIVER_INFO,
-    site_name=SITE_NAME,
+    site_name=cfg.site_name,
 )
-jsonl = JsonlWriter(JSONL_PATH, JSONL_ROTATE, JSONL_KEEP, JSONL_STDOUT)
+jsonl = JsonlWriter(cfg.jsonl_path, cfg.jsonl_rotate, cfg.jsonl_keep, cfg.jsonl_stdout)
 broadcaster = Broadcaster()
 stats: dict[str, Any] = {"frames": 0, "started": time.time(), "beast_connected": False}
 
@@ -181,8 +153,8 @@ async def beast_consumer():
     backoff = 1
     while True:
         try:
-            log.info("connecting to %s:%d", BEAST_HOST, BEAST_PORT)
-            reader, writer = await asyncio.open_connection(BEAST_HOST, BEAST_PORT)
+            log.info("connecting to %s:%d", cfg.beast_host, cfg.beast_port)
+            reader, writer = await asyncio.open_connection(cfg.beast_host, cfg.beast_port)
             log.info("connected")
             stats["beast_connected"] = True
             backoff = 1
@@ -223,7 +195,7 @@ async def beast_consumer():
 async def snapshot_pusher():
     while True:
         try:
-            await asyncio.sleep(SNAPSHOT_INTERVAL)
+            await asyncio.sleep(cfg.snapshot_interval)
             now = time.time()
             registry.cleanup(now)
             if broadcaster.clients:
@@ -243,10 +215,10 @@ async def snapshot_pusher():
 async def lifespan(app: FastAPI):
     log.info(
         "starting Flightjar (BEAST=%s:%d, ref=%s,%s, jsonl=%s)",
-        BEAST_HOST,
-        BEAST_PORT,
-        LAT_REF,
-        LON_REF,
+        cfg.beast_host,
+        cfg.beast_port,
+        cfg.lat_ref,
+        cfg.lon_ref,
         jsonl.enabled,
     )
     consumer = asyncio.create_task(beast_consumer(), name="beast_consumer")
@@ -282,10 +254,10 @@ async def api_stats():
         "uptime_s": round(time.time() - stats["started"], 1),
         "aircraft_tracked": len(registry.aircraft),
         "websocket_clients": len(broadcaster.clients),
-        "beast_target": f"{BEAST_HOST}:{BEAST_PORT}",
+        "beast_target": f"{cfg.beast_host}:{cfg.beast_port}",
         "beast_connected": bool(stats["beast_connected"]),
         "receiver": RECEIVER_INFO,
-        "site_name": SITE_NAME,
+        "site_name": cfg.site_name,
     }
 
 

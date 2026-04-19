@@ -195,6 +195,16 @@ pytest                  # run the test suite
 
 GitHub Actions runs all four on every push and pull request.
 
+### Configuration is validated at startup
+
+Env vars are parsed into a typed `Config` object (`app/config.py`). A bad
+`BEAST_PORT`, an unknown `BEAST_ROTATE` value, a negative `BEAST_ROTATE_KEEP`
+or a zero `SNAPSHOT_INTERVAL` produces a clear `ConfigError` at startup
+rather than silently falling back or crashing deeper in the stack.
+
+Optional floats (`LAT_REF`, `LON_REF`, `RECEIVER_ANON_KM`) stay lenient:
+a malformed value is treated as unset.
+
 ## Troubleshooting
 
 - **No aircraft appear, status shows "Connected".** Your receiver is reachable

@@ -86,3 +86,24 @@ async def iter_frames(reader: asyncio.StreamReader):
             del buf[:consumed]
             if frame is not None:
                 yield frame
+
+
+def iter_frames_sync(sock):
+    """Sync generator yielding parsed BEAST frames from a blocking socket.
+
+    Mirrors `iter_frames` but uses `sock.recv` instead of an asyncio reader;
+    lets the standalone CLI share the same parse_one state machine.
+    """
+    buf = bytearray()
+    while True:
+        chunk = sock.recv(8192)
+        if not chunk:
+            return
+        buf.extend(chunk)
+        while True:
+            consumed, frame = parse_one(buf)
+            if consumed == 0:
+                break
+            del buf[:consumed]
+            if frame is not None:
+                yield frame

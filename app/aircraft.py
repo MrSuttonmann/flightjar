@@ -277,6 +277,7 @@ class AircraftRegistry:
         ref = self.receiver_info or {}
         ref_lat, ref_lon = ref.get("lat"), ref.get("lon")
         out: list[dict[str, Any]] = []
+        positioned = 0
         for ac in self.aircraft.values():
             # Skip aircraft with no callsign AND no position/speed/altitude —
             # a lone squawk or ICAO isn't enough to be worth listing.
@@ -292,6 +293,8 @@ class AircraftRegistry:
                 dlat = math.radians(ac.lat - ref_lat)
                 dlon = math.radians(ac.lon - ref_lon) * math.cos(math.radians(ref_lat))
                 distance_km = round(math.hypot(dlat, dlon) * 6371, 2)
+            if ac.lat is not None:
+                positioned += 1
             out.append(
                 {
                     "icao": ac.icao,
@@ -317,7 +320,7 @@ class AircraftRegistry:
         return {
             "now": now,
             "count": len(out),
-            "positioned": sum(1 for a in out if a["lat"] is not None),
+            "positioned": positioned,
             "receiver": self.receiver_info,
             "site_name": self.site_name,
             "aircraft": out,
