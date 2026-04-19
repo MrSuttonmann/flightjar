@@ -33,6 +33,11 @@ services:
 
       SNAPSHOT_INTERVAL: "1.0"
 
+      # Re-download the aircraft DB on a schedule. 0 (or unset) = off; any
+      # positive number of hours = background refresh. Written atomically to
+      # /data/aircraft_db.csv.gz so it survives restarts.
+      # AIRCRAFT_DB_REFRESH_HOURS: "168"   # weekly
+
     volumes:
       - ./beast-logs:/data
 
