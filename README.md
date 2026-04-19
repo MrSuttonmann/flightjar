@@ -29,6 +29,11 @@ network and get a lightweight map, log file, and simple API on top.
 - **Aircraft DB enrichment** — each aircraft is tagged with its
   registration and type (e.g. `G-ABCD · BOEING 737-800`), so the popup and
   sidebar show the actual tail number rather than just the ICAO hex.
+- **Trails persist across restarts** — registry state (aircraft + full
+  trails) is checkpointed to `/data/state.json.gz` every 30s and on
+  shutdown, so restarting the container doesn't wipe the history. Entries
+  older than ~10 minutes at load time are dropped so stale aircraft don't
+  reappear.
 - **A small HTTP / WebSocket API** if you want to build your own dashboard.
 
 ## Before you start

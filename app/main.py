@@ -21,6 +21,7 @@ from .aircraft import AircraftRegistry
 from .aircraft_db import AircraftDB
 from .beast import iter_frames
 from .config import Config
+from .persistence import load_state, save_state
 
 log = logging.getLogger("beast")
 logging.basicConfig(
@@ -211,6 +212,24 @@ async def snapshot_pusher():
             log.error("snapshot pusher error: %s", e)
 
 
+STATE_PATH = Path(cfg.jsonl_path).parent / "state.json.gz" if cfg.jsonl_path else None
+STATE_SAVE_INTERVAL = 30.0
+
+
+async def state_persister():
+    """Write the registry to disk every STATE_SAVE_INTERVAL seconds."""
+    if STATE_PATH is None:
+        return
+    while True:
+        try:
+            await asyncio.sleep(STATE_SAVE_INTERVAL)
+            await asyncio.to_thread(save_state, registry, STATE_PATH)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            log.warning("state persister error: %s", e)
+
+
 # ---------------- app ----------------
 
 
@@ -224,6 +243,14 @@ async def lifespan(app: FastAPI):
         cfg.lon_ref,
         jsonl.enabled,
     )
+    # Restore persisted registry state (aircraft + trails) so the UI has
+    # history to show immediately after restart.
+    if STATE_PATH is not None:
+        try:
+            load_state(registry, STATE_PATH)
+        except Exception as e:
+            log.warning("state load failed: %s", e)
+
     # Load the aircraft DB off the event loop (large file, pure CPU).
     db_task = asyncio.create_task(
         asyncio.to_thread(aircraft_db.load_first_available),
@@ -231,12 +258,20 @@ async def lifespan(app: FastAPI):
     )
     consumer = asyncio.create_task(beast_consumer(), name="beast_consumer")
     pusher = asyncio.create_task(snapshot_pusher(), name="snapshot_pusher")
+    persister = asyncio.create_task(state_persister(), name="state_persister")
     try:
         yield
     finally:
-        for t in (consumer, pusher, db_task):
+        for t in (consumer, pusher, db_task, persister):
             t.cancel()
-        await asyncio.gather(consumer, pusher, db_task, return_exceptions=True)
+        await asyncio.gather(consumer, pusher, db_task, persister, return_exceptions=True)
+        # One last save so we don't lose the gap between the final periodic
+        # write and shutdown.
+        if STATE_PATH is not None:
+            try:
+                save_state(registry, STATE_PATH)
+            except Exception as e:
+                log.warning("final state save failed: %s", e)
         jsonl.close()
 
 

@@ -21,8 +21,9 @@ from .aircraft_db import AircraftDB
 log = logging.getLogger("beast.aircraft")
 
 POSITION_PAIR_MAX_AGE = 10.0  # seconds; CPR global decode validity window
-TRAIL_MAX_POINTS = 120  # ~2 minutes at typical 1Hz position rate
+TRAIL_MAX_POINTS = 300  # ~5 minutes at typical 1Hz position rate
 AIRCRAFT_TIMEOUT = 60.0  # drop from registry after this many seconds idle
+PERSIST_MAX_AGE = 600.0  # restored aircraft older than this are discarded
 
 EMERGENCY_SQUAWKS = {
     "7500": "hijack",
@@ -291,6 +292,68 @@ class AircraftRegistry:
         ac.lon = new_lon
         ac.last_position_time = now
         ac.trail.append((round(new_lat, 5), round(new_lon, 5), ac.altitude, now))
+
+    # -------- persistence --------
+
+    # Fields we serialize. Intentionally small: CPR pair state and even/odd
+    # messages don't need to survive restarts (next message will re-seed).
+    _PERSIST_FIELDS = (
+        "icao",
+        "callsign",
+        "category",
+        "lat",
+        "lon",
+        "altitude_baro",
+        "altitude_geo",
+        "track",
+        "speed",
+        "vrate",
+        "squawk",
+        "on_ground",
+        "last_seen",
+        "last_position_time",
+        "last_seen_mlat",
+        "msg_count",
+    )
+
+    def serialize(self) -> dict:
+        """Return a JSON-friendly snapshot of the registry for persistence."""
+        out = {}
+        for icao, ac in self.aircraft.items():
+            entry = {f: getattr(ac, f) for f in self._PERSIST_FIELDS}
+            entry["trail"] = [list(p) for p in ac.trail]
+            out[icao] = entry
+        return {"version": 1, "saved_at": time.time(), "aircraft": out}
+
+    def restore(self, data: dict, now: float | None = None) -> int:
+        """Load registry state from a previous serialize() payload.
+
+        Drops entries whose last_seen is older than PERSIST_MAX_AGE seconds
+        relative to `now` (so a long-stopped container doesn't bring back
+        aircraft that have clearly departed). Returns the count loaded.
+        """
+        if not isinstance(data, dict) or data.get("version") != 1:
+            return 0
+        if now is None:
+            now = time.time()
+        cutoff = now - PERSIST_MAX_AGE
+        loaded = 0
+        for icao, entry in (data.get("aircraft") or {}).items():
+            try:
+                if (entry.get("last_seen") or 0) < cutoff:
+                    continue
+                ac = Aircraft(icao=icao)
+                for f in self._PERSIST_FIELDS:
+                    if f in entry and f != "icao":
+                        setattr(ac, f, entry[f])
+                for p in entry.get("trail") or []:
+                    if len(p) >= 4:
+                        ac.trail.append(tuple(p[:4]))
+                self.aircraft[icao] = ac
+                loaded += 1
+            except Exception as e:
+                log.debug("skipping malformed persisted aircraft %s: %s", icao, e)
+        return loaded
 
     # -------- output --------
 
