@@ -29,12 +29,19 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
   function buildRangeRings(rx) {
     rangeRings.clearLayers();
     if (!rx || rx.lat == null || rx.lon == null) return;
-    // 50 / 100 / 200 NM. 1 NM = 1852 m.
+    // 50 / 100 / 200 NM. 1 NM = 1852 m. A white halo underneath the coloured
+    // ring keeps the circles visible on both light (OSM) and dark (Carto,
+    // satellite) base layers.
     for (const nm of [50, 100, 200]) {
       L.circle([rx.lat, rx.lon], {
         radius: nm * 1852,
-        color: '#5fa8ff', weight: 1, opacity: 0.35,
-        fill: false, dashArray: '3 4', interactive: false,
+        color: '#ffffff', weight: 3, opacity: 0.55,
+        fill: false, interactive: false,
+      }).addTo(rangeRings);
+      L.circle([rx.lat, rx.lon], {
+        radius: nm * 1852,
+        color: '#1d4ed8', weight: 1.25, opacity: 0.85,
+        fill: false, dashArray: '4 4', interactive: false,
       }).addTo(rangeRings);
       L.marker([rx.lat, rx.lon], {
         interactive: false,
