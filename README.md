@@ -29,6 +29,10 @@ network and get a lightweight map, log file, and simple API on top.
 - **Aircraft DB enrichment** — each aircraft is tagged with its
   registration and type (e.g. `G-ABCD · BOEING 737-800`), so the popup and
   sidebar show the actual tail number rather than just the ICAO hex.
+- **Origin / destination** — when you supply OpenSky Network credentials
+  (see below), the popup and sidebar show `EGLL → KJFK` routing looked up
+  from OpenSky's flight database. Lookups are cached server-side for 12h
+  so they're cheap to re-consult.
 - **Trails persist across restarts** — registry state (aircraft + full
   trails) is checkpointed to `/data/state.json.gz` every 30s and on
   shutdown, so restarting the container doesn't wipe the history. Entries
@@ -206,6 +210,31 @@ If `beast-logs/aircraft_db.csv.gz` exists it wins over the baked copy.
 Remove it to fall back to the image's version. If neither is present,
 enrichment is silently disabled and the app behaves as before.
 
+## Origin / destination lookup (OpenSky)
+
+Flightjar can enrich each aircraft with its origin + destination airports
+by querying the [OpenSky Network](https://opensky-network.org/). This is
+optional and disabled by default.
+
+1. Create an OpenSky account at
+   [opensky-network.org](https://opensky-network.org/). If you already
+   feed ADS-B data (most `ultrafeeder` installs do), your account is a
+   **contributor** and gets ~4000 API credits/day.
+2. Under *My OpenSky → API Clients*, click **Create API Client**. Copy
+   the `client_id` and `client_secret` values.
+3. Add them to your compose environment:
+
+   ```yaml
+   OPENSKY_CLIENT_ID: "your-client-id"
+   OPENSKY_CLIENT_SECRET: "your-client-secret"
+   ```
+
+Flightjar will start enriching aircraft automatically. Lookups are
+throttled (at most 3 in flight at once), deduplicated, and cached
+server-side in `./beast-logs/flight_routes.json.gz` — 12h for hits, 1h
+for "no recent flight found". On first boot you'll see routes appear
+gradually as the cache populates.
+
 ## Running multiple receivers
 
 If you run Flightjar on more than one machine (or want to tell staging apart
@@ -234,6 +263,8 @@ It shows up next to "Flightjar" in the sidebar and in the browser tab title
 | `BEAST_STDOUT`        | `0`                 | Also print messages to the container log (for debugging).      |
 | `SNAPSHOT_INTERVAL`   | `1.0`               | How often the map refreshes, in seconds.                       |
 | `AIRCRAFT_DB_REFRESH_HOURS` | `0`           | Auto-refresh interval for the aircraft DB. `0` disables.       |
+| `OPENSKY_CLIENT_ID`   | (unset)             | OpenSky OAuth client ID for origin/destination lookup.         |
+| `OPENSKY_CLIENT_SECRET` | (unset)           | OpenSky OAuth client secret. Both must be set to enable.       |
 
 ## The log file
 
@@ -262,10 +293,13 @@ jq -r '.ts_rx[0:16]' beast-logs/beast.jsonl | uniq -c
 | `GET  /api/stats`   | Uptime, frame counter, connected WebSocket clients, etc.           |
 | `GET  /healthz`     | `200 {"status":"ok"}` when the BEAST feed is connected, `503` otherwise — drop this straight into a Docker `healthcheck:` block. |
 | `GET  /metrics`     | Prometheus-format metrics: `flightjar_frames_total`, `flightjar_aircraft_tracked`, `flightjar_websocket_clients`, `flightjar_beast_connected`. |
+| `GET  /api/flight/{icao24}` | Origin / destination for one aircraft (OpenSky lookup). Returns nulls when the feature is unconfigured. |
 | `WS   /ws`          | Live aircraft snapshots, one per `SNAPSHOT_INTERVAL`.              |
 
 Each aircraft in the snapshot carries an `emergency` field — `"hijack"`,
 `"radio"`, `"general"`, or `null` — derived from squawks 7500/7600/7700.
+When OpenSky credentials are configured, aircraft also carry `origin`
+and `destination` (ICAO airport codes, or `null` if unknown).
 
 Altitude is exposed three ways:
 `altitude_baro` (barometric, from DF17 TC 9-18 or DF4/20 surveillance),

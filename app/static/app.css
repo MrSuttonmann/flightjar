@@ -132,6 +132,10 @@
   .ac-item .metric .label { font-size: 9px; color: var(--muted);
                             text-transform: uppercase; letter-spacing: 0.5px; }
   .ac-item .metric .val { font-size: 11px; }
+  .ac-item .route-row { color: var(--muted); font-size: 11px;
+                        font-variant-numeric: tabular-nums; margin-top: 2px;
+                        white-space: nowrap; overflow: hidden;
+                        text-overflow: ellipsis; }
   .trend { font-size: 10px; margin-left: 3px; display: inline-block; }
   .compass { display: inline-block; vertical-align: -2px; margin-left: 3px;
              opacity: 0.75; transform-origin: 50% 50%; }

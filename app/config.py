@@ -78,6 +78,11 @@ class Config:
     # 0 = don't auto-refresh; >0 = run background refresh every N hours.
     aircraft_db_refresh_hours: float = 0.0
 
+    # OpenSky OAuth client credentials for origin/destination lookup.
+    # Both empty = feature disabled.
+    opensky_client_id: str | None = None
+    opensky_client_secret: str | None = None
+
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "Config":
         import os
@@ -121,4 +126,6 @@ class Config:
             jsonl_decode=not env_bool(env, "BEAST_NO_DECODE", "0"),
             snapshot_interval=interval,
             aircraft_db_refresh_hours=refresh_hours,
+            opensky_client_id=_env_str(env, "OPENSKY_CLIENT_ID") or None,
+            opensky_client_secret=_env_str(env, "OPENSKY_CLIENT_SECRET") or None,
         )

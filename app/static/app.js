@@ -142,14 +142,25 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
     const entry = aircraft.get(a.icao);
     const tAlt = trendInfo(entry, 'alt');
     const tSpd = trendInfo(entry, 'spd');
+    const route = routeLabel(a);
+    const routeLine = route ? `<span class="ac-info">${route}</span><br>` : '';
     return `
       <b>${a.callsign || '—'}</b> <code>${a.icao.toUpperCase()}</code> ${emergency}<br>
       ${regLine}
+      ${routeLine}
       Alt: <span class="${tAlt.cls}"><b>${altLabel}</b>${tAlt.arrow}</span><br>
       Spd: <span class="${tSpd.cls}">${uconv('spd', a.speed)}${tSpd.arrow}</span> &nbsp; Hdg: ${fmt(a.track, '°')}${compassIcon(a.track)}<br>
       VRate: ${uconv('vrt', a.vrate)}<br>
       Sqwk: ${a.squawk || '—'}<br>
       <code>${a.msg_count} msgs · ${fmt(ageOf(a, now), 's', 1)} ago</code>`;
+  }
+
+  // Route string (e.g. "EGLL → KJFK") from snapshot fields. Returns '' when
+  // the server hasn't enriched yet (OpenSky lookup still pending or the
+  // feature is disabled).
+  function routeLabel(a) {
+    if (!a.origin && !a.destination) return '';
+    return `${a.origin || '?'} → ${a.destination || '?'}`;
   }
 
   // What text to show as the permanent on-map label.
@@ -467,6 +478,7 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
         ? `<span class="emergency-label">${a.emergency}</span>`
         : '';
       const subtitle = [a.registration, a.type_icao].filter(Boolean).join(' · ');
+      const route = routeLabel(a);
       const entry = aircraft.get(a.icao);
       const tAlt = trendInfo(entry, 'alt');
       const tSpd = trendInfo(entry, 'spd');
@@ -478,6 +490,7 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
           <span class="cs">${a.callsign || '— — — —'} ${emergencyBadge}</span>
           <span class="icao">${subtitle || a.icao.toUpperCase()}</span>
         </div>
+        ${route ? `<div class="route-row">${route}</div>` : ''}
         <div class="meta">
           <div class="metric"><div class="label">Alt</div><div class="val ${tAlt.cls}">${uconv('alt', a.altitude)}${tAlt.arrow}</div></div>
           <div class="metric"><div class="label">Spd</div><div class="val ${tSpd.cls}">${uconv('spd', a.speed)}${tSpd.arrow}</div></div>

@@ -1,3 +1,4 @@
 fastapi==0.136.0
 uvicorn[standard]==0.44.0
 pyModeS==3.2.0
+httpx==0.28.1

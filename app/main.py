@@ -23,6 +23,7 @@ from .aircraft import AircraftRegistry
 from .aircraft_db import DEFAULT_REFRESH_URL, AircraftDB
 from .beast import iter_frames
 from .config import Config
+from .flight_routes import OpenSkyClient
 from .persistence import load_state, save_state
 
 log = logging.getLogger("beast")
@@ -207,14 +208,42 @@ async def beast_consumer():
         backoff = min(backoff * 2, 30)
 
 
+# Strong references for fire-and-forget background tasks so the garbage
+# collector doesn't kill them mid-flight. See PEP-asyncio docs.
+_background_tasks: set[asyncio.Task] = set()
+
+
+def _spawn_background(coro) -> None:
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
+
 def build_snapshot(now: float | None = None) -> dict:
     """Registry snapshot plus top-level server stats (e.g. frame counter).
 
     Kept as a single helper so the initial WebSocket snapshot, the periodic
     broadcast, and the /api/aircraft HTTP response all ship the same shape.
+
+    Enriches each aircraft with `origin` / `destination` from the OpenSky
+    cache (synchronous lookup — no network call). When an aircraft doesn't
+    yet have a cached route, kicks off a background lookup so the next
+    snapshot can fill it in. Dedup + concurrency limiting live inside the
+    OpenSkyClient so this stays a one-liner.
     """
     snap = registry.snapshot(now)
     snap["frames"] = stats.frames
+    if opensky.enabled:
+        for ac in snap["aircraft"]:
+            data = opensky.lookup_cached(ac["icao"])
+            if data:
+                ac["origin"] = data.get("origin")
+                ac["destination"] = data.get("destination")
+            else:
+                ac["origin"] = None
+                ac["destination"] = None
+                # Fire-and-forget enrichment for next snapshot.
+                _spawn_background(opensky.lookup(ac["icao"]))
     return snap
 
 
@@ -239,6 +268,17 @@ STATE_SAVE_INTERVAL = 30.0
 
 # Where a user-provided aircraft DB lives; also where the auto-refresh writes.
 AIRCRAFT_DB_PATH = Path(cfg.jsonl_path).parent / "aircraft_db.csv.gz" if cfg.jsonl_path else None
+
+# Persistent cache for OpenSky origin/destination lookups.
+FLIGHT_ROUTE_CACHE_PATH = (
+    Path(cfg.jsonl_path).parent / "flight_routes.json.gz" if cfg.jsonl_path else None
+)
+
+opensky = OpenSkyClient(
+    client_id=cfg.opensky_client_id,
+    client_secret=cfg.opensky_client_secret,
+    cache_path=FLIGHT_ROUTE_CACHE_PATH,
+)
 
 
 async def aircraft_db_refresher():
@@ -370,6 +410,26 @@ async def api_aircraft():
     7500/7600/7700; and a full trail of `[lat, lon, alt]` points.
     """
     return JSONResponse(build_snapshot())
+
+
+@app.get("/api/flight/{icao24}", summary="Origin / destination for an aircraft")
+async def api_flight(icao24: str):
+    """Lookup the most recent origin + destination airports for this ICAO24.
+
+    Uses OpenSky Network's `/flights/aircraft` endpoint, cached server-side
+    for 12h (positive) / 1h (negative). Requires `OPENSKY_CLIENT_ID` and
+    `OPENSKY_CLIENT_SECRET` env vars; when unset, returns a null payload so
+    the UI can cleanly hide the field.
+    """
+    icao = icao24.strip().lower()
+    if not icao or len(icao) > 6 or not all(c in "0123456789abcdef" for c in icao):
+        return JSONResponse({"icao": icao24, "error": "bad icao"}, status_code=400)
+    if not opensky.enabled:
+        return {"icao": icao, "origin": None, "destination": None, "callsign": None}
+    data = await opensky.lookup(icao)
+    if data is None:
+        return {"icao": icao, "origin": None, "destination": None, "callsign": None}
+    return {"icao": icao, **data}
 
 
 @app.get("/api/stats", summary="App-level metrics as JSON")
