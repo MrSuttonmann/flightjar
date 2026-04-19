@@ -12,9 +12,10 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 
 from .aircraft import AircraftRegistry
 from .beast import iter_frames
@@ -170,7 +171,7 @@ registry = AircraftRegistry(
 )
 jsonl = JsonlWriter(JSONL_PATH, JSONL_ROTATE, JSONL_KEEP, JSONL_STDOUT)
 broadcaster = Broadcaster()
-stats = {"frames": 0, "started": time.time()}
+stats: dict[str, Any] = {"frames": 0, "started": time.time(), "beast_connected": False}
 
 
 # ---------------- background tasks ----------------
@@ -183,6 +184,7 @@ async def beast_consumer():
             log.info("connecting to %s:%d", BEAST_HOST, BEAST_PORT)
             reader, writer = await asyncio.open_connection(BEAST_HOST, BEAST_PORT)
             log.info("connected")
+            stats["beast_connected"] = True
             backoff = 1
             try:
                 async for frame in iter_frames(reader):
@@ -204,6 +206,7 @@ async def beast_consumer():
                         }
                         jsonl.write(record)
             finally:
+                stats["beast_connected"] = False
                 writer.close()
                 with contextlib.suppress(Exception):
                     await writer.wait_closed()
@@ -211,6 +214,7 @@ async def beast_consumer():
         except asyncio.CancelledError:
             raise
         except Exception as e:
+            stats["beast_connected"] = False
             log.warning("BEAST connection error: %s", e)
         await asyncio.sleep(backoff)
         backoff = min(backoff * 2, 30)
@@ -279,9 +283,37 @@ async def api_stats():
         "aircraft_tracked": len(registry.aircraft),
         "websocket_clients": len(broadcaster.clients),
         "beast_target": f"{BEAST_HOST}:{BEAST_PORT}",
+        "beast_connected": bool(stats["beast_connected"]),
         "receiver": RECEIVER_INFO,
         "site_name": SITE_NAME,
     }
+
+
+@app.get("/healthz")
+async def healthz():
+    if stats["beast_connected"]:
+        return {"status": "ok"}
+    return JSONResponse({"status": "disconnected"}, status_code=503)
+
+
+@app.get("/metrics")
+async def metrics():
+    connected = 1 if stats["beast_connected"] else 0
+    body = (
+        "# HELP flightjar_frames_total BEAST frames received since startup\n"
+        "# TYPE flightjar_frames_total counter\n"
+        f"flightjar_frames_total {stats['frames']}\n"
+        "# HELP flightjar_aircraft_tracked Currently tracked aircraft\n"
+        "# TYPE flightjar_aircraft_tracked gauge\n"
+        f"flightjar_aircraft_tracked {len(registry.aircraft)}\n"
+        "# HELP flightjar_websocket_clients Connected WebSocket clients\n"
+        "# TYPE flightjar_websocket_clients gauge\n"
+        f"flightjar_websocket_clients {len(broadcaster.clients)}\n"
+        "# HELP flightjar_beast_connected BEAST feed connection state (0/1)\n"
+        "# TYPE flightjar_beast_connected gauge\n"
+        f"flightjar_beast_connected {connected}\n"
+    )
+    return PlainTextResponse(body, media_type="text/plain; version=0.0.4")
 
 
 @app.websocket("/ws")

@@ -22,6 +22,12 @@ POSITION_PAIR_MAX_AGE = 10.0  # seconds; CPR global decode validity window
 TRAIL_MAX_POINTS = 60  # ~1 minute at typical 1Hz position rate
 AIRCRAFT_TIMEOUT = 60.0  # drop from registry after this many seconds idle
 
+EMERGENCY_SQUAWKS = {
+    "7500": "hijack",
+    "7600": "radio",
+    "7700": "general",
+}
+
 
 @dataclass
 class Aircraft:
@@ -297,6 +303,7 @@ class AircraftRegistry:
                     "speed": ac.speed,
                     "vrate": ac.vrate,
                     "squawk": ac.squawk,
+                    "emergency": EMERGENCY_SQUAWKS.get(ac.squawk) if ac.squawk else None,
                     "on_ground": ac.on_ground,
                     "last_seen": ac.last_seen,
                     "age": round(now - ac.last_seen, 1),

@@ -156,6 +156,26 @@ def test_cleanup_evicts_stale_aircraft():
     assert "abc123" not in reg.aircraft
 
 
+def test_emergency_squawk_populates_snapshot_field():
+    with patch("app.aircraft.pms.decode", side_effect=fake_decode):
+        reg = AircraftRegistry()
+        # Ingest a callsign to get past the "skip aircraft with nothing" filter,
+        # then set the squawk directly (emulates a DF5 follow-up message).
+        reg.ingest("ID01xxxx", now=10.0)
+        reg.aircraft["abc123"].squawk = "7700"
+    snap = reg.snapshot(now=10.1)
+    assert snap["aircraft"][0]["emergency"] == "general"
+
+
+def test_non_emergency_squawk_has_no_emergency_flag():
+    with patch("app.aircraft.pms.decode", side_effect=fake_decode):
+        reg = AircraftRegistry()
+        reg.ingest("ID01xxxx", now=10.0)
+        reg.aircraft["abc123"].squawk = "1200"
+    snap = reg.snapshot(now=10.1)
+    assert snap["aircraft"][0]["emergency"] is None
+
+
 def test_unknown_df_is_ignored():
     with patch("app.aircraft.pms.decode", side_effect=lambda msg, **kw: {"df": 19}):
         reg = AircraftRegistry()
