@@ -32,6 +32,7 @@ jobs:
           tags: |
             type=raw,value=latest
             type=raw,value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
+            type=sha,format=short,prefix=git-
 
       - name: Build and push
         uses: docker/build-push-action@v6

@@ -23,22 +23,18 @@ pip install -r requirements.txt
 BEAST_HOST=localhost BEAST_PORT=30005 LAT_REF=52.98 LON_REF=-1.20 \
   uvicorn app.main:app --host 0.0.0.0 --port 8080
 
-# Run the standalone CLI logger (no HTTP/UI, JSONL only)
-python logger.py --host localhost --port 30005 --outfile ./beast.jsonl
+# Dev loop
+pip install -r requirements-dev.txt
+ruff check .       # lint
+ruff format .      # apply formatting
+mypy               # type-check app/
+pytest             # run the test suite
 ```
-
-There is no test suite or linter configured.
 
 ## Architecture
 
-Two entry points exist and are **not** interchangeable:
-
-- `app/main.py` — FastAPI application (what the Dockerfile runs). Map UI +
-  WebSocket + JSONL + live aircraft registry.
-- `logger.py` — standalone CLI that only writes JSONL. Duplicates the BEAST
-  parser from `app/beast.py` (uses blocking sockets instead of asyncio). Kept as
-  a lightweight tool; changes to the frame parser must be mirrored in both
-  files or the drift will bite.
+Single entry point: `app/main.py` (FastAPI). Map UI + WebSocket snapshots +
+JSONL logger + live aircraft registry all run in one asyncio loop.
 
 ### Data flow in `app/main.py`
 

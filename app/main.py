@@ -10,10 +10,10 @@ import sys
 import time
 from collections.abc import Callable
 from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
-from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
@@ -147,9 +147,18 @@ registry = AircraftRegistry(
     site_name=cfg.site_name,
     aircraft_db=aircraft_db,
 )
+
+
+@dataclass
+class Stats:
+    frames: int = 0
+    beast_connected: bool = False
+    started: float = field(default_factory=time.time)
+
+
 jsonl = JsonlWriter(cfg.jsonl_path, cfg.jsonl_rotate, cfg.jsonl_keep, cfg.jsonl_stdout)
 broadcaster = Broadcaster()
-stats: dict[str, Any] = {"frames": 0, "started": time.time(), "beast_connected": False}
+stats = Stats()
 
 
 # ---------------- background tasks ----------------
@@ -162,14 +171,14 @@ async def beast_consumer():
             log.info("connecting to %s:%d", cfg.beast_host, cfg.beast_port)
             reader, writer = await asyncio.open_connection(cfg.beast_host, cfg.beast_port)
             log.info("connected")
-            stats["beast_connected"] = True
+            stats.beast_connected = True
             backoff = 1
             try:
                 async for frame in iter_frames(reader):
                     type_name, mlat_ticks, sig, msg_bytes = frame
                     hex_msg = msg_bytes.hex()
                     now = time.time()
-                    stats["frames"] += 1
+                    stats.frames += 1
 
                     if type_name in ("mode_s_short", "mode_s_long"):
                         registry.ingest(hex_msg, now, mlat_ticks=mlat_ticks)
@@ -184,7 +193,7 @@ async def beast_consumer():
                         }
                         jsonl.write(record)
             finally:
-                stats["beast_connected"] = False
+                stats.beast_connected = False
                 writer.close()
                 with contextlib.suppress(Exception):
                     await writer.wait_closed()
@@ -192,7 +201,7 @@ async def beast_consumer():
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            stats["beast_connected"] = False
+            stats.beast_connected = False
             log.warning("BEAST connection error: %s", e)
         await asyncio.sleep(backoff)
         backoff = min(backoff * 2, 30)
@@ -277,7 +286,19 @@ async def lifespan(app: FastAPI):
         jsonl.close()
 
 
-app = FastAPI(lifespan=lifespan, title="Flightjar")
+app = FastAPI(
+    lifespan=lifespan,
+    title="Flightjar",
+    description=(
+        "Live ADS-B map + JSONL logger on top of a BEAST feed.\n\n"
+        "• `GET /` — the map UI.\n"
+        "• `GET /api/aircraft` — current tracked aircraft.\n"
+        "• `GET /api/stats` — uptime, frame counter, WebSocket clients.\n"
+        "• `GET /healthz` — Docker-healthcheck-friendly liveness probe.\n"
+        "• `GET /metrics` — Prometheus text format.\n"
+        "• `WS  /ws` — push channel for aircraft snapshots.\n"
+    ),
+)
 
 STATIC_DIR = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -299,44 +320,60 @@ def _render_index() -> str:
 INDEX_HTML = _render_index()
 
 
-@app.get("/")
+@app.get("/", summary="Map UI", response_class=HTMLResponse, include_in_schema=False)
 async def root():
+    """Return the single-page Leaflet UI with cache-busting asset URLs."""
     return HTMLResponse(INDEX_HTML)
 
 
-@app.get("/api/aircraft")
+@app.get("/api/aircraft", summary="Current tracked aircraft")
 async def api_aircraft():
+    """The same snapshot broadcast over the WebSocket.
+
+    Units: altitudes in feet, speeds in knots, vertical rate in ft/min,
+    distance_km in km. Each aircraft carries `altitude_baro`, `altitude_geo`,
+    and `altitude` (best-known); an `emergency` label when squawking
+    7500/7600/7700; and a full trail of `[lat, lon, alt]` points.
+    """
     return JSONResponse(registry.snapshot())
 
 
-@app.get("/api/stats")
+@app.get("/api/stats", summary="App-level metrics as JSON")
 async def api_stats():
+    """Uptime, frame counter, WebSocket clients, BEAST connection state,
+    and the receiver's displayed position (may be anonymised)."""
     return {
-        "frames": stats["frames"],
-        "uptime_s": round(time.time() - stats["started"], 1),
+        "frames": stats.frames,
+        "uptime_s": round(time.time() - stats.started, 1),
         "aircraft_tracked": len(registry.aircraft),
         "websocket_clients": len(broadcaster.clients),
         "beast_target": f"{cfg.beast_host}:{cfg.beast_port}",
-        "beast_connected": bool(stats["beast_connected"]),
+        "beast_connected": bool(stats.beast_connected),
         "receiver": RECEIVER_INFO,
         "site_name": cfg.site_name,
     }
 
 
-@app.get("/healthz")
+@app.get("/healthz", summary="Liveness probe")
 async def healthz():
-    if stats["beast_connected"]:
+    """Returns 200 when the BEAST feed is connected, 503 otherwise.
+
+    Drop straight into a Docker `healthcheck:` block.
+    """
+    if stats.beast_connected:
         return {"status": "ok"}
     return JSONResponse({"status": "disconnected"}, status_code=503)
 
 
-@app.get("/metrics")
+@app.get("/metrics", summary="Prometheus metrics", response_class=PlainTextResponse)
 async def metrics():
-    connected = 1 if stats["beast_connected"] else 0
+    """Text-format exposition of frames, aircraft, WebSocket clients, and
+    BEAST connection state."""
+    connected = 1 if stats.beast_connected else 0
     body = (
         "# HELP flightjar_frames_total BEAST frames received since startup\n"
         "# TYPE flightjar_frames_total counter\n"
-        f"flightjar_frames_total {stats['frames']}\n"
+        f"flightjar_frames_total {stats.frames}\n"
         "# HELP flightjar_aircraft_tracked Currently tracked aircraft\n"
         "# TYPE flightjar_aircraft_tracked gauge\n"
         f"flightjar_aircraft_tracked {len(registry.aircraft)}\n"
