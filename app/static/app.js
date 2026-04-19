@@ -5,7 +5,9 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
 import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
 
 (() => {
-  const map = L.map('map', { worldCopyJump: true }).setView([51.5, -0.1], 6);
+  const map = L.map('map', { worldCopyJump: true, zoomControl: false })
+    .setView([51.5, -0.1], 6);
+  L.control.zoom({ position: 'bottomleft' }).addTo(map);
 
   const baseLayers = {
     'OpenStreetMap': L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -651,7 +653,9 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
     document.body.classList.toggle('compact-mode', compactMode);
     document.getElementById('compact-toggle').classList.toggle('active', compactMode);
     // The map container's size just changed — Leaflet needs a nudge.
-    map.invalidateSize();
+    // pan: false so the map stays anchored to whatever the user was
+    // looking at instead of drifting to preserve the old geographic centre.
+    map.invalidateSize({ pan: false });
   }
   function setCompact(value) {
     compactMode = value;
@@ -715,6 +719,41 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
   }
   document.getElementById('airports-toggle').addEventListener('click', () => setAirports(!showAirports));
   applyAirportsToggle();
+
+  // ---- "Home" map control: re-centre on receiver, preserve zoom ----
+  function goHome() {
+    const rx = lastSnap?.receiver;
+    if (!rx || rx.lat == null || rx.lon == null) return;
+    map.panTo([rx.lat, rx.lon]);
+  }
+
+  const HomeControl = L.Control.extend({
+    options: { position: 'bottomright' },
+    onAdd() {
+      const a = L.DomUtil.create('a', 'leaflet-bar leaflet-control home-control');
+      a.href = '#';
+      a.title = 'Re-centre on receiver (H)';
+      a.setAttribute('role', 'button');
+      a.setAttribute('aria-label', 'Re-centre on receiver');
+      // Classic "locate me" crosshair in the accent blue. currentColor
+      // lets a :hover rule recolour the icon without duplicating SVG.
+      a.innerHTML = (
+        '<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">' +
+          '<circle cx="10" cy="10" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/>' +
+          '<circle cx="10" cy="10" r="2.2" fill="currentColor"/>' +
+          '<line x1="10" y1="1" x2="10" y2="4"  stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>' +
+          '<line x1="10" y1="16" x2="10" y2="19" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>' +
+          '<line x1="1" y1="10" x2="4" y2="10"  stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>' +
+          '<line x1="16" y1="10" x2="19" y2="10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>' +
+        '</svg>'
+      );
+      L.DomEvent
+        .on(a, 'click', (e) => { L.DomEvent.preventDefault(e); L.DomEvent.stopPropagation(e); goHome(); })
+        .on(a, 'dblclick', L.DomEvent.stopPropagation);
+      return a;
+    },
+  });
+  map.addControl(new HomeControl());
 
   // ---- collapsible filters panel (search + sort) ----
   // Default collapsed on narrow viewports so the list gets more room on
@@ -782,6 +821,8 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
       setCompact(!compactMode);
     } else if (e.key === 'a' || e.key === 'A') {
       setAirports(!showAirports);
+    } else if (e.key === 'h' || e.key === 'H') {
+      goHome();
     } else if (e.key === 'f' || e.key === 'F') {
       const pts = [];
       for (const entry of aircraft.values()) pts.push(entry.marker.getLatLng());

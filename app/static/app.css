@@ -34,13 +34,19 @@
   #labels-toggle, #trails-toggle, #follow-toggle, #compact-toggle, #airports-toggle {
     border: 1px solid var(--border); border-radius: 3px;
   }
+  .home-control {
+    width: 30px; height: 30px; text-align: center; text-decoration: none;
+    color: var(--accent); background: #fff; display: flex;
+    align-items: center; justify-content: center; cursor: pointer;
+  }
+  .home-control:hover { background: #f4f4f4; color: #1d4ed8; }
+  .home-control svg { display: block; }
   .airport-icon { background: transparent !important; border: none !important; }
   .airport-dot { width: 8px; height: 8px; border-radius: 50%;
                  background: #fbbf24; border: 1.5px solid #0e1116;
                  box-shadow: 0 0 0 1px #fbbf24; margin: 1px; }
-  /* Top-left but below Leaflet's zoom control (two 26px buttons + padding
-     ≈ 66px), so the zoom +/- buttons remain reachable in compact mode. */
-  #sidebar-restore { display: none; position: fixed; top: 76px; left: 10px;
+  /* Zoom control lives bottom-left now, so the top-left corner is free. */
+  #sidebar-restore { display: none; position: fixed; top: 12px; left: 12px;
                      z-index: 1001; padding: 5px 10px;
                      background: var(--panel); color: var(--text);
                      border: 1px solid var(--border); border-radius: 4px;
