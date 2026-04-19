@@ -104,6 +104,10 @@
   .ac-item .metric .label { font-size: 9px; color: var(--muted);
                             text-transform: uppercase; letter-spacing: 0.5px; }
   .ac-item .metric .val { font-size: 11px; color: var(--text); }
+  .trend { font-size: 10px; margin-left: 3px; display: inline-block; }
+  .trend.up   { color: #6ee7b7; }
+  .trend.down { color: #fca5a5; }
+  .trend.flat { color: var(--muted); }
   .ac-item .age { position: absolute; top: 8px; right: 14px; font-size: 10px;
                   color: var(--muted); font-variant-numeric: tabular-nums; }
   #map { background: #0a0c10; }
@@ -438,6 +442,40 @@
     return Number(n).toFixed(digits) + suffix;
   }
 
+  // Per-aircraft rolling history used to derive trend arrows. The buffer
+  // holds the last HIST_LEN sampled values; trend() compares ends with a
+  // dead-zone so tiny fluctuations don't flicker between up / down / steady.
+  const HIST_LEN = 10;
+  const TREND_THRESHOLDS = { alt: 50, spd: 3, dst: 0.5 };  // ft, kt, km
+
+  function pushHistory(entry, a) {
+    const h = entry.hist;
+    for (const [key, value] of [['alt', a.altitude], ['spd', a.speed], ['dst', a.distance_km]]) {
+      const buf = h[key];
+      buf.push(value);
+      if (buf.length > HIST_LEN) buf.shift();
+    }
+  }
+
+  function trendArrow(entry, key) {
+    const buf = entry?.hist?.[key];
+    if (!buf || buf.length < 3) return '';
+    // Find oldest and newest non-null values; ignore gaps.
+    let oldVal = null, newVal = null;
+    for (let i = 0; i < buf.length; i++) {
+      if (buf[i] != null) { oldVal = buf[i]; break; }
+    }
+    for (let i = buf.length - 1; i >= 0; i--) {
+      if (buf[i] != null) { newVal = buf[i]; break; }
+    }
+    if (oldVal == null || newVal == null) return '';
+    const delta = newVal - oldVal;
+    const th = TREND_THRESHOLDS[key] ?? 0;
+    if (delta > th)  return '<span class="trend up">↑</span>';
+    if (delta < -th) return '<span class="trend down">↓</span>';
+    return '<span class="trend flat">→</span>';
+  }
+
   function popupHtml(a) {
     const emergency = a.emergency
       ? `<span class="emergency-label">EMERGENCY · ${a.emergency}</span><br>`
@@ -456,11 +494,14 @@
     ) {
       altLabel += ` <span class="alt-tag">baro; geo ${uconv('alt', a.altitude_geo)}</span>`;
     }
+    const entry = aircraft.get(a.icao);
+    const tAlt = trendArrow(entry, 'alt');
+    const tSpd = trendArrow(entry, 'spd');
     return `
       <b>${a.callsign || '—'}</b> <code>${a.icao.toUpperCase()}</code> ${emergency}<br>
       ${regLine}
-      Alt: <b>${altLabel}</b><br>
-      Spd: ${uconv('spd', a.speed)} &nbsp; Hdg: ${fmt(a.track, '°')}<br>
+      Alt: <b>${altLabel}</b>${tAlt}<br>
+      Spd: ${uconv('spd', a.speed)}${tSpd} &nbsp; Hdg: ${fmt(a.track, '°')}<br>
       VRate: ${uconv('vrt', a.vrate)}<br>
       Sqwk: ${a.squawk || '—'}<br>
       <code>${a.msg_count} msgs · ${fmt(a.age, 's')} ago</code>`;
@@ -608,7 +649,10 @@
         marker.on('popupclose', () => onDeselected(a.icao));
         marker.on('mouseover', () => peekListItem(a.icao, true));
         marker.on('mouseout',  () => peekListItem(a.icao, false));
-        entry = { marker, trail, label: null, data: a, trailLen: 0 };
+        entry = {
+          marker, trail, label: null, data: a, trailLen: 0,
+          hist: { alt: [], spd: [], dst: [] },
+        };
         aircraft.set(a.icao, entry);
       } else {
         entry.marker.setLatLng([a.lat, a.lon]);
@@ -628,6 +672,7 @@
       if (!entry.marker.getPopup()) entry.marker.bindPopup(popupHtml(a));
 
       entry.data = a;
+      pushHistory(entry, a);
       updateLabelFor(entry);
     }
 
@@ -712,6 +757,10 @@
         ? `<span class="emergency-label">${a.emergency}</span>`
         : '';
       const subtitle = [a.registration, a.type_icao].filter(Boolean).join(' · ');
+      const entry = aircraft.get(a.icao);
+      const tAlt = trendArrow(entry, 'alt');
+      const tSpd = trendArrow(entry, 'spd');
+      const tDst = trendArrow(entry, 'dst');
       return `
       <div class="${classes}" data-icao="${a.icao}">
         <span class="age">${fmt(a.age, 's')}</span>
@@ -720,10 +769,10 @@
           <span class="icao">${subtitle || a.icao.toUpperCase()}</span>
         </div>
         <div class="meta">
-          <div class="metric"><div class="label">Alt</div><div class="val">${uconv('alt', a.altitude)}</div></div>
-          <div class="metric"><div class="label">Spd</div><div class="val">${uconv('spd', a.speed)}</div></div>
+          <div class="metric"><div class="label">Alt</div><div class="val">${uconv('alt', a.altitude)}${tAlt}</div></div>
+          <div class="metric"><div class="label">Spd</div><div class="val">${uconv('spd', a.speed)}${tSpd}</div></div>
           <div class="metric"><div class="label">Hdg</div><div class="val">${fmt(a.track, '°')}</div></div>
-          <div class="metric"><div class="label">Dist</div><div class="val">${uconv('dst', a.distance_km)}</div></div>
+          <div class="metric"><div class="label">Dist</div><div class="val">${uconv('dst', a.distance_km)}${tDst}</div></div>
         </div>
       </div>
     `;
