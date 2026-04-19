@@ -105,9 +105,8 @@
                             text-transform: uppercase; letter-spacing: 0.5px; }
   .ac-item .metric .val { font-size: 11px; color: var(--text); }
   .trend { font-size: 10px; margin-left: 3px; display: inline-block; }
-  .trend.up   { color: #6ee7b7; }
-  .trend.down { color: #fca5a5; }
-  .trend.flat { color: var(--muted); }
+  .trend-up   { color: #6ee7b7; }
+  .trend-down { color: #fca5a5; }
   .ac-item .age { position: absolute; top: 8px; right: 14px; font-size: 10px;
                   color: var(--muted); font-variant-numeric: tabular-nums; }
   #map { background: #0a0c10; }
@@ -457,9 +456,9 @@
     }
   }
 
-  function trendArrow(entry, key) {
+  function trendInfo(entry, key) {
     const buf = entry?.hist?.[key];
-    if (!buf || buf.length < 3) return '';
+    if (!buf || buf.length < 3) return { dir: '', arrow: '', cls: '' };
     // Find oldest and newest non-null values; ignore gaps.
     let oldVal = null, newVal = null;
     for (let i = 0; i < buf.length; i++) {
@@ -468,12 +467,13 @@
     for (let i = buf.length - 1; i >= 0; i--) {
       if (buf[i] != null) { newVal = buf[i]; break; }
     }
-    if (oldVal == null || newVal == null) return '';
+    if (oldVal == null || newVal == null) return { dir: '', arrow: '', cls: '' };
     const delta = newVal - oldVal;
     const th = TREND_THRESHOLDS[key] ?? 0;
-    if (delta > th)  return '<span class="trend up">↑</span>';
-    if (delta < -th) return '<span class="trend down">↓</span>';
-    return '<span class="trend flat">→</span>';
+    let dir = 'flat', glyph = '—', cls = '';
+    if (delta > th)  { dir = 'up'; glyph = '↑'; cls = 'trend-up'; }
+    else if (delta < -th) { dir = 'down'; glyph = '↓'; cls = 'trend-down'; }
+    return { dir, arrow: `<span class="trend">${glyph}</span>`, cls };
   }
 
   function popupHtml(a) {
@@ -495,13 +495,13 @@
       altLabel += ` <span class="alt-tag">baro; geo ${uconv('alt', a.altitude_geo)}</span>`;
     }
     const entry = aircraft.get(a.icao);
-    const tAlt = trendArrow(entry, 'alt');
-    const tSpd = trendArrow(entry, 'spd');
+    const tAlt = trendInfo(entry, 'alt');
+    const tSpd = trendInfo(entry, 'spd');
     return `
       <b>${a.callsign || '—'}</b> <code>${a.icao.toUpperCase()}</code> ${emergency}<br>
       ${regLine}
-      Alt: <b>${altLabel}</b>${tAlt}<br>
-      Spd: ${uconv('spd', a.speed)}${tSpd} &nbsp; Hdg: ${fmt(a.track, '°')}<br>
+      Alt: <span class="${tAlt.cls}"><b>${altLabel}</b>${tAlt.arrow}</span><br>
+      Spd: <span class="${tSpd.cls}">${uconv('spd', a.speed)}${tSpd.arrow}</span> &nbsp; Hdg: ${fmt(a.track, '°')}<br>
       VRate: ${uconv('vrt', a.vrate)}<br>
       Sqwk: ${a.squawk || '—'}<br>
       <code>${a.msg_count} msgs · ${fmt(a.age, 's')} ago</code>`;
@@ -758,9 +758,9 @@
         : '';
       const subtitle = [a.registration, a.type_icao].filter(Boolean).join(' · ');
       const entry = aircraft.get(a.icao);
-      const tAlt = trendArrow(entry, 'alt');
-      const tSpd = trendArrow(entry, 'spd');
-      const tDst = trendArrow(entry, 'dst');
+      const tAlt = trendInfo(entry, 'alt');
+      const tSpd = trendInfo(entry, 'spd');
+      const tDst = trendInfo(entry, 'dst');
       return `
       <div class="${classes}" data-icao="${a.icao}">
         <span class="age">${fmt(a.age, 's')}</span>
@@ -769,10 +769,10 @@
           <span class="icao">${subtitle || a.icao.toUpperCase()}</span>
         </div>
         <div class="meta">
-          <div class="metric"><div class="label">Alt</div><div class="val">${uconv('alt', a.altitude)}${tAlt}</div></div>
-          <div class="metric"><div class="label">Spd</div><div class="val">${uconv('spd', a.speed)}${tSpd}</div></div>
+          <div class="metric"><div class="label">Alt</div><div class="val ${tAlt.cls}">${uconv('alt', a.altitude)}${tAlt.arrow}</div></div>
+          <div class="metric"><div class="label">Spd</div><div class="val ${tSpd.cls}">${uconv('spd', a.speed)}${tSpd.arrow}</div></div>
           <div class="metric"><div class="label">Hdg</div><div class="val">${fmt(a.track, '°')}</div></div>
-          <div class="metric"><div class="label">Dist</div><div class="val">${uconv('dst', a.distance_km)}${tDst}</div></div>
+          <div class="metric"><div class="label">Dist</div><div class="val ${tDst.cls}">${uconv('dst', a.distance_km)}${tDst.arrow}</div></div>
         </div>
       </div>
     `;
