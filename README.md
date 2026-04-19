@@ -49,48 +49,68 @@ You'll need:
 
 ## Setup
 
-1. Clone the repo and open `docker-compose.yml`.
-2. Set your receiver coordinates:
+The easiest path is to pull the prebuilt image from Docker Hub. You don't
+need to clone the repo at all — just drop a small `docker-compose.yml`
+somewhere and run it.
+
+1. Create `docker-compose.yml`:
 
    ```yaml
-   LAT_REF: "52.98234"
-   LON_REF: "-1.20415"
+   services:
+     flightjar:
+       image: mrsuttonmann/flightjar:latest
+       container_name: flightjar
+       restart: unless-stopped
+       ports:
+         - "8080:8080"
+       environment:
+         BEAST_HOST: ultrafeeder        # hostname / IP of your BEAST source
+         BEAST_PORT: "30005"
+         LAT_REF: "52.98234"            # your receiver's coordinates
+         LON_REF: "-1.20415"
+       volumes:
+         - ./beast-logs:/data           # JSONL output + persisted state + aircraft DB
+       networks:
+         - ultrafeeder_default          # remove if you aren't using ultrafeeder
+
+   networks:
+     ultrafeeder_default:
+       external: true
    ```
 
-3. Point `BEAST_HOST` at your BEAST source. The most common cases:
+   The image is multi-arch (linux/amd64 + linux/arm64), so it runs on a
+   Raspberry Pi just as well. Each release is also tagged
+   `mrsuttonmann/flightjar:git-<short-sha>` for painless rollbacks.
 
-   - **readsb / ultrafeeder running in another compose project on the same
-     host** — use its service name (e.g. `ultrafeeder`) and attach
-     Flightjar to that project's Docker network. The default compose file
-     assumes `ultrafeeder_default`; adjust the `networks:` block at the
-     bottom if yours is different.
-   - **readsb on the same host, port published to localhost** — uncomment
-     `network_mode: host` in `docker-compose.yml` and set
+2. Adjust `BEAST_HOST` for your setup. The three common cases:
+
+   - **readsb / ultrafeeder in another compose project on the same host**
+     — use its service name (e.g. `ultrafeeder`) and join that project's
+     Docker network (as above; change `ultrafeeder_default` to match).
+   - **readsb on the same host, port published to localhost** — drop the
+     `networks:` block, add `network_mode: host` to the service, and set
      `BEAST_HOST: localhost`.
-   - **readsb on a different machine** — set `BEAST_HOST` to its IP or
-     hostname.
+   - **readsb on a different machine** — drop the `networks:` block and
+     point `BEAST_HOST` at its IP or hostname.
 
-4. Start it:
+3. Start it:
 
    ```bash
-   docker compose up --build -d
+   docker compose up -d
    ```
 
-   Or skip the build and pull the prebuilt image from Docker Hub — replace
-   the `build: .` line in `docker-compose.yml` with:
-
-   ```yaml
-   image: mrsuttonmann/flightjar:latest
-   ```
-
-   then just `docker compose up -d`. Multi-arch (amd64 + arm64) so it runs
-   on a Raspberry Pi too. For rollbacks, each release is also tagged
-   `mrsuttonmann/flightjar:git-<short-sha>`.
-
-5. Open the map at [http://localhost:8080](http://localhost:8080) (or wherever
+4. Open the map at [http://localhost:8080](http://localhost:8080) (or wherever
    you've published port 8080).
 
-Logs land in `./beast-logs/beast.jsonl` next to the compose file by default.
+Logs land in `./beast-logs/beast.jsonl` next to the compose file.
+
+### Building from source
+
+If you want to hack on Flightjar or run a locally-built image, clone the
+repo and use the included `docker-compose.yml` (which has `build: .`
+instead of `image:`). `docker compose up --build -d` will then build and
+launch from source. See the [Development](#development) section below
+for the dev loop.
 
 ## Using the map
 
