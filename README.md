@@ -86,6 +86,13 @@ Logs land in `./beast-logs/beast.jsonl` next to the compose file by default.
   Metric altitude flips to km once you cross 1 km.
 - **Labels** — the Labels button toggles the permanent callsign labels
   next to each plane on the map. Your preference is remembered.
+- **Base map** — the layers control (top-right of the map) swaps between
+  OpenStreetMap, Carto Dark, and Esri Satellite tiles. Choice is remembered.
+- **Range rings** — optional overlay at 50 / 100 / 200 NM around the
+  receiver, toggled from the same control.
+- **Emergency alerts** — aircraft squawking 7500 (hijack), 7600 (radio),
+  or 7700 (general) get a red marker outline, a red-tinted sidebar row,
+  and a prominent label in the popup.
 - **Title bar** shows how many aircraft are currently being tracked (and
   your site name, if set) — handy when the tab is in the background.
 
@@ -155,18 +162,38 @@ jq -r '.ts_rx[0:16]' beast-logs/beast.jsonl | uniq -c
 
 ## API
 
-| Path                | Returns                                                   |
-|---------------------|-----------------------------------------------------------|
-| `GET  /`            | The map UI.                                               |
-| `GET  /api/aircraft`| Current tracked aircraft, as JSON.                        |
-| `GET  /api/stats`   | Uptime, frame counter, connected websocket clients, etc.  |
-| `WS   /ws`          | Live aircraft snapshots, one per `SNAPSHOT_INTERVAL`.     |
+| Path                | Returns                                                            |
+|---------------------|--------------------------------------------------------------------|
+| `GET  /`            | The map UI.                                                        |
+| `GET  /api/aircraft`| Current tracked aircraft, as JSON.                                 |
+| `GET  /api/stats`   | Uptime, frame counter, connected WebSocket clients, etc.           |
+| `GET  /healthz`     | `200 {"status":"ok"}` when the BEAST feed is connected, `503` otherwise — drop this straight into a Docker `healthcheck:` block. |
+| `GET  /metrics`     | Prometheus-format metrics: `flightjar_frames_total`, `flightjar_aircraft_tracked`, `flightjar_websocket_clients`, `flightjar_beast_connected`. |
+| `WS   /ws`          | Live aircraft snapshots, one per `SNAPSHOT_INTERVAL`.              |
+
+Each aircraft in the snapshot carries an `emergency` field — `"hijack"`,
+`"radio"`, `"general"`, or `null` — derived from squawks 7500/7600/7700.
 
 Aircraft values are always returned in canonical units (feet, knots, ft/min)
 so any client can convert them as it likes. Each aircraft also carries a
 `distance_km` field computed against the displayed receiver position
 (respecting `RECEIVER_ANON_KM` if set), and the snapshot includes `receiver`
 and `site_name` at the top level.
+
+## Development
+
+If you want to hack on Flightjar, the dev tooling is wired in via
+`pyproject.toml` and `requirements-dev.txt`:
+
+```bash
+pip install -r requirements-dev.txt
+ruff check .            # lint
+ruff format .           # apply formatting
+mypy                    # type-check app/
+pytest                  # run the test suite
+```
+
+GitHub Actions runs all four on every push and pull request.
 
 ## Troubleshooting
 
