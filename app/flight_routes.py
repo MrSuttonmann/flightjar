@@ -3,7 +3,7 @@
 Uses OAuth2 client credentials (OpenSky migrated off HTTP Basic in 2024 —
 sign in at https://opensky-network.org/my-opensky and click 'Create API
 Client' to get a client_id + client_secret pair). Contributor rate limits
-(~4000 credits/day) apply when the credentials belong to a feeder account,
+(~8000 credits/day) apply when the credentials belong to a feeder account,
 which is plenty for our on-demand usage.
 
 Lookups are lazy: a callsite asks for a single ICAO24, we check the cache

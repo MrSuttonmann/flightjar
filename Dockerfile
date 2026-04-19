@@ -12,6 +12,11 @@ COPY app /app/app
 ARG AIRCRAFT_DB_URL=https://github.com/wiedehopf/tar1090-db/raw/refs/heads/csv/aircraft.csv.gz
 RUN python -c "import urllib.request; urllib.request.urlretrieve('${AIRCRAFT_DB_URL}', '/app/app/aircraft_db.csv.gz')"
 
+# OurAirports CSV for ICAO airport code -> name / city lookup. Public domain.
+# Override at runtime by placing /data/airports.csv.
+ARG AIRPORTS_DB_URL=https://raw.githubusercontent.com/davidmegginson/ourairports-data/main/airports.csv
+RUN python -c "import urllib.request; urllib.request.urlretrieve('${AIRPORTS_DB_URL}', '/app/app/airports.csv')"
+
 VOLUME ["/data"]
 
 ENV BEAST_HOST=readsb \

@@ -31,9 +31,13 @@
   #view-controls { display: flex; flex-direction: column; gap: 4px;
                    align-items: flex-start; flex-shrink: 0; }
   .view-row { display: flex; gap: 4px; flex-wrap: wrap; }
-  #labels-toggle, #trails-toggle, #follow-toggle, #compact-toggle {
+  #labels-toggle, #trails-toggle, #follow-toggle, #compact-toggle, #airports-toggle {
     border: 1px solid var(--border); border-radius: 3px;
   }
+  .airport-icon { background: transparent !important; border: none !important; }
+  .airport-dot { width: 8px; height: 8px; border-radius: 50%;
+                 background: #fbbf24; border: 1.5px solid #0e1116;
+                 box-shadow: 0 0 0 1px #fbbf24; margin: 1px; }
   /* Top-left but below Leaflet's zoom control (two 26px buttons + padding
      ≈ 66px), so the zoom +/- buttons remain reachable in compact mode. */
   #sidebar-restore { display: none; position: fixed; top: 76px; left: 10px;

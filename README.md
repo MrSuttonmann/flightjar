@@ -31,8 +31,13 @@ network and get a lightweight map, log file, and simple API on top.
   sidebar show the actual tail number rather than just the ICAO hex.
 - **Origin / destination** — when you supply OpenSky Network credentials
   (see below), the popup and sidebar show `EGLL → KJFK` routing looked up
-  from OpenSky's flight database. Lookups are cached server-side for 12h
-  so they're cheap to re-consult.
+  from OpenSky's flight database. Hovering the code reveals the full
+  airport name; lookups are cached server-side for 12h so they're cheap
+  to re-consult.
+- **Airports overlay** — a toggle drops ~2,000 nearest airports onto the
+  map as small markers (biggest first so wide views still show the
+  majors). Sourced from the OurAirports public-domain database baked
+  into the image.
 - **Trails persist across restarts** — registry state (aircraft + full
   trails) is checkpointed to `/data/state.json.gz` every 30s and on
   shutdown, so restarting the container doesn't wipe the history. Entries
@@ -152,6 +157,7 @@ for the dev loop.
   - `/` — focus the search box
   - `L` — toggle aircraft labels
   - `T` — toggle trails
+  - `A` — toggle airports overlay
   - `C` — toggle compact (sidebar-hidden) mode
   - `F` — fit the map to current aircraft
   - `U` — cycle units (Metric → Imperial → Nautical)
@@ -219,7 +225,7 @@ optional and disabled by default.
 1. Create an OpenSky account at
    [opensky-network.org](https://opensky-network.org/). If you already
    feed ADS-B data (most `ultrafeeder` installs do), your account is a
-   **contributor** and gets ~4000 API credits/day.
+   **contributor** and gets ~8000 API credits/day.
 2. Under *My OpenSky → API Clients*, click **Create API Client**. Copy
    the `client_id` and `client_secret` values.
 3. Add them to your compose environment:
@@ -294,6 +300,7 @@ jq -r '.ts_rx[0:16]' beast-logs/beast.jsonl | uniq -c
 | `GET  /healthz`     | `200 {"status":"ok"}` when the BEAST feed is connected, `503` otherwise — drop this straight into a Docker `healthcheck:` block. |
 | `GET  /metrics`     | Prometheus-format metrics: `flightjar_frames_total`, `flightjar_aircraft_tracked`, `flightjar_websocket_clients`, `flightjar_beast_connected`. |
 | `GET  /api/flight/{icao24}` | Origin / destination for one aircraft (OpenSky lookup). Returns nulls when the feature is unconfigured. |
+| `GET  /api/airports` | Airports inside a lat/lon bounding box; takes `min_lat`, `min_lon`, `max_lat`, `max_lon`, optional `limit`. |
 | `WS   /ws`          | Live aircraft snapshots, one per `SNAPSHOT_INTERVAL`.              |
 
 Each aircraft in the snapshot carries an `emergency` field — `"hijack"`,

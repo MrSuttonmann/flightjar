@@ -26,6 +26,11 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
 
   // Range-ring overlay (centred on receiver; rebuilt when receiver is known).
   const rangeRings = L.layerGroup();
+  // Airport markers. Populated from /api/airports for the current map bbox
+  // whenever the Airports layer is toggled on; cleared when off. Uses a
+  // canvas renderer so thousands of circleMarkers render smoothly.
+  const airportsLayer = L.layerGroup();
+  const airportsCanvas = L.canvas({ padding: 0.1 });
   function buildRangeRings(rx) {
     rangeRings.clearLayers();
     if (!rx || rx.lat == null || rx.lon == null) return;
@@ -66,6 +71,7 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
   let showTrails = localStorage.getItem('flightjar.trails') !== '0';
   let followSelected = localStorage.getItem('flightjar.follow') === '1';
   let compactMode = localStorage.getItem('flightjar.compact') === '1';
+  let showAirports = localStorage.getItem('flightjar.airports') === '1';
   let firstUpdate = true;
   let lastSnap = null;
   let lastSnapAt = 0;  // Date.now() of the most recent snapshot, for the heartbeat.
@@ -121,7 +127,7 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
     });
   }
 
-  function popupHtml(a, now) {
+  function popupHtml(a, now, airports) {
     const emergency = a.emergency
       ? `<span class="emergency-label">EMERGENCY · ${a.emergency}</span><br>`
       : '';
@@ -142,7 +148,7 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
     const entry = aircraft.get(a.icao);
     const tAlt = trendInfo(entry, 'alt');
     const tSpd = trendInfo(entry, 'spd');
-    const route = routeLabel(a);
+    const route = routeLabel(a, airports);
     const routeLine = route ? `<span class="ac-info">${route}</span><br>` : '';
     return `
       <b>${a.callsign || '—'}</b> <code>${a.icao.toUpperCase()}</code> ${emergency}<br>
@@ -157,10 +163,17 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
 
   // Route string (e.g. "EGLL → KJFK") from snapshot fields. Returns '' when
   // the server hasn't enriched yet (OpenSky lookup still pending or the
-  // feature is disabled).
-  function routeLabel(a) {
+  // feature is disabled). Wraps each airport code in a span with a `title`
+  // attribute so hovering shows the full airport name when we have it.
+  function routeLabel(a, airports) {
     if (!a.origin && !a.destination) return '';
-    return `${a.origin || '?'} → ${a.destination || '?'}`;
+    const code = (icao) => {
+      if (!icao) return '?';
+      const info = airports && airports[icao];
+      const title = info && info.name ? info.name : icao;
+      return `<span title="${title.replace(/"/g, '&quot;')}">${icao}</span>`;
+    };
+    return `${code(a.origin)} → ${code(a.destination)}`;
   }
 
   // What text to show as the permanent on-map label.
@@ -325,13 +338,15 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
         entry.trail.clearLayers();
         entry.trailLen = 0;
       }
-      entry.marker.setPopupContent(popupHtml(a, snap.now));
+      entry.marker.setPopupContent(popupHtml(a, snap.now, snap.airports));
       if (!entry.marker.getPopup()) {
         // autoPan=false stops the map from drifting when the aircraft moves
         // while its popup is open (e.g. after returning from a hidden tab).
         // We pan explicitly on sidebar-triggered selections so the popup is
         // still in view when it first opens.
-        entry.marker.bindPopup(popupHtml(a, snap.now), { autoPan: false });
+        entry.marker.bindPopup(popupHtml(a, snap.now, snap.airports), {
+          autoPan: false,
+        });
       }
 
       entry.data = a;
@@ -478,7 +493,7 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
         ? `<span class="emergency-label">${a.emergency}</span>`
         : '';
       const subtitle = [a.registration, a.type_icao].filter(Boolean).join(' · ');
-      const route = routeLabel(a);
+      const route = routeLabel(a, snap.airports);
       const entry = aircraft.get(a.icao);
       const tAlt = trendInfo(entry, 'alt');
       const tSpd = trendInfo(entry, 'spd');
@@ -594,7 +609,9 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
         renderSidebar(lastSnap);
         // Refresh open popups so their units update immediately.
         for (const entry of aircraft.values()) {
-          entry.marker.setPopupContent(popupHtml(entry.data, lastSnap?.now));
+          entry.marker.setPopupContent(
+            popupHtml(entry.data, lastSnap?.now, lastSnap?.airports),
+          );
         }
       }
     });
@@ -644,6 +661,60 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
   document.getElementById('compact-toggle').addEventListener('click', () => setCompact(!compactMode));
   document.getElementById('sidebar-restore').addEventListener('click', () => setCompact(false));
   applyCompactMode();
+
+  // ---- airports overlay ----
+  let airportsFetchPending = null;
+  function refreshAirports() {
+    if (!showAirports) { airportsLayer.clearLayers(); return; }
+    const b = map.getBounds();
+    const url = `/api/airports?min_lat=${b.getSouth()}&min_lon=${b.getWest()}`
+              + `&max_lat=${b.getNorth()}&max_lon=${b.getEast()}&limit=2000`;
+    if (airportsFetchPending) airportsFetchPending.abort?.();
+    const ctrl = new AbortController();
+    airportsFetchPending = ctrl;
+    fetch(url, { signal: ctrl.signal })
+      .then(r => r.ok ? r.json() : [])
+      .then(rows => {
+        if (!showAirports) return;
+        airportsLayer.clearLayers();
+        for (const a of rows) {
+          const m = L.circleMarker([a.lat, a.lon], {
+            renderer: airportsCanvas,
+            radius: a.type === 'large_airport' ? 4 : a.type === 'medium_airport' ? 3 : 2,
+            color: '#0e1116', weight: 1,
+            fillColor: '#fbbf24', fillOpacity: 0.9,
+          });
+          m.bindTooltip(`${a.name} (${a.icao})`, { direction: 'top', sticky: true });
+          m.addTo(airportsLayer);
+        }
+      })
+      .catch((e) => { if (e.name !== 'AbortError') console.warn('airports fetch', e); });
+  }
+
+  let airportsDebounce = null;
+  function scheduleAirportRefresh() {
+    clearTimeout(airportsDebounce);
+    airportsDebounce = setTimeout(refreshAirports, 250);
+  }
+  map.on('moveend', () => { if (showAirports) scheduleAirportRefresh(); });
+
+  function applyAirportsToggle() {
+    document.getElementById('airports-toggle').classList.toggle('active', showAirports);
+    if (showAirports) {
+      if (!map.hasLayer(airportsLayer)) airportsLayer.addTo(map);
+      refreshAirports();
+    } else {
+      map.removeLayer(airportsLayer);
+      airportsLayer.clearLayers();
+    }
+  }
+  function setAirports(value) {
+    showAirports = value;
+    try { localStorage.setItem('flightjar.airports', showAirports ? '1' : '0'); } catch (_) {}
+    applyAirportsToggle();
+  }
+  document.getElementById('airports-toggle').addEventListener('click', () => setAirports(!showAirports));
+  applyAirportsToggle();
 
   // ---- collapsible filters panel (search + sort) ----
   // Default collapsed on narrow viewports so the list gets more room on
@@ -709,6 +780,8 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
       document.getElementById('trails-toggle').click();
     } else if (e.key === 'c' || e.key === 'C') {
       setCompact(!compactMode);
+    } else if (e.key === 'a' || e.key === 'A') {
+      setAirports(!showAirports);
     } else if (e.key === 'f' || e.key === 'F') {
       const pts = [];
       for (const entry of aircraft.values()) pts.push(entry.marker.getLatLng());

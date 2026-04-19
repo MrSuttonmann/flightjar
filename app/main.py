@@ -21,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .aircraft import AircraftRegistry
 from .aircraft_db import DEFAULT_REFRESH_URL, AircraftDB
+from .airports_db import AirportsDB
 from .beast import iter_frames
 from .config import Config
 from .flight_routes import OpenSkyClient
@@ -141,6 +142,7 @@ class Broadcaster:
 # ---------------- shared state ----------------
 
 aircraft_db = AircraftDB()
+airports_db = AirportsDB()
 registry = AircraftRegistry(
     lat_ref=cfg.lat_ref,
     lon_ref=cfg.lon_ref,
@@ -234,6 +236,7 @@ def build_snapshot(now: float | None = None) -> dict:
     snap = registry.snapshot(now)
     snap["frames"] = stats.frames
     if opensky.enabled:
+        referenced_airports: set[str] = set()
         for ac in snap["aircraft"]:
             data = opensky.lookup_cached(ac["icao"])
             if data:
@@ -244,7 +247,31 @@ def build_snapshot(now: float | None = None) -> dict:
                 ac["destination"] = None
                 # Fire-and-forget enrichment for next snapshot.
                 _spawn_background(opensky.lookup(ac["icao"]))
+            if ac["origin"]:
+                referenced_airports.add(ac["origin"])
+            if ac["destination"]:
+                referenced_airports.add(ac["destination"])
+        # One lookup per unique airport — frontend resolves name/lat/lon by code.
+        snap["airports"] = {
+            code: info for code in referenced_airports if (info := _airport_info(code)) is not None
+        }
     return snap
+
+
+def _airport_info(icao: str | None) -> dict | None:
+    """Return {name, lat, lon} for an airport code, or None if we don't know."""
+    info = airports_db.lookup(icao)
+    if not info:
+        return None
+    # Prefer "Name, City" when the city adds clarity (often it's different).
+    name = info.get("name") or ""
+    city = info.get("city") or ""
+    display = f"{name}, {city}" if city and city.lower() not in name.lower() else name
+    entry: dict = {"name": display or None}
+    if "lat" in info and "lon" in info:
+        entry["lat"] = info["lat"]
+        entry["lon"] = info["lon"]
+    return entry
 
 
 async def snapshot_pusher():
@@ -333,10 +360,14 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             log.warning("state load failed: %s", e)
 
-    # Load the aircraft DB off the event loop (large file, pure CPU).
+    # Load the aircraft + airports DBs off the event loop (large files, pure CPU).
     db_task = asyncio.create_task(
         asyncio.to_thread(aircraft_db.load_first_available),
         name="aircraft_db_loader",
+    )
+    airports_task = asyncio.create_task(
+        asyncio.to_thread(airports_db.load_first_available),
+        name="airports_db_loader",
     )
     consumer = asyncio.create_task(beast_consumer(), name="beast_consumer")
     pusher = asyncio.create_task(snapshot_pusher(), name="snapshot_pusher")
@@ -345,10 +376,16 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        for t in (consumer, pusher, db_task, persister, refresher):
+        for t in (consumer, pusher, db_task, airports_task, persister, refresher):
             t.cancel()
         await asyncio.gather(
-            consumer, pusher, db_task, persister, refresher, return_exceptions=True
+            consumer,
+            pusher,
+            db_task,
+            airports_task,
+            persister,
+            refresher,
+            return_exceptions=True,
         )
         # One last save so we don't lose the gap between the final periodic
         # write and shutdown.
@@ -410,6 +447,25 @@ async def api_aircraft():
     7500/7600/7700; and a full trail of `[lat, lon, alt]` points.
     """
     return JSONResponse(build_snapshot())
+
+
+@app.get("/api/airports", summary="Airports in a bounding box")
+async def api_airports(
+    min_lat: float,
+    min_lon: float,
+    max_lat: float,
+    max_lon: float,
+    limit: int = 2000,
+):
+    """Airports inside the requested bbox, biggest first.
+
+    Drives the optional Airports layer on the map. Server holds the full
+    OurAirports dataset (~30k entries); the client refetches on pan/zoom
+    and only renders what's in view. `limit` caps the response so very
+    wide views still return in bounded time.
+    """
+    limit = max(1, min(int(limit), 5000))
+    return airports_db.bbox(min_lat, min_lon, max_lat, max_lon, limit)
 
 
 @app.get("/api/flight/{icao24}", summary="Origin / destination for an aircraft")

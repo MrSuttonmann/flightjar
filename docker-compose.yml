@@ -40,7 +40,7 @@ services:
 
       # OpenSky Network credentials for origin/destination lookup in the
       # popup. Create a client at https://opensky-network.org/my-opensky
-      # (feeder accounts get ~4000 credits/day). Both values needed; leave
+      # (feeder accounts get ~8000 credits/day). Both values needed; leave
       # unset to disable the feature cleanly.
       # OPENSKY_CLIENT_ID: "flightjar-abc123"
       # OPENSKY_CLIENT_SECRET: "xxxxxxxxxxxxxxxx"
