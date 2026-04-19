@@ -13,11 +13,12 @@ import signal
 import socket
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from logging.handlers import TimedRotatingFileHandler
 
 try:
     import pyModeS as pms
+
     HAVE_PMS = True
 except ImportError:
     HAVE_PMS = False
@@ -183,7 +184,7 @@ def connect_forever(host: str, port: int, on_frame, backoff_max: int = 30):
                 for frame in iter_frames(sock):
                     on_frame(frame)
                 log.warning("remote closed the stream")
-        except (OSError, socket.timeout) as e:
+        except (TimeoutError, OSError) as e:
             log.warning("connection error: %s", e)
         time.sleep(backoff)
         backoff = min(backoff * 2, backoff_max)
@@ -196,21 +197,28 @@ def env_bool(name: str, default: str) -> bool:
 def main():
     p = argparse.ArgumentParser(description="Log BEAST messages as JSONL.")
     p.add_argument("--host", default=os.environ.get("BEAST_HOST", "readsb"))
-    p.add_argument("--port", type=int,
-                   default=int(os.environ.get("BEAST_PORT", "30005")))
-    p.add_argument("--outfile",
-                   default=os.environ.get("BEAST_OUTFILE", "/data/beast.jsonl"))
-    p.add_argument("--no-stdout", action="store_true",
-                   default=not env_bool("BEAST_STDOUT", "1"),
-                   help="do not mirror JSONL to stdout")
-    p.add_argument("--no-decode", action="store_true",
-                   default=env_bool("BEAST_NO_DECODE", "0"),
-                   help="skip pyModeS decoding, raw hex only")
-    p.add_argument("--rotate",
-                   default=os.environ.get("BEAST_ROTATE", "daily"),
-                   choices=["none", "hourly", "daily"])
-    p.add_argument("--rotate-keep", type=int,
-                   default=int(os.environ.get("BEAST_ROTATE_KEEP", "14")))
+    p.add_argument("--port", type=int, default=int(os.environ.get("BEAST_PORT", "30005")))
+    p.add_argument("--outfile", default=os.environ.get("BEAST_OUTFILE", "/data/beast.jsonl"))
+    p.add_argument(
+        "--no-stdout",
+        action="store_true",
+        default=not env_bool("BEAST_STDOUT", "1"),
+        help="do not mirror JSONL to stdout",
+    )
+    p.add_argument(
+        "--no-decode",
+        action="store_true",
+        default=env_bool("BEAST_NO_DECODE", "0"),
+        help="skip pyModeS decoding, raw hex only",
+    )
+    p.add_argument(
+        "--rotate",
+        default=os.environ.get("BEAST_ROTATE", "daily"),
+        choices=["none", "hourly", "daily"],
+    )
+    p.add_argument(
+        "--rotate-keep", type=int, default=int(os.environ.get("BEAST_ROTATE_KEEP", "14"))
+    )
     args = p.parse_args()
 
     logging.basicConfig(
@@ -225,12 +233,16 @@ def main():
         if d:
             os.makedirs(d, exist_ok=True)
         if args.rotate == "none":
-            fh = open(args.outfile, "a", buffering=1)
+            # Standalone CLI: handle stays open for the process lifetime.
+            fh = open(args.outfile, "a", buffering=1)  # noqa: SIM115
             writers.append(lambda s, fh=fh: fh.write(s + "\n"))
         else:
             when = "H" if args.rotate == "hourly" else "midnight"
             rot = TimedRotatingFileHandler(
-                args.outfile, when=when, backupCount=args.rotate_keep, utc=True,
+                args.outfile,
+                when=when,
+                backupCount=args.rotate_keep,
+                utc=True,
             )
             rot.setFormatter(logging.Formatter("%(message)s"))
             rot_logger = logging.getLogger("beast.jsonl")
@@ -248,8 +260,7 @@ def main():
 
     decode_enabled = not args.no_decode and HAVE_PMS
     if not decode_enabled:
-        log.info("decoding disabled (pyModeS=%s, no_decode=%s)",
-                 HAVE_PMS, args.no_decode)
+        log.info("decoding disabled (pyModeS=%s, no_decode=%s)", HAVE_PMS, args.no_decode)
 
     counter = {"n": 0}
     last_report = time.monotonic()
@@ -259,7 +270,7 @@ def main():
         type_name, mlat_ticks, sig, msg = frame
         hex_msg = msg.hex()
         record = {
-            "ts_rx": datetime.now(timezone.utc).isoformat(),
+            "ts_rx": datetime.now(UTC).isoformat(),
             "mlat_ticks": mlat_ticks,
             "type": type_name,
             "signal": sig,

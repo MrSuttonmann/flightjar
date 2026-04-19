@@ -1,16 +1,17 @@
 """FastAPI app combining the BEAST consumer, JSONL logger, and live map UI."""
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
 import sys
 import time
+from collections.abc import Callable
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
-from typing import Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
@@ -30,7 +31,7 @@ def env_bool(name: str, default: str) -> bool:
     return os.environ.get(name, default).lower() in ("1", "true", "yes", "on")
 
 
-def env_float(name: str) -> Optional[float]:
+def env_float(name: str) -> float | None:
     v = os.environ.get(name, "").strip()
     if not v:
         return None
@@ -55,7 +56,9 @@ def _snap_receiver(lat, lon, anon_km):
     """Snap to a ~anon_km grid so the true position never leaves the process."""
     if lat is None or lon is None or anon_km <= 0:
         return lat, lon
-    step = anon_km / 111.0  # ~111 km per degree; slightly over-anonymises longitude at high lat, which is fine
+    step = (
+        anon_km / 111.0
+    )  # ~111 km per degree; slightly over-anonymises longitude at high lat, which is fine
     return round(lat / step) * step, round(lon / step) * step
 
 
@@ -77,20 +80,28 @@ SNAPSHOT_INTERVAL = float(os.environ.get("SNAPSHOT_INTERVAL", "1.0"))
 
 # ---------------- jsonl writer ----------------
 
+
 class JsonlWriter:
     def __init__(self, path: str, rotate: str, keep: int, stdout: bool):
-        self.writers = []
+        self.writers: list[Callable[[str], object]] = []
+        # Handles we own and must close on shutdown.
+        self._closers: list[Callable[[], object]] = []
         if path:
             d = os.path.dirname(path)
             if d:
                 os.makedirs(d, exist_ok=True)
             if rotate == "none":
-                fh = open(path, "a", buffering=1)
-                self.writers.append(lambda s, fh=fh: fh.write(s + "\n"))
+                # File stays open for the process lifetime; close() handles it.
+                fh = open(path, "a", buffering=1)  # noqa: SIM115
+                self.writers.append(lambda s: fh.write(s + "\n"))
+                self._closers.append(fh.close)
             else:
                 when = "H" if rotate == "hourly" else "midnight"
                 handler = TimedRotatingFileHandler(
-                    path, when=when, backupCount=keep, utc=True,
+                    path,
+                    when=when,
+                    backupCount=keep,
+                    utc=True,
                 )
                 handler.setFormatter(logging.Formatter("%(message)s"))
                 file_log = logging.getLogger("beast.jsonl")
@@ -98,6 +109,7 @@ class JsonlWriter:
                 file_log.propagate = False
                 file_log.addHandler(handler)
                 self.writers.append(file_log.info)
+                self._closers.append(handler.close)
         if stdout:
             self.writers.append(lambda s: print(s, flush=True))
 
@@ -115,8 +127,15 @@ class JsonlWriter:
             except Exception as e:
                 log.error("jsonl writer failure: %s", e)
 
+    def close(self) -> None:
+        for fn in self._closers:
+            with contextlib.suppress(Exception):
+                fn()
+        self._closers.clear()
+
 
 # ---------------- websocket broadcast ----------------
+
 
 class Broadcaster:
     def __init__(self):
@@ -144,8 +163,10 @@ class Broadcaster:
 # ---------------- shared state ----------------
 
 registry = AircraftRegistry(
-    lat_ref=LAT_REF, lon_ref=LON_REF,
-    receiver_info=RECEIVER_INFO, site_name=SITE_NAME,
+    lat_ref=LAT_REF,
+    lon_ref=LON_REF,
+    receiver_info=RECEIVER_INFO,
+    site_name=SITE_NAME,
 )
 jsonl = JsonlWriter(JSONL_PATH, JSONL_ROTATE, JSONL_KEEP, JSONL_STDOUT)
 broadcaster = Broadcaster()
@@ -153,6 +174,7 @@ stats = {"frames": 0, "started": time.time()}
 
 
 # ---------------- background tasks ----------------
+
 
 async def beast_consumer():
     backoff = 1
@@ -174,7 +196,7 @@ async def beast_consumer():
 
                     if jsonl.enabled:
                         record = {
-                            "ts_rx": datetime.now(timezone.utc).isoformat(),
+                            "ts_rx": datetime.now(UTC).isoformat(),
                             "mlat_ticks": mlat_ticks,
                             "type": type_name,
                             "signal": sig,
@@ -183,10 +205,8 @@ async def beast_consumer():
                         jsonl.write(record)
             finally:
                 writer.close()
-                try:
+                with contextlib.suppress(Exception):
                     await writer.wait_closed()
-                except Exception:
-                    pass
             log.warning("BEAST stream closed by remote")
         except asyncio.CancelledError:
             raise
@@ -214,10 +234,17 @@ async def snapshot_pusher():
 
 # ---------------- app ----------------
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    log.info("starting Flightjar (BEAST=%s:%d, ref=%s,%s, jsonl=%s)",
-             BEAST_HOST, BEAST_PORT, LAT_REF, LON_REF, jsonl.enabled)
+    log.info(
+        "starting Flightjar (BEAST=%s:%d, ref=%s,%s, jsonl=%s)",
+        BEAST_HOST,
+        BEAST_PORT,
+        LAT_REF,
+        LON_REF,
+        jsonl.enabled,
+    )
     consumer = asyncio.create_task(beast_consumer(), name="beast_consumer")
     pusher = asyncio.create_task(snapshot_pusher(), name="snapshot_pusher")
     try:
@@ -226,6 +253,7 @@ async def lifespan(app: FastAPI):
         for t in (consumer, pusher):
             t.cancel()
         await asyncio.gather(consumer, pusher, return_exceptions=True)
+        jsonl.close()
 
 
 app = FastAPI(lifespan=lifespan, title="Flightjar")
@@ -262,9 +290,7 @@ async def ws_endpoint(websocket: WebSocket):
     broadcaster.add(websocket)
     try:
         # send an initial snapshot immediately so the map populates fast
-        await websocket.send_text(
-            json.dumps(registry.snapshot(), separators=(",", ":"))
-        )
+        await websocket.send_text(json.dumps(registry.snapshot(), separators=(",", ":")))
         while True:
             # drain any client messages (we don't expect any, but keep alive)
             await websocket.receive_text()
