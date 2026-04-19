@@ -208,6 +208,18 @@ jq -r '.ts_rx[0:16]' beast-logs/beast.jsonl | uniq -c
 Each aircraft in the snapshot carries an `emergency` field — `"hijack"`,
 `"radio"`, `"general"`, or `null` — derived from squawks 7500/7600/7700.
 
+Altitude is exposed three ways:
+`altitude_baro` (barometric, from DF17 TC 9-18 or DF4/20 surveillance),
+`altitude_geo` (geometric / GNSS, from DF17 TC 20-22), and `altitude`
+(the best available — prefers baro, falls back to geo). The popup labels
+the source when only geometric altitude is known, or when the two disagree
+by more than 100 ft.
+
+Aircraft also carry `last_seen_mlat` — the BEAST 12 MHz tick counter from
+the most recent message — which is useful for sub-second timing between
+packets from the same receiver. (It isn't synchronised across receivers,
+so don't mix sources.)
+
 Aircraft values are always returned in canonical units (feet, knots, ft/min)
 so any client can convert them as it likes. Each aircraft also carries a
 `distance_km` field computed against the displayed receiver position

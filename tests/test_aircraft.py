@@ -35,13 +35,22 @@ _TABLE = {
         "callsign": "FLY123__",
         "category": 3,
     },
-    # DF17 airborne position (typecode 11), sets altitude + position via reference
+    # DF17 airborne baro position (typecode 11)
     "AP01": {
         "df": 17,
         "crc_valid": True,
         "icao": "abc123",
         "typecode": 11,
         "altitude": 37000,
+        "cpr_format": 0,
+    },
+    # DF17 airborne GNSS / geometric position (typecode 20)
+    "GP01": {
+        "df": 17,
+        "crc_valid": True,
+        "icao": "abc123",
+        "typecode": 20,
+        "altitude": 37100,
         "cpr_format": 0,
     },
     # DF17 velocity (typecode 19)
@@ -174,6 +183,47 @@ def test_non_emergency_squawk_has_no_emergency_flag():
         reg.aircraft["abc123"].squawk = "1200"
     snap = reg.snapshot(now=10.1)
     assert snap["aircraft"][0]["emergency"] is None
+
+
+def test_baro_altitude_is_stored_separately_from_geo():
+    with patch("app.aircraft.pms.decode", side_effect=fake_decode):
+        reg = AircraftRegistry(lat_ref=52.0, lon_ref=-1.0)
+        reg.ingest("AP01xxxx", now=10.0)
+        reg.ingest("GP01xxxx", now=10.1)
+    ac = reg.aircraft["abc123"]
+    assert ac.altitude_baro == 37000
+    assert ac.altitude_geo == 37100
+    # altitude property prefers baro when both are known.
+    assert ac.altitude == 37000
+
+
+def test_geo_only_aircraft_reports_altitude_via_fallback():
+    with patch("app.aircraft.pms.decode", side_effect=fake_decode):
+        reg = AircraftRegistry(lat_ref=52.0, lon_ref=-1.0)
+        reg.ingest("GP01xxxx", now=10.0)
+    ac = reg.aircraft["abc123"]
+    assert ac.altitude_baro is None
+    assert ac.altitude_geo == 37100
+    assert ac.altitude == 37100
+
+
+def test_mlat_ticks_is_recorded_on_ingest():
+    with patch("app.aircraft.pms.decode", side_effect=fake_decode):
+        reg = AircraftRegistry()
+        reg.ingest("ID01xxxx", now=1.0, mlat_ticks=1234567890)
+    assert reg.aircraft["abc123"].last_seen_mlat == 1234567890
+
+
+def test_snapshot_exposes_both_altitude_fields():
+    with patch("app.aircraft.pms.decode", side_effect=fake_decode):
+        reg = AircraftRegistry(lat_ref=52.0, lon_ref=-1.0)
+        reg.ingest("AP01xxxx", now=1.0)
+        reg.ingest("GP01xxxx", now=1.1)
+    snap = reg.snapshot(now=1.2)
+    entry = snap["aircraft"][0]
+    assert entry["altitude"] == 37000
+    assert entry["altitude_baro"] == 37000
+    assert entry["altitude_geo"] == 37100
 
 
 def test_unknown_df_is_ignored():

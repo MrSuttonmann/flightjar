@@ -39,7 +39,8 @@ class Aircraft:
 
     lat: float | None = None
     lon: float | None = None
-    altitude: int | None = None  # feet
+    altitude_baro: int | None = None  # feet, barometric (DF17 TC 9-18, DF4/20)
+    altitude_geo: int | None = None  # feet, GNSS / geometric (DF17 TC 20-22)
     track: float | None = None  # degrees, 0 = north
     speed: float | None = None  # knots (ground speed)
     vrate: int | None = None  # ft/min
@@ -48,6 +49,9 @@ class Aircraft:
 
     last_seen: float = 0.0
     last_position_time: float = 0.0
+    # Most recent BEAST MLAT tick stamp; a per-receiver 12 MHz counter.
+    # Useful for sub-second spacing; don't compare across receivers.
+    last_seen_mlat: int | None = None
 
     # CPR pair state for global airborne decode
     even_msg: str | None = None
@@ -57,6 +61,11 @@ class Aircraft:
 
     trail: deque = field(default_factory=lambda: deque(maxlen=TRAIL_MAX_POINTS))
     msg_count: int = 0
+
+    @property
+    def altitude(self) -> int | None:
+        """Best-known altitude: prefer barometric, fall back to GNSS."""
+        return self.altitude_baro if self.altitude_baro is not None else self.altitude_geo
 
 
 def _decode(msg, **kw) -> dict:
@@ -93,7 +102,12 @@ class AircraftRegistry:
 
     # -------- ingest --------
 
-    def ingest(self, hex_msg: str, now: float | None = None) -> bool:
+    def ingest(
+        self,
+        hex_msg: str,
+        now: float | None = None,
+        mlat_ticks: int | None = None,
+    ) -> bool:
         """Update state from one Mode S message. Returns True if accepted."""
         if now is None:
             now = time.time()
@@ -102,9 +116,9 @@ class AircraftRegistry:
         if df is None:
             return False
         if df in (17, 18):
-            return self._ingest_adsb(r, hex_msg, now)
+            return self._ingest_adsb(r, hex_msg, now, mlat_ticks)
         if df in (4, 5, 11, 20, 21):
-            return self._ingest_surveillance(r, now)
+            return self._ingest_surveillance(r, now, mlat_ticks)
         return False
 
     def _get(self, icao: str) -> Aircraft:
@@ -114,7 +128,7 @@ class AircraftRegistry:
             self.aircraft[icao] = ac
         return ac
 
-    def _ingest_adsb(self, r: dict, msg: str, now: float) -> bool:
+    def _ingest_adsb(self, r: dict, msg: str, now: float, mlat_ticks: int | None = None) -> bool:
         if not r.get("crc_valid"):
             return False
         icao = r.get("icao")
@@ -124,6 +138,8 @@ class AircraftRegistry:
 
         ac = self._get(icao)
         ac.last_seen = now
+        if mlat_ticks is not None:
+            ac.last_seen_mlat = mlat_ticks
         ac.msg_count += 1
 
         if 1 <= tc <= 4:
@@ -139,14 +155,23 @@ class AircraftRegistry:
             ac.on_ground = True
             self._update_position(ac, msg, now, r, surface=True)
 
-        elif 9 <= tc <= 18 or 20 <= tc <= 22:
-            # Airborne position (baro alt for 9-18, GNSS alt for 20-22)
+        elif 9 <= tc <= 18:
+            # Airborne baro altitude
             ac.on_ground = False
             self._update_position(ac, msg, now, r, surface=False)
             alt = r.get("altitude")
             if alt is not None:
                 with contextlib.suppress(TypeError, ValueError):
-                    ac.altitude = int(alt)
+                    ac.altitude_baro = int(alt)
+
+        elif 20 <= tc <= 22:
+            # Airborne GNSS (geometric) altitude
+            ac.on_ground = False
+            self._update_position(ac, msg, now, r, surface=False)
+            alt = r.get("altitude")
+            if alt is not None:
+                with contextlib.suppress(TypeError, ValueError):
+                    ac.altitude_geo = int(alt)
 
         elif tc == 19:
             # Velocity. Subtypes 1/2 give groundspeed+track; 3/4 give airspeed+heading.
@@ -167,18 +192,21 @@ class AircraftRegistry:
 
         return True
 
-    def _ingest_surveillance(self, r: dict, now: float) -> bool:
+    def _ingest_surveillance(self, r: dict, now: float, mlat_ticks: int | None = None) -> bool:
         """Handle DF 4/20 (altitude), DF 5/21 (squawk), DF 11 (all-call)."""
         icao = r.get("icao")
         if not icao:
             return False
         ac = self._get(icao)
         ac.last_seen = now
+        if mlat_ticks is not None:
+            ac.last_seen_mlat = mlat_ticks
         ac.msg_count += 1
         alt = r.get("altitude")
         if alt is not None:
+            # Surveillance altcode is always barometric.
             with contextlib.suppress(TypeError, ValueError):
-                ac.altitude = int(alt)
+                ac.altitude_baro = int(alt)
         sq = r.get("squawk")
         if sq is not None:
             ac.squawk = str(sq)
@@ -310,6 +338,8 @@ class AircraftRegistry:
                     "lat": ac.lat,
                     "lon": ac.lon,
                     "altitude": ac.altitude,
+                    "altitude_baro": ac.altitude_baro,
+                    "altitude_geo": ac.altitude_geo,
                     "track": ac.track,
                     "speed": ac.speed,
                     "vrate": ac.vrate,

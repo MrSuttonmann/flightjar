@@ -115,6 +115,7 @@
   .leaflet-popup-content { font-size: 12px; line-height: 1.5; margin: 8px 12px; }
   .leaflet-popup-content code { font-size: 11px; color: var(--muted); }
   .ac-info { color: var(--muted); font-size: 11px; }
+  .alt-tag { font-size: 10px; color: var(--muted); font-weight: 400; }
   .plane-icon { background: transparent !important; border: none !important; }
   .receiver-icon { background: transparent !important; border: none !important; }
   .receiver-dot { width: 10px; height: 10px; border-radius: 50%;
@@ -330,10 +331,21 @@
     const regLine = a.registration || a.type_long
       ? `<span class="ac-info">${[a.registration, a.type_long].filter(Boolean).join(' · ')}</span><br>`
       : '';
+    // Indicate altitude source: show (geo) if only geometric, or add a small
+    // (baro/geo) suffix when both are known and they disagree meaningfully.
+    let altLabel = uconv('alt', a.altitude);
+    if (a.altitude_baro == null && a.altitude_geo != null) {
+      altLabel += ' <span class="alt-tag">geo</span>';
+    } else if (
+      a.altitude_baro != null && a.altitude_geo != null &&
+      Math.abs(a.altitude_baro - a.altitude_geo) > 100
+    ) {
+      altLabel += ` <span class="alt-tag">baro; geo ${uconv('alt', a.altitude_geo)}</span>`;
+    }
     return `
       <b>${a.callsign || '—'}</b> <code>${a.icao.toUpperCase()}</code> ${emergency}<br>
       ${regLine}
-      Alt: <b>${uconv('alt', a.altitude)}</b><br>
+      Alt: <b>${altLabel}</b><br>
       Spd: ${uconv('spd', a.speed)} &nbsp; Hdg: ${fmt(a.track, '°')}<br>
       VRate: ${uconv('vrt', a.vrate)}<br>
       Sqwk: ${a.squawk || '—'}<br>
