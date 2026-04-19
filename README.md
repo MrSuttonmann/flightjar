@@ -92,25 +92,6 @@ You'll need:
 
 Logs land in `./beast-logs/beast.jsonl` next to the compose file by default.
 
-### Local overrides
-
-For personal tweaks (your real coordinates, a different host port, a
-`SITE_NAME`) drop a `docker-compose.override.yml` next to the main
-compose file. Docker merges it automatically, and it's gitignored so your
-customisations never end up in commits. Minimal example:
-
-```yaml
-services:
-  flightjar:
-    ports:
-      - "45444:8080"
-    environment:
-      LAT_REF: "52.98234"
-      LON_REF: "-1.20415"
-      SITE_NAME: "Home Receiver"
-      RECEIVER_ANON_KM: "10"
-```
-
 ## Using the map
 
 - **Click a plane** (on the map or in the sidebar) to centre on it and see
