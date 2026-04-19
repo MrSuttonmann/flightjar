@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ageOf, compassIcon, fmt } from '../../app/static/format.js';
+import { ageOf, compassIcon, escapeHtml, fmt } from '../../app/static/format.js';
 
 test('fmt returns em-dash for null / undefined / NaN', () => {
   assert.equal(fmt(null), '—');
@@ -37,4 +37,21 @@ test('compassIcon embeds the rotation angle', () => {
   assert.match(svg, /rotate\(42deg\)/);
   assert.match(svg, /<svg[^>]*>/);
   assert.match(svg, /currentColor/);
+});
+
+test('escapeHtml neutralises the five HTML special characters', () => {
+  assert.equal(
+    escapeHtml(`<img src=x onerror='alert("xss")'>&foo;`),
+    '&lt;img src=x onerror=&#39;alert(&quot;xss&quot;)&#39;&gt;&amp;foo;',
+  );
+});
+
+test('escapeHtml returns empty for null / undefined', () => {
+  assert.equal(escapeHtml(null), '');
+  assert.equal(escapeHtml(undefined), '');
+});
+
+test('escapeHtml stringifies non-strings', () => {
+  assert.equal(escapeHtml(42), '42');
+  assert.equal(escapeHtml(true), 'true');
 });

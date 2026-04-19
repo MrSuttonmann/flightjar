@@ -1,5 +1,20 @@
 // Small formatting helpers. No DOM, no Leaflet — safe to unit-test.
 
+// Minimal HTML entity escape for inline-template safety. Every upstream
+// string (callsign, registration, type_icao, airport names, origin/dest
+// codes, …) goes through this before being interpolated into innerHTML.
+const HTML_ESCAPE = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+};
+export function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str).replace(/[&<>"']/g, (c) => HTML_ESCAPE[c]);
+}
+
 export function fmt(n, suffix = '', digits = 0) {
   if (n == null || isNaN(n)) return '—';
   return Number(n).toFixed(digits) + suffix;

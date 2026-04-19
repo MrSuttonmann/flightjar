@@ -1,4 +1,4 @@
-import { fmt, ageOf, compassIcon } from './format.js';
+import { ageOf, compassIcon, escapeHtml, fmt } from './format.js';
 import { UNIT_SYSTEMS, getUnitSystem, setUnitSystem, uconv } from './units.js';
 import { ALT_STOPS, altColor } from './altitude.js';
 import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
@@ -221,10 +221,10 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
 
   function popupHtml(a, now, airports) {
     const emergency = a.emergency
-      ? `<span class="emergency-label">EMERGENCY · ${a.emergency}</span><br>`
+      ? `<span class="emergency-label">EMERGENCY · ${escapeHtml(a.emergency)}</span><br>`
       : '';
     const regLine = a.registration || a.type_long
-      ? `<span class="ac-info">${[a.registration, a.type_long].filter(Boolean).join(' · ')}</span><br>`
+      ? `<span class="ac-info">${[a.registration, a.type_long].filter(Boolean).map(escapeHtml).join(' · ')}</span><br>`
       : '';
     // Indicate altitude source: show (geo) if only geometric, or add a small
     // (baro/geo) suffix when both are known and they disagree meaningfully.
@@ -242,14 +242,17 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
     const tSpd = trendInfo(entry, 'spd');
     const route = routeLabel(a, airports);
     const routeLine = route ? `<span class="ac-info">${route}</span><br>` : '';
+    const callsign = a.callsign ? escapeHtml(a.callsign) : '—';
+    const icao = escapeHtml(a.icao.toUpperCase());
+    const squawk = a.squawk ? escapeHtml(a.squawk) : '—';
     return `
-      <b>${a.callsign || '—'}</b> <code>${a.icao.toUpperCase()}</code> ${emergency}<br>
+      <b>${callsign}</b> <code>${icao}</code> ${emergency}<br>
       ${regLine}
       ${routeLine}
       Alt: <span class="${tAlt.cls}"><b>${altLabel}</b>${tAlt.arrow}</span><br>
       Spd: <span class="${tSpd.cls}">${uconv('spd', a.speed)}${tSpd.arrow}</span> &nbsp; Hdg: ${fmt(a.track, '°')}${compassIcon(a.track)}<br>
       VRate: ${uconv('vrt', a.vrate)}<br>
-      Sqwk: ${a.squawk || '—'}<br>
+      Sqwk: ${squawk}<br>
       <code>${a.msg_count} msgs · ${fmt(ageOf(a, now), 's', 1)} ago</code>`;
   }
 
@@ -257,21 +260,23 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
   // the server hasn't enriched yet (OpenSky lookup still pending or the
   // feature is disabled). Wraps each airport code in a span with a `title`
   // attribute so hovering shows the full airport name when we have it.
+  // Both the visible code and the title attribute go through escapeHtml;
+  // OurAirports names and OpenSky codes are upstream data.
   function routeLabel(a, airports) {
     if (!a.origin && !a.destination) return '';
     const code = (icao) => {
       if (!icao) return '?';
       const info = airports && airports[icao];
       const title = info && info.name ? info.name : icao;
-      return `<span title="${title.replace(/"/g, '&quot;')}">${icao}</span>`;
+      return `<span title="${escapeHtml(title)}">${escapeHtml(icao)}</span>`;
     };
     return `${code(a.origin)} → ${code(a.destination)}`;
   }
 
-  // What text to show as the permanent on-map label.
-  // Future-friendly: easy to extend to configurable datapoints.
+  // What text to show as the permanent on-map label. Leaflet's bindTooltip
+  // renders content as HTML, so escape — callsign comes from Mode S BDS 2,0.
   function labelText(a) {
-    return a.callsign || a.icao.toUpperCase();
+    return escapeHtml(a.callsign || a.icao.toUpperCase());
   }
 
   function updateLabelFor(entry) {
@@ -584,20 +589,23 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
         a.emergency ? 'emergency' : '',
       ].filter(Boolean).join(' ');
       const emergencyBadge = a.emergency
-        ? `<span class="emergency-label">${a.emergency}</span>`
+        ? `<span class="emergency-label">${escapeHtml(a.emergency)}</span>`
         : '';
-      const subtitle = [a.registration, a.type_icao].filter(Boolean).join(' · ');
+      const subtitle = [a.registration, a.type_icao]
+        .filter(Boolean).map(escapeHtml).join(' · ');
       const route = routeLabel(a, snap.airports);
       const entry = aircraft.get(a.icao);
       const tAlt = trendInfo(entry, 'alt');
       const tSpd = trendInfo(entry, 'spd');
       const tDst = trendInfo(entry, 'dst');
+      const callsign = a.callsign ? escapeHtml(a.callsign) : '— — — —';
+      const icao = escapeHtml(a.icao);
       return `
-      <div class="${classes}" data-icao="${a.icao}">
+      <div class="${classes}" data-icao="${icao}">
         <span class="age">${fmt(ageOf(a, snap.now), 's', 1)}</span>
         <div class="row1">
-          <span class="cs">${a.callsign || '— — — —'} ${emergencyBadge}</span>
-          <span class="icao">${subtitle || a.icao.toUpperCase()}</span>
+          <span class="cs">${callsign} ${emergencyBadge}</span>
+          <span class="icao">${subtitle || icao.toUpperCase()}</span>
         </div>
         ${route ? `<div class="route-row">${route}</div>` : ''}
         <div class="meta">
@@ -798,7 +806,7 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
             color: '#0e1116', weight: 1,
             fillColor: '#fbbf24', fillOpacity: 0.9,
           });
-          m.bindTooltip(`${a.name} (${a.icao})`, { direction: 'top', sticky: true });
+          m.bindTooltip(`${escapeHtml(a.name)} (${escapeHtml(a.icao)})`, { direction: 'top', sticky: true });
           m.addTo(airportsLayer);
         }
       })
