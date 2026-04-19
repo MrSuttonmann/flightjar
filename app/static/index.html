@@ -105,6 +105,8 @@
                             text-transform: uppercase; letter-spacing: 0.5px; }
   .ac-item .metric .val { font-size: 11px; }
   .trend { font-size: 10px; margin-left: 3px; display: inline-block; }
+  .compass { display: inline-block; vertical-align: -2px; margin-left: 3px;
+             opacity: 0.75; transform-origin: 50% 50%; }
   .trend-up   { color: #6ee7b7; }
   .trend-down { color: #fca5a5; }
   .ac-item .age { position: absolute; top: 8px; right: 14px; font-size: 10px;
@@ -447,6 +449,12 @@
   const HIST_LEN = 10;
   const TREND_THRESHOLDS = { alt: 50, spd: 3, dst: 0.5 };  // ft, kt, km
 
+  // Small triangle rotated to the compass heading. 0° points up (north).
+  function compassIcon(deg) {
+    if (deg == null || isNaN(deg)) return '';
+    return `<svg class="compass" viewBox="-6 -6 12 12" width="12" height="12" style="transform: rotate(${Number(deg)}deg)"><path d="M0,-5 L3,4 L0,2 L-3,4 Z" fill="currentColor"/></svg>`;
+  }
+
   function pushHistory(entry, a) {
     const h = entry.hist;
     for (const [key, value] of [['alt', a.altitude], ['spd', a.speed], ['dst', a.distance_km]]) {
@@ -501,7 +509,7 @@
       <b>${a.callsign || '—'}</b> <code>${a.icao.toUpperCase()}</code> ${emergency}<br>
       ${regLine}
       Alt: <span class="${tAlt.cls}"><b>${altLabel}</b>${tAlt.arrow}</span><br>
-      Spd: <span class="${tSpd.cls}">${uconv('spd', a.speed)}${tSpd.arrow}</span> &nbsp; Hdg: ${fmt(a.track, '°')}<br>
+      Spd: <span class="${tSpd.cls}">${uconv('spd', a.speed)}${tSpd.arrow}</span> &nbsp; Hdg: ${fmt(a.track, '°')}${compassIcon(a.track)}<br>
       VRate: ${uconv('vrt', a.vrate)}<br>
       Sqwk: ${a.squawk || '—'}<br>
       <code>${a.msg_count} msgs · ${fmt(a.age, 's')} ago</code>`;
@@ -771,7 +779,7 @@
         <div class="meta">
           <div class="metric"><div class="label">Alt</div><div class="val ${tAlt.cls}">${uconv('alt', a.altitude)}${tAlt.arrow}</div></div>
           <div class="metric"><div class="label">Spd</div><div class="val ${tSpd.cls}">${uconv('spd', a.speed)}${tSpd.arrow}</div></div>
-          <div class="metric"><div class="label">Hdg</div><div class="val">${fmt(a.track, '°')}</div></div>
+          <div class="metric"><div class="label">Hdg</div><div class="val">${fmt(a.track, '°')}${compassIcon(a.track)}</div></div>
           <div class="metric"><div class="label">Dist</div><div class="val ${tDst.cls}">${uconv('dst', a.distance_km)}${tDst.arrow}</div></div>
         </div>
       </div>
