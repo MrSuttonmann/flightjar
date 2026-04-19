@@ -11,8 +11,8 @@ network and get a lightweight map, log file, and simple API on top.
 
 - **Live map** at `http://<host>:8080/` with per-type plane silhouettes
   sourced from the [tar1090](https://github.com/wiedehopf/tar1090) SVG
-  shape set (GPL-2.0+; covers ~450 ICAO type codes, with hand-drawn
-  family fallbacks for anything unmapped), altitude-coloured trails
+  shape set (GPL-2.0+; covers ~450 ICAO type codes, with a generic
+  arrow for anything unmapped), altitude-coloured trails
   showing each aircraft's recent altitude history, and a toggleable
   callsign label on each one.
 - **Sidebar list** of currently tracked aircraft, sortable by callsign,
@@ -332,7 +332,7 @@ node --test tests/js/   # run the frontend test suite (Node 20+)
 ```
 
 The frontend is split into small ES modules under `app/static/` —
-`format.js`, `units.js`, `altitude.js`, `trend.js`, `silhouette.js` — so
+`format.js`, `units.js`, `altitude.js`, `trend.js` — so
 the pure helpers are unit-testable without a browser. `app.js` is the
 entrypoint and imports the rest.
 

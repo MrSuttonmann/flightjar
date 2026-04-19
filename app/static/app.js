@@ -2,7 +2,6 @@ import { ageOf, compassIcon, escapeHtml, fmt } from './format.js';
 import { UNIT_SYSTEMS, getUnitSystem, setUnitSystem, uconv } from './units.js';
 import { ALT_STOPS, altColor } from './altitude.js';
 import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
-import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
 
 (() => {
   const map = L.map('map', { worldCopyJump: true, zoomControl: false })
@@ -129,14 +128,14 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
   // tar1090 per-type silhouettes — loaded asynchronously so a missing
   // tar1090_shapes.js (e.g. first run before the fetch script has run)
   // doesn't break the app. Until it resolves, planeIcon falls back to
-  // the built-in hand-drawn silhouettes in silhouette.js.
+  // the generic arrow defined inline below.
   let tar1090Shapes = null;
   let tar1090TypeIcons = null;
   import('./tar1090_shapes.js').then(mod => {
     tar1090Shapes = mod.shapes;
     tar1090TypeIcons = mod.TypeDesignatorIcons;
   }).catch(e => {
-    console.warn('tar1090 shapes unavailable — using built-in silhouettes', e);
+    console.warn('tar1090 shapes unavailable — using generic arrow', e);
   });
 
   function tar1090ShapeFor(typeIcao) {
@@ -194,29 +193,30 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
     });
   }
 
-  function planeIcon(track, color, selected, emergency, shapeName, typeIcao) {
+  // Simple triangular arrow used when tar1090 has no silhouette for this
+  // aircraft's ICAO type code (or the bundle hasn't loaded yet).
+  const GENERIC_ARROW_PATH = 'M0,-10 L7,8 L0,4 L-7,8 Z';
+  const GENERIC_ARROW_SIZE = 26;
+
+  function planeIcon(track, color, selected, emergency, typeIcao) {
     // Prefer tar1090's per-type silhouette when we have one for this ICAO
-    // type code; fall back to the hand-drawn family silhouettes otherwise.
+    // type code; fall back to the generic arrow otherwise.
     const tar = tar1090ShapeFor(typeIcao);
     if (tar) return tar1090Icon(track, color, selected, emergency, tar.shape, tar.scaleFactor);
 
-    const shape = PLANE_SHAPES[shapeName] || PLANE_SHAPES.generic;
     const rot = track == null ? 0 : track;
     let stroke = selected ? '#fff' : '#000';
     let sw = selected ? 1.5 : 0.6;
     if (emergency) { stroke = '#ef4444'; sw = 2; }
-    const size = shape.size;
+    const size = GENERIC_ARROW_SIZE;
     const half = size / 2;
-    const disc = shape.disc
-      ? `<circle cx="0" cy="0" r="${shape.disc.r}" fill="none" stroke="${stroke}" stroke-width="${sw}" stroke-dasharray="${shape.disc.dash}" opacity="0.7"/>`
-      : '';
-    const paths = shape.paths.map(d =>
-      `<path d="${d}" fill="${color}" stroke="${stroke}" stroke-width="${sw}" stroke-linejoin="round"/>`
-    ).join('');
-    const svg = `
-      <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="-14 -14 28 28">
-        <g transform="rotate(${rot})">${disc}${paths}</g>
-      </svg>`;
+    const svg =
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="-14 -14 28 28">` +
+        `<g transform="rotate(${rot})">` +
+          `<path d="${GENERIC_ARROW_PATH}" fill="${color}" stroke="${stroke}" ` +
+            `stroke-width="${sw}" stroke-linejoin="round"/>` +
+        `</g>` +
+      `</svg>`;
     return L.divIcon({
       html: svg,
       className: 'plane-icon',
@@ -485,8 +485,7 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
 
       const color = altColor(a.altitude);
       const isSelected = a.icao === selectedIcao;
-      const shape = silhouette(a);
-      const icon = planeIcon(a.track, color, isSelected, !!a.emergency, shape, a.type_icao);
+      const icon = planeIcon(a.track, color, isSelected, !!a.emergency, a.type_icao);
 
       let entry = aircraft.get(a.icao);
       if (!entry) {
@@ -725,7 +724,7 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
     const entry = aircraft.get(icao);
     if (entry) {
       const a = entry.data;
-      entry.marker.setIcon(planeIcon(a.track, altColor(a.altitude), true, !!a.emergency, silhouette(a), a.type_icao));
+      entry.marker.setIcon(planeIcon(a.track, altColor(a.altitude), true, !!a.emergency, a.type_icao));
     }
     document.querySelectorAll('.ac-item').forEach(el => {
       el.classList.toggle('selected', el.dataset.icao === icao);
@@ -741,7 +740,7 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
     const entry = aircraft.get(icao);
     if (entry) {
       const a = entry.data;
-      entry.marker.setIcon(planeIcon(a.track, altColor(a.altitude), false, !!a.emergency, silhouette(a), a.type_icao));
+      entry.marker.setIcon(planeIcon(a.track, altColor(a.altitude), false, !!a.emergency, a.type_icao));
     }
     document.querySelectorAll('.ac-item').forEach(el => {
       if (el.dataset.icao === icao) el.classList.remove('selected');
