@@ -32,15 +32,18 @@
         </div>
       </div>
     </div>
-    <div id="search-bar">
-      <input id="search" type="search" autocomplete="off"
-             placeholder="Search callsign or ICAO (/)">
-    </div>
-    <div id="sort-bar">
-      <div class="sort-chip" data-key="callsign">Callsign<span class="arrow"></span></div>
-      <div class="sort-chip" data-key="altitude">Alt<span class="arrow"></span></div>
-      <div class="sort-chip" data-key="distance">Dist<span class="arrow"></span></div>
-      <div class="sort-chip" data-key="age">Age<span class="arrow"></span></div>
+    <button id="filters-toggle" title="Show / hide search and sort controls"></button>
+    <div id="filters-panel">
+      <div id="search-bar">
+        <input id="search" type="search" autocomplete="off"
+               placeholder="Search callsign or ICAO (/)">
+      </div>
+      <div id="sort-bar">
+        <div class="sort-chip" data-key="callsign">Callsign<span class="arrow"></span></div>
+        <div class="sort-chip" data-key="altitude">Alt<span class="arrow"></span></div>
+        <div class="sort-chip" data-key="distance">Dist<span class="arrow"></span></div>
+        <div class="sort-chip" data-key="age">Age<span class="arrow"></span></div>
+      </div>
     </div>
     <div id="ac-list"></div>
   </div>

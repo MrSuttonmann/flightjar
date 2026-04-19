@@ -57,6 +57,14 @@
   .unit-btn:last-child { border-right: 0; }
   .unit-btn:hover { color: var(--text); }
   .unit-btn.active { background: #1d2533; color: var(--text); }
+  #filters-toggle { display: none; width: 100%; text-align: left;
+                    padding: 4px 12px; border: 0; border-bottom: 1px solid var(--border);
+                    background: #131821; color: var(--muted); cursor: pointer;
+                    font-size: 11px; font-family: inherit; }
+  #filters-toggle:hover { color: var(--text); }
+  #filters-toggle::before { content: "▾ Filters"; }
+  body.filters-collapsed #filters-toggle::before { content: "▸ Filters"; }
+  body.filters-collapsed #filters-panel { display: none; }
   #search-bar { padding: 6px 8px; border-bottom: 1px solid var(--border);
                 background: #131821; }
   #search { width: 100%; box-sizing: border-box; padding: 4px 8px;
@@ -158,4 +166,9 @@
     }
     #sidebar { border-right: none; border-bottom: 1px solid var(--border); }
     #sidebar-footer { border-right: 0; }
+    /* Small decorative status widgets get hard to read on a phone —
+       hide them to reclaim some vertical space. */
+    #msg-rate, #sparkline { display: none; }
+    /* Surface the Filters toggle; the panel below it starts collapsed. */
+    #filters-toggle { display: block; }
   }

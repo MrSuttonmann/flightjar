@@ -632,6 +632,19 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
   document.getElementById('sidebar-restore').addEventListener('click', () => setCompact(false));
   applyCompactMode();
 
+  // ---- collapsible filters panel (search + sort) ----
+  // Default collapsed on narrow viewports so the list gets more room on
+  // a phone. Desktop (>600px) starts expanded.
+  const narrowMQ = window.matchMedia('(max-width: 600px)');
+  if (narrowMQ.matches) document.body.classList.add('filters-collapsed');
+  const filtersToggle = document.getElementById('filters-toggle');
+  function setFiltersCollapsed(value) {
+    document.body.classList.toggle('filters-collapsed', value);
+  }
+  filtersToggle.addEventListener('click', () => {
+    setFiltersCollapsed(!document.body.classList.contains('filters-collapsed'));
+  });
+
   // ---- sidebar search ----
   const searchInput = document.getElementById('search');
   searchInput.addEventListener('input', () => {
@@ -661,6 +674,9 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
     const inField = tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable;
     if (e.key === '/' && !inField) {
       e.preventDefault();
+      // Expand the filters panel if it's collapsed (mobile default) so the
+      // search input is actually visible before we focus it.
+      setFiltersCollapsed(false);
       searchInput.focus();
       searchInput.select();
       return;
