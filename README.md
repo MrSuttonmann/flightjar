@@ -24,6 +24,9 @@ network and get a lightweight map, log file, and simple API on top.
   sharing screenshots doesn't pin your home address on a map.
 - **Optional site name** shown in the header and browser tab so you can
   tell multiple installs apart at a glance.
+- **Aircraft DB enrichment** — each aircraft is tagged with its
+  registration and type (e.g. `G-ABCD · BOEING 737-800`), so the popup and
+  sidebar show the actual tail number rather than just the ICAO hex.
 - **A small HTTP / WebSocket API** if you want to build your own dashboard.
 
 ## Before you start
@@ -123,6 +126,27 @@ circle of the chosen radius is drawn around it, so viewers know the true
 location is *somewhere* inside that area. Your real coords never leave the
 container — they're still used internally to decode aircraft positions
 accurately.
+
+## Aircraft database
+
+Flightjar ships with a snapshot of the
+[tar1090-db](https://github.com/wiedehopf/tar1090-db) / Mictronics aircraft
+registry, downloaded at Docker build time. This gives you
+`registration` / `type_icao` / `type_long` on every aircraft in the API
+snapshot, and in the sidebar/popup UI.
+
+To refresh without rebuilding the image, drop a newer copy into the mounted
+`./beast-logs/` directory:
+
+```bash
+curl -L -o beast-logs/aircraft_db.csv.gz \
+  https://github.com/wiedehopf/tar1090-db/raw/refs/heads/csv/aircraft.csv.gz
+docker compose restart flightjar
+```
+
+If `beast-logs/aircraft_db.csv.gz` exists it wins over the baked copy.
+Remove it to fall back to the image's version. If neither is present,
+enrichment is silently disabled and the app behaves as before.
 
 ## Running multiple receivers
 

@@ -18,6 +18,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 
 from .aircraft import AircraftRegistry
+from .aircraft_db import AircraftDB
 from .beast import iter_frames
 from .config import Config
 
@@ -135,11 +136,13 @@ class Broadcaster:
 
 # ---------------- shared state ----------------
 
+aircraft_db = AircraftDB()
 registry = AircraftRegistry(
     lat_ref=cfg.lat_ref,
     lon_ref=cfg.lon_ref,
     receiver_info=RECEIVER_INFO,
     site_name=cfg.site_name,
+    aircraft_db=aircraft_db,
 )
 jsonl = JsonlWriter(cfg.jsonl_path, cfg.jsonl_rotate, cfg.jsonl_keep, cfg.jsonl_stdout)
 broadcaster = Broadcaster()
@@ -221,14 +224,19 @@ async def lifespan(app: FastAPI):
         cfg.lon_ref,
         jsonl.enabled,
     )
+    # Load the aircraft DB off the event loop (large file, pure CPU).
+    db_task = asyncio.create_task(
+        asyncio.to_thread(aircraft_db.load_first_available),
+        name="aircraft_db_loader",
+    )
     consumer = asyncio.create_task(beast_consumer(), name="beast_consumer")
     pusher = asyncio.create_task(snapshot_pusher(), name="snapshot_pusher")
     try:
         yield
     finally:
-        for t in (consumer, pusher):
+        for t in (consumer, pusher, db_task):
             t.cancel()
-        await asyncio.gather(consumer, pusher, return_exceptions=True)
+        await asyncio.gather(consumer, pusher, db_task, return_exceptions=True)
         jsonl.close()
 
 

@@ -16,6 +16,8 @@ from typing import Any
 
 import pyModeS as pms
 
+from .aircraft_db import AircraftDB
+
 log = logging.getLogger("beast.aircraft")
 
 POSITION_PAIR_MAX_AGE = 10.0  # seconds; CPR global decode validity window
@@ -79,6 +81,7 @@ class AircraftRegistry:
         lon_ref: float | None = None,
         receiver_info: dict | None = None,
         site_name: str | None = None,
+        aircraft_db: "AircraftDB | None" = None,
     ):
         self.aircraft: dict[str, Aircraft] = {}
         self.lat_ref = lat_ref
@@ -86,6 +89,7 @@ class AircraftRegistry:
         # Info shown to clients; may be anonymised relative to lat_ref/lon_ref.
         self.receiver_info = receiver_info
         self.site_name = site_name
+        self.aircraft_db = aircraft_db
 
     # -------- ingest --------
 
@@ -295,10 +299,14 @@ class AircraftRegistry:
                 distance_km = round(math.hypot(dlat, dlon) * 6371, 2)
             if ac.lat is not None:
                 positioned += 1
+            info = self.aircraft_db.lookup(ac.icao) if self.aircraft_db else None
             out.append(
                 {
                     "icao": ac.icao,
                     "callsign": ac.callsign,
+                    "registration": info.get("registration") if info else None,
+                    "type_icao": info.get("type_icao") if info else None,
+                    "type_long": info.get("type_long") if info else None,
                     "lat": ac.lat,
                     "lon": ac.lon,
                     "altitude": ac.altitude,

@@ -114,6 +114,7 @@
   }
   .leaflet-popup-content { font-size: 12px; line-height: 1.5; margin: 8px 12px; }
   .leaflet-popup-content code { font-size: 11px; color: var(--muted); }
+  .ac-info { color: var(--muted); font-size: 11px; }
   .plane-icon { background: transparent !important; border: none !important; }
   .receiver-icon { background: transparent !important; border: none !important; }
   .receiver-dot { width: 10px; height: 10px; border-radius: 50%;
@@ -326,8 +327,12 @@
     const emergency = a.emergency
       ? `<span class="emergency-label">EMERGENCY · ${a.emergency}</span><br>`
       : '';
+    const regLine = a.registration || a.type_long
+      ? `<span class="ac-info">${[a.registration, a.type_long].filter(Boolean).join(' · ')}</span><br>`
+      : '';
     return `
       <b>${a.callsign || '—'}</b> <code>${a.icao.toUpperCase()}</code> ${emergency}<br>
+      ${regLine}
       Alt: <b>${uconv('alt', a.altitude)}</b><br>
       Spd: ${uconv('spd', a.speed)} &nbsp; Hdg: ${fmt(a.track, '°')}<br>
       VRate: ${uconv('vrt', a.vrate)}<br>
@@ -532,12 +537,13 @@
       const emergencyBadge = a.emergency
         ? `<span class="emergency-label">${a.emergency}</span>`
         : '';
+      const subtitle = [a.registration, a.type_icao].filter(Boolean).join(' · ');
       return `
       <div class="${classes}" data-icao="${a.icao}">
         <span class="age">${fmt(a.age, 's')}</span>
         <div class="row1">
           <span class="cs">${a.callsign || '— — — —'} ${emergencyBadge}</span>
-          <span class="icao">${a.icao.toUpperCase()}</span>
+          <span class="icao">${subtitle || a.icao.toUpperCase()}</span>
         </div>
         <div class="meta">
           <div class="metric"><div class="label">Alt</div><div class="val">${uconv('alt', a.altitude)}</div></div>
