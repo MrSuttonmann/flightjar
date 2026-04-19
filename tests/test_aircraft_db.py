@@ -60,3 +60,20 @@ def test_first_available_picks_the_first_existing(tmp_path: Path, fixture_db: Pa
     db = AircraftDB()
     db.load_first_available([tmp_path / "nope.csv.gz", fixture_db])
     assert len(db) == 4
+
+
+def test_load_from_replaces_existing_entries(tmp_path: Path, fixture_db: Path):
+    # A second load shouldn't accumulate old entries; swap semantics should
+    # leave only what's in the latest file.
+    path2 = tmp_path / "db2.csv.gz"
+    import gzip as _gzip
+
+    with _gzip.open(path2, "wt", encoding="utf-8") as fh:
+        fh.write("FFFFFF;Z-NEW;B744;00;BOEING 747-400;;;\n")
+    db = AircraftDB()
+    db.load_from(fixture_db)
+    assert "4ca2d1" in db
+    db.load_from(path2)
+    assert "4ca2d1" not in db
+    assert "ffffff" in db
+    assert len(db) == 1

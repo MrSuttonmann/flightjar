@@ -147,8 +147,20 @@ registry, downloaded at Docker build time. This gives you
 `registration` / `type_icao` / `type_long` on every aircraft in the API
 snapshot, and in the sidebar/popup UI.
 
-To refresh without rebuilding the image, drop a newer copy into the mounted
-`./beast-logs/` directory:
+To refresh without rebuilding the image you have two options:
+
+**Automatic.** Set `AIRCRAFT_DB_REFRESH_HOURS` in the compose file to have
+Flightjar re-download the DB itself on a schedule:
+
+```yaml
+AIRCRAFT_DB_REFRESH_HOURS: "168"   # weekly
+```
+
+The fresh file is written atomically to `/data/aircraft_db.csv.gz` inside
+the mounted volume; parsing happens before commit, so a corrupted download
+never replaces the live copy.
+
+**Manual.** Drop a file into the mounted `./beast-logs/` directory yourself:
 
 ```bash
 curl -L -o beast-logs/aircraft_db.csv.gz \
@@ -187,6 +199,7 @@ It shows up next to "Flightjar" in the sidebar and in the browser tab title
 | `BEAST_ROTATE_KEEP`   | `14`                | How many rotated log files to keep.                            |
 | `BEAST_STDOUT`        | `0`                 | Also print messages to the container log (for debugging).      |
 | `SNAPSHOT_INTERVAL`   | `1.0`               | How often the map refreshes, in seconds.                       |
+| `AIRCRAFT_DB_REFRESH_HOURS` | `0`           | Auto-refresh interval for the aircraft DB. `0` disables.       |
 
 ## The log file
 

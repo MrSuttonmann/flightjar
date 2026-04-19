@@ -68,6 +68,21 @@ def test_negative_rotate_keep_raises():
         Config.from_env({"BEAST_ROTATE_KEEP": "-1"})
 
 
+def test_aircraft_db_refresh_hours_default_is_zero():
+    cfg = Config.from_env({})
+    assert cfg.aircraft_db_refresh_hours == 0.0
+
+
+def test_aircraft_db_refresh_hours_accepts_positive_value():
+    cfg = Config.from_env({"AIRCRAFT_DB_REFRESH_HOURS": "168"})
+    assert cfg.aircraft_db_refresh_hours == 168.0
+
+
+def test_aircraft_db_refresh_hours_rejects_negative():
+    with pytest.raises(ConfigError, match="AIRCRAFT_DB_REFRESH_HOURS"):
+        Config.from_env({"AIRCRAFT_DB_REFRESH_HOURS": "-1"})
+
+
 def test_zero_snapshot_interval_raises():
     with pytest.raises(ConfigError, match="SNAPSHOT_INTERVAL"):
         Config.from_env({"SNAPSHOT_INTERVAL": "0"})

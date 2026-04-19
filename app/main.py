@@ -20,7 +20,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from .aircraft import AircraftRegistry
-from .aircraft_db import AircraftDB
+from .aircraft_db import DEFAULT_REFRESH_URL, AircraftDB
 from .beast import iter_frames
 from .config import Config
 from .persistence import load_state, save_state
@@ -226,6 +226,26 @@ async def snapshot_pusher():
 STATE_PATH = Path(cfg.jsonl_path).parent / "state.json.gz" if cfg.jsonl_path else None
 STATE_SAVE_INTERVAL = 30.0
 
+# Where a user-provided aircraft DB lives; also where the auto-refresh writes.
+AIRCRAFT_DB_PATH = Path(cfg.jsonl_path).parent / "aircraft_db.csv.gz" if cfg.jsonl_path else None
+
+
+async def aircraft_db_refresher():
+    """Periodically re-download the aircraft DB. Disabled when interval is 0."""
+    if cfg.aircraft_db_refresh_hours <= 0 or AIRCRAFT_DB_PATH is None:
+        return
+    interval = cfg.aircraft_db_refresh_hours * 3600
+    while True:
+        try:
+            await asyncio.sleep(interval)
+            await asyncio.to_thread(
+                aircraft_db.refresh_from_url, DEFAULT_REFRESH_URL, AIRCRAFT_DB_PATH
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            log.warning("aircraft DB auto-refresh failed: %s", e)
+
 
 async def state_persister():
     """Write the registry to disk every STATE_SAVE_INTERVAL seconds."""
@@ -270,12 +290,15 @@ async def lifespan(app: FastAPI):
     consumer = asyncio.create_task(beast_consumer(), name="beast_consumer")
     pusher = asyncio.create_task(snapshot_pusher(), name="snapshot_pusher")
     persister = asyncio.create_task(state_persister(), name="state_persister")
+    refresher = asyncio.create_task(aircraft_db_refresher(), name="aircraft_db_refresher")
     try:
         yield
     finally:
-        for t in (consumer, pusher, db_task, persister):
+        for t in (consumer, pusher, db_task, persister, refresher):
             t.cancel()
-        await asyncio.gather(consumer, pusher, db_task, persister, return_exceptions=True)
+        await asyncio.gather(
+            consumer, pusher, db_task, persister, refresher, return_exceptions=True
+        )
         # One last save so we don't lose the gap between the final periodic
         # write and shutdown.
         if STATE_PATH is not None:

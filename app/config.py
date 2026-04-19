@@ -75,6 +75,9 @@ class Config:
 
     snapshot_interval: float = 1.0
 
+    # 0 = don't auto-refresh; >0 = run background refresh every N hours.
+    aircraft_db_refresh_hours: float = 0.0
+
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "Config":
         import os
@@ -97,6 +100,10 @@ class Config:
         if interval <= 0:
             raise ConfigError(f"SNAPSHOT_INTERVAL={interval}: must be > 0")
 
+        refresh_hours = _env_float_required(env, "AIRCRAFT_DB_REFRESH_HOURS", 0.0)
+        if refresh_hours < 0:
+            raise ConfigError(f"AIRCRAFT_DB_REFRESH_HOURS={refresh_hours}: must be >= 0")
+
         site = _env_str(env, "SITE_NAME") or None
         jsonl_path = _env_str(env, "BEAST_OUTFILE", "/data/beast.jsonl")
 
@@ -113,4 +120,5 @@ class Config:
             jsonl_stdout=env_bool(env, "BEAST_STDOUT", "0"),
             jsonl_decode=not env_bool(env, "BEAST_NO_DECODE", "0"),
             snapshot_interval=interval,
+            aircraft_db_refresh_hours=refresh_hours,
         )

@@ -9,9 +9,12 @@ if no DB file is present the registry stays empty and enrichment silently
 no-ops.
 """
 
+import contextlib
 import csv
 import gzip
 import logging
+import os
+import urllib.request
 from pathlib import Path
 
 log = logging.getLogger("beast.aircraft_db")
@@ -23,6 +26,8 @@ DEFAULT_PATHS: list[Path] = [
     Path("/data/aircraft_db.csv.gz"),
     Path(__file__).parent / "aircraft_db.csv.gz",
 ]
+
+DEFAULT_REFRESH_URL = "https://github.com/wiedehopf/tar1090-db/raw/refs/heads/csv/aircraft.csv.gz"
 
 
 class AircraftDB:
@@ -41,7 +46,8 @@ class AircraftDB:
         return self._db.get(icao.lower())
 
     def load_from(self, path: Path) -> int:
-        """Load entries from a gzipped semicolon-separated CSV. Returns row count."""
+        """Load entries from a gzipped CSV; swap in atomically on success."""
+        new_db: dict[str, dict[str, str | None]] = {}
         with gzip.open(path, "rt", encoding="utf-8", errors="replace") as fh:
             reader = csv.reader(fh, delimiter=";")
             for row in reader:
@@ -52,11 +58,13 @@ class AircraftDB:
                 type_icao = (row[2] or "").strip() or None
                 type_long = (row[4] or "").strip() or None
                 if reg or type_icao or type_long:
-                    self._db[icao] = {
+                    new_db[icao] = {
                         "registration": reg,
                         "type_icao": type_icao,
                         "type_long": type_long,
                     }
+        # Swap only after full parse — partial reads never replace live data.
+        self._db = new_db
         return len(self._db)
 
     def load_first_available(self, paths: list[Path] | None = None) -> int:
@@ -71,3 +79,29 @@ class AircraftDB:
                     log.warning("failed to load aircraft DB from %s: %s", p, e)
         log.info("no aircraft DB found; enrichment disabled")
         return 0
+
+    def refresh_from_url(
+        self,
+        url: str,
+        target_path: Path,
+        timeout: float = 60.0,
+    ) -> int:
+        """Download a fresh DB, validate by parsing, persist, and swap in-memory.
+
+        On any failure the existing in-memory DB is untouched. The downloaded
+        file is written to a temp path first and only renamed into place after
+        a successful parse, so a corrupted download doesn't poison the on-disk
+        override either.
+        """
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target_path.with_suffix(target_path.suffix + ".tmp")
+        try:
+            with urllib.request.urlopen(url, timeout=timeout) as resp:
+                tmp.write_bytes(resp.read())
+            n = self.load_from(tmp)  # raises if the download is unreadable
+            os.replace(tmp, target_path)
+            log.info("refreshed aircraft DB from %s (%d entries)", url, n)
+            return n
+        finally:
+            with contextlib.suppress(FileNotFoundError):
+                tmp.unlink()
