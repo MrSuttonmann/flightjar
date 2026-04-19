@@ -455,12 +455,14 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
       ? `Flightjar — ${site} (${snap.count})`
       : `Flightjar (${snap.count})`;
 
-    // Filter by search text (callsign or icao substring, case-insensitive).
+    // Filter by search text (callsign, ICAO24, or registration substring,
+    // case-insensitive).
     const q = searchFilter;
     const filtered = q
       ? snap.aircraft.filter(a =>
           (a.callsign || '').toLowerCase().includes(q) ||
-          a.icao.toLowerCase().includes(q))
+          a.icao.toLowerCase().includes(q) ||
+          (a.registration || '').toLowerCase().includes(q))
       : snap.aircraft;
 
     // Sort a copy so we don't mutate the snapshot used elsewhere.
