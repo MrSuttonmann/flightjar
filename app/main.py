@@ -207,6 +207,17 @@ async def beast_consumer():
         backoff = min(backoff * 2, 30)
 
 
+def build_snapshot(now: float | None = None) -> dict:
+    """Registry snapshot plus top-level server stats (e.g. frame counter).
+
+    Kept as a single helper so the initial WebSocket snapshot, the periodic
+    broadcast, and the /api/aircraft HTTP response all ship the same shape.
+    """
+    snap = registry.snapshot(now)
+    snap["frames"] = stats.frames
+    return snap
+
+
 async def snapshot_pusher():
     while True:
         try:
@@ -214,7 +225,7 @@ async def snapshot_pusher():
             now = time.time()
             registry.cleanup(now)
             if broadcaster.clients:
-                snap = registry.snapshot(now)
+                snap = build_snapshot(now)
                 payload = json.dumps(snap, separators=(",", ":"))
                 await broadcaster.broadcast(payload)
         except asyncio.CancelledError:
@@ -358,7 +369,7 @@ async def api_aircraft():
     and `altitude` (best-known); an `emergency` label when squawking
     7500/7600/7700; and a full trail of `[lat, lon, alt]` points.
     """
-    return JSONResponse(registry.snapshot())
+    return JSONResponse(build_snapshot())
 
 
 @app.get("/api/stats", summary="App-level metrics as JSON")
@@ -416,7 +427,7 @@ async def ws_endpoint(websocket: WebSocket):
     broadcaster.add(websocket)
     try:
         # send an initial snapshot immediately so the map populates fast
-        await websocket.send_text(json.dumps(registry.snapshot(), separators=(",", ":")))
+        await websocket.send_text(json.dumps(build_snapshot(), separators=(",", ":")))
         while True:
             # drain any client messages (we don't expect any, but keep alive)
             await websocket.receive_text()

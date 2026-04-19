@@ -73,6 +73,9 @@
   #ac-list { flex: 1; overflow-y: auto; }
   .ac-empty { padding: 24px 16px; text-align: center; color: var(--muted);
               font-size: 12px; font-style: italic; }
+  #msg-rate { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  #msg-rate:empty { display: none; }
+  #msg-rate::before { content: "· "; }
   #sparkline { display: inline-block; height: 14px; line-height: 0; color: var(--muted); }
   #sparkline:empty { display: none; }
   #sparkline svg { vertical-align: middle; }

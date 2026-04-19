@@ -575,11 +575,28 @@
     el.innerHTML = `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline points="${pts}" fill="none" stroke="currentColor" stroke-width="1" stroke-linejoin="round" stroke-linecap="round" opacity="0.75"/></svg>`;
   }
 
+  // Messages/sec from successive snapshots (server ships cumulative frame
+  // counter, we diff here). Needs two samples before anything renders.
+  let prevFrames = null;
+  let prevFramesAt = null;
+
+  function updateMsgRate(snap) {
+    const el = document.getElementById('msg-rate');
+    if (snap.frames == null || snap.now == null) { el.textContent = ''; return; }
+    if (prevFrames != null && snap.now > prevFramesAt) {
+      const rate = (snap.frames - prevFrames) / (snap.now - prevFramesAt);
+      el.textContent = `${rate.toFixed(rate < 10 ? 1 : 0)} msg/s`;
+    }
+    prevFrames = snap.frames;
+    prevFramesAt = snap.now;
+  }
+
   function renderSidebar(snap) {
     // Push the current count onto the sparkline buffer before drawing.
     countHistory.push(snap.count);
     if (countHistory.length > COUNT_HISTORY_LEN) countHistory.shift();
     renderSparkline();
+    updateMsgRate(snap);
     const status = document.getElementById('status-text');
     status.textContent =
       `${snap.count} aircraft · ${snap.positioned} positioned`;
