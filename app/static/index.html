@@ -677,7 +677,13 @@
         entry.trailLen = 0;
       }
       entry.marker.setPopupContent(popupHtml(a));
-      if (!entry.marker.getPopup()) entry.marker.bindPopup(popupHtml(a));
+      if (!entry.marker.getPopup()) {
+        // autoPan=false stops the map from drifting when the aircraft moves
+        // while its popup is open (e.g. after returning from a hidden tab).
+        // We pan explicitly on sidebar-triggered selections so the popup is
+        // still in view when it first opens.
+        entry.marker.bindPopup(popupHtml(a), { autoPan: false });
+      }
 
       entry.data = a;
       pushHistory(entry, a);
