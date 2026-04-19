@@ -66,8 +66,8 @@ somewhere and run it.
        environment:
          BEAST_HOST: ultrafeeder        # hostname / IP of your BEAST source
          BEAST_PORT: "30005"
-         LAT_REF: "52.98234"            # your receiver's coordinates
-         LON_REF: "-1.20415"
+         LAT_REF: "51.0"                # your receiver's coordinates
+         LON_REF: "0.0"
        volumes:
          - ./beast-logs:/data           # JSONL output + persisted state + aircraft DB
        networks:
