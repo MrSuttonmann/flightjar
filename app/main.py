@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import logging
 import os
@@ -15,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from .aircraft import AircraftRegistry
@@ -282,9 +283,25 @@ STATIC_DIR = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
+def _asset_hash(name: str) -> str:
+    """Short content hash of a static asset, used for cache-busting URLs."""
+    return hashlib.sha256((STATIC_DIR / name).read_bytes()).hexdigest()[:12]
+
+
+def _render_index() -> str:
+    """Read index.html and inject per-asset content hashes into its URLs."""
+    template = (STATIC_DIR / "index.html").read_text()
+    return template.replace("__CSS_V__", _asset_hash("app.css")).replace(
+        "__JS_V__", _asset_hash("app.js")
+    )
+
+
+INDEX_HTML = _render_index()
+
+
 @app.get("/")
 async def root():
-    return FileResponse(STATIC_DIR / "index.html")
+    return HTMLResponse(INDEX_HTML)
 
 
 @app.get("/api/aircraft")

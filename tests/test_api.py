@@ -48,6 +48,24 @@ def test_metrics_has_prometheus_exposition_format():
         main.stats["frames"] = 0
 
 
+def test_index_injects_asset_content_hashes():
+    # The /static/app.css and /static/app.js URLs should each carry a
+    # distinct short content hash, so browsers re-fetch them after a deploy
+    # even with aggressive caching headers.
+    import re
+
+    with _client() as c:
+        r = c.get("/")
+    assert r.status_code == 200
+    body = r.text
+    m_css = re.search(r"app\.css\?v=([0-9a-f]{12})", body)
+    m_js = re.search(r"app\.js\?v=([0-9a-f]{12})", body)
+    assert m_css and m_js, body
+    # Placeholders must have been substituted (no literal __CSS_V__ / __JS_V__).
+    assert "__CSS_V__" not in body
+    assert "__JS_V__" not in body
+
+
 def test_stats_includes_beast_connected_flag():
     main.stats["beast_connected"] = False
     with _client() as c:
