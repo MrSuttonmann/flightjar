@@ -257,11 +257,11 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
   }
 
   // Route string (e.g. "EGLL → KJFK") from snapshot fields. Returns '' when
-  // the server hasn't enriched yet (OpenSky lookup still pending or the
+  // the server hasn't enriched yet (adsbdb lookup still pending or the
   // feature is disabled). Wraps each airport code in a span with a `title`
   // attribute so hovering shows the full airport name when we have it.
   // Both the visible code and the title attribute go through escapeHtml;
-  // OurAirports names and OpenSky codes are upstream data.
+  // OurAirports names and adsbdb codes are upstream data.
   function routeLabel(a, airports) {
     if (!a.origin && !a.destination) return '';
     const code = (icao) => {

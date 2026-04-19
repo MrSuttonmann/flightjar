@@ -29,11 +29,11 @@ network and get a lightweight map, log file, and simple API on top.
 - **Aircraft DB enrichment** — each aircraft is tagged with its
   registration and type (e.g. `G-ABCD · BOEING 737-800`), so the popup and
   sidebar show the actual tail number rather than just the ICAO hex.
-- **Origin / destination** — when you supply OpenSky Network credentials
-  (see below), the popup and sidebar show `EGLL → KJFK` routing looked up
-  from OpenSky's flight database. Hovering the code reveals the full
-  airport name; lookups are cached server-side for 12h so they're cheap
-  to re-consult.
+- **Origin / destination** — the popup and sidebar show `EGLL → KJFK`
+  routing looked up by callsign from [adsbdb.com](https://www.adsbdb.com/),
+  a free community-maintained API (no signup required). Hovering the code
+  reveals the full airport name; lookups are cached server-side for 12h
+  so they're cheap to re-consult.
 - **Airports overlay** — a toggle drops ~2,000 nearest airports onto the
   map as small markers (biggest first so wide views still show the
   majors). Sourced from the OurAirports public-domain database baked
@@ -216,30 +216,21 @@ If `beast-logs/aircraft_db.csv.gz` exists it wins over the baked copy.
 Remove it to fall back to the image's version. If neither is present,
 enrichment is silently disabled and the app behaves as before.
 
-## Origin / destination lookup (OpenSky)
+## Origin / destination lookup (adsbdb)
 
-Flightjar can enrich each aircraft with its origin + destination airports
-by querying the [OpenSky Network](https://opensky-network.org/). This is
-optional and disabled by default.
+Flightjar enriches each aircraft with its origin + destination airports
+by querying [adsbdb.com](https://www.adsbdb.com/), a free community API
+that maps flight callsigns to airport pairs. It's on by default and needs
+no account or credentials — the broadcast callsign is enough.
 
-1. Create an OpenSky account at
-   [opensky-network.org](https://opensky-network.org/). If you already
-   feed ADS-B data (most `ultrafeeder` installs do), your account is a
-   **contributor** and gets ~8000 API credits/day.
-2. Under *My OpenSky → API Clients*, click **Create API Client**. Copy
-   the `client_id` and `client_secret` values.
-3. Add them to your compose environment:
+Lookups are serialised with a small spacing (to stay a polite client),
+deduplicated, and cached server-side in `./beast-logs/flight_routes.json.gz`
+— 12h for known routes, 1h for "unknown callsign" (often registrations
+for GA or military traffic that the database doesn't cover). On first
+boot you'll see routes appear gradually as the cache populates.
 
-   ```yaml
-   OPENSKY_CLIENT_ID: "your-client-id"
-   OPENSKY_CLIENT_SECRET: "your-client-secret"
-   ```
-
-Flightjar will start enriching aircraft automatically. Lookups are
-throttled (at most 3 in flight at once), deduplicated, and cached
-server-side in `./beast-logs/flight_routes.json.gz` — 12h for hits, 1h
-for "no recent flight found". On first boot you'll see routes appear
-gradually as the cache populates.
+To disable outbound lookups entirely (offline or privacy-conscious
+deploys), set `FLIGHT_ROUTES=0`.
 
 ## Running multiple receivers
 
@@ -269,8 +260,7 @@ It shows up next to "Flightjar" in the sidebar and in the browser tab title
 | `BEAST_STDOUT`        | `0`                 | Also print messages to the container log (for debugging).      |
 | `SNAPSHOT_INTERVAL`   | `1.0`               | How often the map refreshes, in seconds.                       |
 | `AIRCRAFT_DB_REFRESH_HOURS` | `0`           | Auto-refresh interval for the aircraft DB. `0` disables.       |
-| `OPENSKY_CLIENT_ID`   | (unset)             | OpenSky OAuth client ID for origin/destination lookup.         |
-| `OPENSKY_CLIENT_SECRET` | (unset)           | OpenSky OAuth client secret. Both must be set to enable.       |
+| `FLIGHT_ROUTES`       | `1`                 | Enable origin/destination lookups via adsbdb.com. `0` disables.|
 
 ## The log file
 
@@ -299,14 +289,15 @@ jq -r '.ts_rx[0:16]' beast-logs/beast.jsonl | uniq -c
 | `GET  /api/stats`   | Uptime, frame counter, connected WebSocket clients, etc.           |
 | `GET  /healthz`     | `200 {"status":"ok"}` when the BEAST feed is connected, `503` otherwise — drop this straight into a Docker `healthcheck:` block. |
 | `GET  /metrics`     | Prometheus-format metrics: `flightjar_frames_total`, `flightjar_aircraft_tracked`, `flightjar_websocket_clients`, `flightjar_beast_connected`. |
-| `GET  /api/flight/{icao24}` | Origin / destination for one aircraft (OpenSky lookup). Returns nulls when the feature is unconfigured. |
+| `GET  /api/flight/{callsign}` | Origin / destination for a callsign (adsbdb lookup). Returns nulls when the feature is disabled or the callsign is unknown. |
 | `GET  /api/airports` | Airports inside a lat/lon bounding box; takes `min_lat`, `min_lon`, `max_lat`, `max_lon`, optional `limit`. |
 | `WS   /ws`          | Live aircraft snapshots, one per `SNAPSHOT_INTERVAL`.              |
 
 Each aircraft in the snapshot carries an `emergency` field — `"hijack"`,
 `"radio"`, `"general"`, or `null` — derived from squawks 7500/7600/7700.
-When OpenSky credentials are configured, aircraft also carry `origin`
-and `destination` (ICAO airport codes, or `null` if unknown).
+When `FLIGHT_ROUTES` is enabled (the default), aircraft also carry
+`origin` and `destination` (ICAO airport codes, or `null` if the
+callsign isn't in adsbdb's database).
 
 Altitude is exposed three ways:
 `altitude_baro` (barometric, from DF17 TC 9-18 or DF4/20 surveillance),

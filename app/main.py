@@ -24,7 +24,7 @@ from .aircraft_db import DEFAULT_REFRESH_URL, AircraftDB
 from .airports_db import AirportsDB
 from .beast import iter_frames
 from .config import Config
-from .flight_routes import OpenSkyClient
+from .flight_routes import AdsbdbClient
 from .persistence import load_state, save_state
 
 log = logging.getLogger("beast")
@@ -227,26 +227,29 @@ def build_snapshot(now: float | None = None) -> dict:
     Kept as a single helper so the initial WebSocket snapshot, the periodic
     broadcast, and the /api/aircraft HTTP response all ship the same shape.
 
-    Enriches each aircraft with `origin` / `destination` from the OpenSky
-    cache (synchronous lookup — no network call). When an aircraft doesn't
-    yet have a cached route, kicks off a background lookup so the next
-    snapshot can fill it in. Dedup + concurrency limiting live inside the
-    OpenSkyClient so this stays a one-liner.
+    Enriches each aircraft with `origin` / `destination` from the adsbdb
+    cache (synchronous lookup — no network call). When an aircraft has a
+    callsign we haven't looked up yet, kicks off a background lookup so
+    the next snapshot can fill it in. Dedup + concurrency limiting live
+    inside the AdsbdbClient so this stays a one-liner.
     """
     snap = registry.snapshot(now)
     snap["frames"] = stats.frames
-    if opensky.enabled:
+    if adsbdb.enabled:
         referenced_airports: set[str] = set()
         for ac in snap["aircraft"]:
-            data = opensky.lookup_cached(ac["icao"])
+            cs = ac.get("callsign")
+            data = adsbdb.lookup_cached(cs) if cs else None
             if data:
                 ac["origin"] = data.get("origin")
                 ac["destination"] = data.get("destination")
             else:
                 ac["origin"] = None
                 ac["destination"] = None
-                # Fire-and-forget enrichment for next snapshot.
-                _spawn_background(opensky.lookup(ac["icao"]))
+                # Fire-and-forget enrichment for next snapshot, but only
+                # when we actually have a callsign to query against.
+                if cs:
+                    _spawn_background(adsbdb.lookup(cs))
             if ac["origin"]:
                 referenced_airports.add(ac["origin"])
             if ac["destination"]:
@@ -296,16 +299,12 @@ STATE_SAVE_INTERVAL = 30.0
 # Where a user-provided aircraft DB lives; also where the auto-refresh writes.
 AIRCRAFT_DB_PATH = Path(cfg.jsonl_path).parent / "aircraft_db.csv.gz" if cfg.jsonl_path else None
 
-# Persistent cache for OpenSky origin/destination lookups.
+# Persistent cache for adsbdb origin/destination lookups.
 FLIGHT_ROUTE_CACHE_PATH = (
     Path(cfg.jsonl_path).parent / "flight_routes.json.gz" if cfg.jsonl_path else None
 )
 
-opensky = OpenSkyClient(
-    client_id=cfg.opensky_client_id,
-    client_secret=cfg.opensky_client_secret,
-    cache_path=FLIGHT_ROUTE_CACHE_PATH,
-)
+adsbdb = AdsbdbClient(cache_path=FLIGHT_ROUTE_CACHE_PATH, enabled=cfg.flight_routes_enabled)
 
 
 async def aircraft_db_refresher():
@@ -490,24 +489,23 @@ async def api_airports(
     return airports_db.bbox(min_lat, min_lon, max_lat, max_lon, limit)
 
 
-@app.get("/api/flight/{icao24}", summary="Origin / destination for an aircraft")
-async def api_flight(icao24: str):
-    """Lookup the most recent origin + destination airports for this ICAO24.
+@app.get("/api/flight/{callsign}", summary="Origin / destination for a callsign")
+async def api_flight(callsign: str):
+    """Lookup origin + destination airports for a flight callsign.
 
-    Uses OpenSky Network's `/flights/aircraft` endpoint, cached server-side
-    for 12h (positive) / 1h (negative). Requires `OPENSKY_CLIENT_ID` and
-    `OPENSKY_CLIENT_SECRET` env vars; when unset, returns a null payload so
-    the UI can cleanly hide the field.
+    Uses adsbdb.com's `/v0/callsign/<callsign>` endpoint, cached server-side
+    for 12h (positive) / 1h (negative). Returns a null payload when the
+    feature is disabled or the callsign is unknown.
     """
-    icao = icao24.strip().lower()
-    if not icao or len(icao) > 6 or not all(c in "0123456789abcdef" for c in icao):
-        return JSONResponse({"icao": icao24, "error": "bad icao"}, status_code=400)
-    if not opensky.enabled:
-        return {"icao": icao, "origin": None, "destination": None, "callsign": None}
-    data = await opensky.lookup(icao)
+    cs = callsign.strip().upper()
+    if not cs or len(cs) > 8 or not all(c.isalnum() for c in cs):
+        return JSONResponse({"callsign": callsign, "error": "bad callsign"}, status_code=400)
+    if not adsbdb.enabled:
+        return {"callsign": cs, "origin": None, "destination": None}
+    data = await adsbdb.lookup(cs)
     if data is None:
-        return {"icao": icao, "origin": None, "destination": None, "callsign": None}
-    return {"icao": icao, **data}
+        return {"callsign": cs, "origin": None, "destination": None}
+    return {"callsign": cs, **data}
 
 
 @app.get("/api/stats", summary="App-level metrics as JSON")

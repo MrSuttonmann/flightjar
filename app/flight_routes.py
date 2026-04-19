@@ -1,21 +1,19 @@
-"""OpenSky Network origin → destination lookup for an ICAO24.
+"""adsbdb.com origin → destination lookup keyed by callsign.
 
-Uses OAuth2 client credentials (OpenSky migrated off HTTP Basic in 2024 —
-sign in at https://opensky-network.org/my-opensky and click 'Create API
-Client' to get a client_id + client_secret pair). Contributor rate limits
-(~8000 credits/day) apply when the credentials belong to a feeder account,
-which is plenty for our on-demand usage.
+adsbdb is a free, no-auth community API built on top of crowd-sourced
+flight-route data. We ask it for the origin and destination airport ICAO
+codes for a given callsign (e.g. `BAW123`) and cache the answer for a
+while so popups stay snappy and we don't hammer a volunteer service.
 
-Lookups are lazy: a callsite asks for a single ICAO24, we check the cache
+Lookups are lazy: a callsite asks for a callsign, we check the cache
 first, fall back to the upstream API on miss or stale, and memoise the
 answer with a TTL. Positive hits are cached for 12h (flight plans are
 stable for the duration of a flight + a little slack); negative answers
-("no recent flight found") for 1h so we don't re-ask the upstream API
-every time a popup opens.
+("unknown callsign" — often registrations for GA / military) for 1h so
+we re-ask eventually without re-asking on every popup open.
 
-The module is feature-gated — if no credentials are configured, every
-lookup returns None and the endpoint short-circuits. No upstream calls,
-no background tokens, no file writes.
+This replaces an earlier OpenSky integration whose credit-limited API
+and aircraft-hex key proved too restrictive for the popup use case.
 """
 
 import asyncio
@@ -47,40 +45,27 @@ def _parse_retry_after(resp: "httpx.Response") -> float:
             return DEFAULT_429_COOLDOWN
 
 
-OPENSKY_TOKEN_URL = (
-    "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token"
-)
-OPENSKY_FLIGHTS_URL = "https://opensky-network.org/api/flights/aircraft"
+ADSBDB_CALLSIGN_URL = "https://api.adsbdb.com/v0/callsign/{callsign}"
 
 CACHE_POSITIVE_TTL = 12 * 3600  # 12h — flight plans outlive a single flight
-CACHE_NEGATIVE_TTL = 1 * 3600  # 1h — retry "unknown" results periodically
+CACHE_NEGATIVE_TTL = 1 * 3600  # 1h — retry "unknown callsign" periodically
 CACHE_MAX_SIZE = 10_000  # bound memory on busy receivers
-LOOKUP_WINDOW_HOURS = 12  # how far back to query OpenSky for flights
-TOKEN_REFRESH_SKEW = 60  # refresh when <= this many seconds remain
 MIN_REQUEST_INTERVAL = 1.2  # seconds between consecutive upstream calls
-DEFAULT_429_COOLDOWN = 60.0  # if OpenSky doesn't set Retry-After, back off this long
+DEFAULT_429_COOLDOWN = 60.0  # if adsbdb doesn't set Retry-After, back off this long
+CACHE_SCHEMA_VERSION = 2  # bump to invalidate on-disk cache after a key/schema change
 
 
-class OpenSkyClient:
-    """Lazy OAuth token + /flights/aircraft lookup with on-disk caching."""
+class AdsbdbClient:
+    """Callsign → route lookup against adsbdb.com, with on-disk caching."""
 
-    def __init__(
-        self,
-        client_id: str | None = None,
-        client_secret: str | None = None,
-        cache_path: Path | None = None,
-    ) -> None:
-        self.client_id = client_id
-        self.client_secret = client_secret
+    def __init__(self, cache_path: Path | None = None, enabled: bool = True) -> None:
+        self._enabled = enabled
         self.cache_path = cache_path
-        self._token: str | None = None
-        self._token_expires_at: float = 0.0
         self._cache: dict[str, dict[str, Any]] = {}
-        self._token_lock = asyncio.Lock()
         self._request_lock = asyncio.Lock()
         self._in_flight: set[str] = set()
         # Paced throttle: requests are serialised and spaced by at least
-        # MIN_REQUEST_INTERVAL. If OpenSky 429s, we back off until this
+        # MIN_REQUEST_INTERVAL. If adsbdb 429s, we back off until this
         # wall-clock time before allowing the next call.
         self._last_request_at: float = 0.0
         self._cooldown_until: float = 0.0
@@ -88,12 +73,21 @@ class OpenSkyClient:
 
     @property
     def enabled(self) -> bool:
-        return bool(self.client_id and self.client_secret)
+        return self._enabled
+
+    # -------- key normalisation --------
+
+    @staticmethod
+    def _key(callsign: str | None) -> str | None:
+        if not callsign:
+            return None
+        k = callsign.strip().upper()
+        return k or None
 
     # -------- public API --------
 
-    def lookup_cached(self, icao24: str) -> dict[str, Any] | None:
-        """Return cached data for this ICAO24 without ever hitting the network.
+    def lookup_cached(self, callsign: str) -> dict[str, Any] | None:
+        """Return cached data for this callsign without ever hitting the network.
 
         Returns the cached payload (possibly `None`, for negative hits) when
         still fresh, else the literal `None` when nothing's known. Callers
@@ -101,30 +95,35 @@ class OpenSkyClient:
         for snapshot enrichment both "fresh-None" and "unknown" render the
         same.
         """
-        cached = self._cache.get((icao24 or "").lower())
+        key = self._key(callsign)
+        if key is None:
+            return None
+        cached = self._cache.get(key)
         if not cached:
             return None
         if time.time() >= cached["expires_at"]:
             return None
         return cached["data"]
 
-    async def lookup(self, icao24: str) -> dict[str, Any] | None:
-        """Return {origin, destination, callsign} for this ICAO24, or None.
+    async def lookup(self, callsign: str) -> dict[str, Any] | None:
+        """Return {origin, destination, callsign} for this callsign, or None.
 
         Uses the cache when fresh. Never raises — on upstream error, falls
         back to a stale cache entry if we have one, otherwise None.
-        Concurrent calls for the same ICAO are deduplicated; the second
+        Concurrent calls for the same callsign are deduplicated; the second
         caller returns whatever's already cached without firing a new
         request.
         """
-        if not self.enabled or not icao24:
+        if not self._enabled:
             return None
-        key = icao24.lower()
+        key = self._key(callsign)
+        if key is None:
+            return None
         now = time.time()
         cached = self._cache.get(key)
         if cached and now < cached["expires_at"]:
             return cached["data"]
-        # If OpenSky 429'd us recently, don't even try.
+        # If adsbdb 429'd us recently, don't even try.
         if now < self._cooldown_until:
             return cached["data"] if cached else None
         if key in self._in_flight:
@@ -133,7 +132,7 @@ class OpenSkyClient:
         self._in_flight.add(key)
         try:
             # Serialise requests and space them; bursty requests are what
-            # trigger OpenSky's per-second throttle.
+            # can trip a community service's rate limiter.
             async with self._request_lock:
                 # Re-check cache inside the lock — a sibling coroutine may
                 # have filled it while we were waiting.
@@ -153,15 +152,15 @@ class OpenSkyClient:
                         retry_after = _parse_retry_after(e.response)
                         self._cooldown_until = time.time() + retry_after
                         log.warning(
-                            "opensky 429 for %s — cooling down for %.0fs",
+                            "adsbdb 429 for %s — cooling down for %.0fs",
                             key,
                             retry_after,
                         )
                     else:
-                        log.warning("opensky HTTP %s for %s: %s", e.response.status_code, key, e)
+                        log.warning("adsbdb HTTP %s for %s: %s", e.response.status_code, key, e)
                     return cached["data"] if cached else None
                 except Exception as e:
-                    log.warning("opensky lookup failed for %s: %s", key, e)
+                    log.warning("adsbdb lookup failed for %s: %s", key, e)
                     return cached["data"] if cached else None
                 finally:
                     self._last_request_at = time.time()
@@ -173,54 +172,35 @@ class OpenSkyClient:
         finally:
             self._in_flight.discard(key)
 
-    # -------- token management --------
-
-    async def _get_token(self) -> str:
-        """Fetch or refresh the OAuth access token."""
-        async with self._token_lock:
-            now = time.time()
-            if self._token and now < self._token_expires_at - TOKEN_REFRESH_SKEW:
-                return self._token
-            async with httpx.AsyncClient(timeout=15) as c:
-                r = await c.post(
-                    OPENSKY_TOKEN_URL,
-                    data={
-                        "grant_type": "client_credentials",
-                        "client_id": self.client_id,
-                        "client_secret": self.client_secret,
-                    },
-                )
-                r.raise_for_status()
-                payload = r.json()
-            self._token = payload["access_token"]
-            self._token_expires_at = now + float(payload.get("expires_in", 1800))
-            return self._token
-
     # -------- upstream call --------
 
-    async def _fetch(self, icao24: str) -> dict[str, Any] | None:
-        """Ask OpenSky for the most recent flight for this ICAO24."""
-        token = await self._get_token()
-        end = int(time.time()) + 3600  # allow for clock skew / still-airborne
-        begin = end - LOOKUP_WINDOW_HOURS * 3600
-        async with httpx.AsyncClient(timeout=20) as c:
-            r = await c.get(
-                OPENSKY_FLIGHTS_URL,
-                params={"icao24": icao24, "begin": begin, "end": end},
-                headers={"Authorization": f"Bearer {token}"},
-            )
+    async def _fetch(self, callsign: str) -> dict[str, Any] | None:
+        """Ask adsbdb for the flight route for this callsign.
+
+        adsbdb returns 404 with a `{"response": "unknown callsign"}` body
+        when it's never seen the callsign (e.g. a registration rather than
+        a flight number, or a brand-new callsign not yet in the dataset).
+        We surface that as `None` so callers can cache it as a negative
+        hit.
+        """
+        url = ADSBDB_CALLSIGN_URL.format(callsign=callsign)
+        async with httpx.AsyncClient(timeout=15) as c:
+            r = await c.get(url, headers={"accept": "application/json"})
         if r.status_code == 404:
-            return None  # OpenSky returns 404 for "no flights in range"
-        r.raise_for_status()
-        flights = r.json() or []
-        if not flights:
             return None
-        # Most recent first (OpenSky returns chronologically).
-        latest = flights[-1]
+        r.raise_for_status()
+        body = r.json() or {}
+        route = (body.get("response") or {}).get("flightroute")
+        if not isinstance(route, dict):
+            return None
+        origin = (route.get("origin") or {}).get("icao_code")
+        destination = (route.get("destination") or {}).get("icao_code")
+        if not origin and not destination:
+            return None
         return {
-            "origin": latest.get("estDepartureAirport"),
-            "destination": latest.get("estArrivalAirport"),
-            "callsign": (latest.get("callsign") or "").strip() or None,
+            "origin": origin or None,
+            "destination": destination or None,
+            "callsign": route.get("callsign") or callsign,
         }
 
     # -------- cache persistence --------
@@ -243,6 +223,15 @@ class OpenSkyClient:
         except Exception as e:
             log.warning("flight-route cache unreadable at %s: %s", self.cache_path, e)
             return
+        # Old OpenSky-era caches used ICAO24 keys and no version marker.
+        # Drop them silently — they'd just sit unused under the new scheme.
+        if data.get("version") != CACHE_SCHEMA_VERSION:
+            log.info(
+                "flight-route cache schema %r != %d — starting fresh",
+                data.get("version"),
+                CACHE_SCHEMA_VERSION,
+            )
+            return
         now = time.time()
         for k, v in (data.get("cache") or {}).items():
             if isinstance(v, dict) and v.get("expires_at", 0) > now:
@@ -256,7 +245,11 @@ class OpenSkyClient:
             self.cache_path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.cache_path.with_suffix(self.cache_path.suffix + ".tmp")
             with gzip.open(tmp, "wt", encoding="utf-8") as fh:
-                json.dump({"cache": self._cache}, fh, separators=(",", ":"))
+                json.dump(
+                    {"version": CACHE_SCHEMA_VERSION, "cache": self._cache},
+                    fh,
+                    separators=(",", ":"),
+                )
             tmp.replace(self.cache_path)
         except Exception as e:
             log.warning("couldn't persist flight-route cache: %s", e)

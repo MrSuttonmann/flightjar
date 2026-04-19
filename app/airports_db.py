@@ -2,9 +2,8 @@
 
 Reads the OurAirports CSV (public domain). Data at
 https://github.com/davidmegginson/ourairports-data — we parse at startup
-and keep a dict in memory. Looked up by ICAO ident, which is what
-OpenSky's `/flights/aircraft` returns in `estDepartureAirport` /
-`estArrivalAirport`.
+and keep a dict in memory. Looked up by ICAO ident, which is what adsbdb
+returns in `origin.icao_code` / `destination.icao_code`.
 
 The file is baked into the Docker image at build time. If a user-provided
 copy exists at /data/airports.csv it wins (same override pattern as the
