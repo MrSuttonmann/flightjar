@@ -225,15 +225,69 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
     });
   }
 
-  function popupHtml(a, now, airports) {
-    const emergency = a.emergency
-      ? `<span class="emergency-label">EMERGENCY · ${escapeHtml(a.emergency)}</span><br>`
-      : '';
-    const regLine = a.registration || a.type_long
-      ? `<span class="ac-info">${[a.registration, a.type_long].filter(Boolean).map(escapeHtml).join(' · ')}</span><br>`
-      : '';
-    // Indicate altitude source: show (geo) if only geometric, or add a small
-    // (baro/geo) suffix when both are known and they disagree meaningfully.
+  // Build the popup DOM once per aircraft, with placeholder children for
+  // every field that changes on snapshot tick. Subsequent ticks call
+  // updatePopupContent() to mutate those placeholders in place — this
+  // leaves the .ac-photo slot untouched between ticks, so the aircraft
+  // photograph doesn't flicker in and out every second the way it did
+  // when we rebuilt the whole popup from an HTML string.
+  function buildPopupContent(a, now, airports) {
+    const root = document.createElement('div');
+    root.className = 'ac-popup';
+    root.innerHTML =
+      `<div class="ac-photo" data-icao="${escapeHtml(a.icao)}"></div>` +
+      `<div class="pop-head">` +
+        `<b class="pop-callsign"></b> <code class="pop-icao"></code> ` +
+        `<span class="pop-emergency"></span>` +
+      `</div>` +
+      `<div class="pop-reg-line" hidden><span class="ac-info pop-reg"></span></div>` +
+      `<div class="pop-route-line" hidden><span class="ac-info pop-route"></span></div>` +
+      `<div class="pop-row">Alt: <span class="pop-alt-wrap"><b class="pop-alt"></b>` +
+        `<span class="pop-alt-trend"></span></span></div>` +
+      `<div class="pop-row">Spd: <span class="pop-spd-wrap"><span class="pop-spd"></span>` +
+        `<span class="pop-spd-trend"></span></span> &nbsp; ` +
+        `Hdg: <span class="pop-hdg"></span><span class="pop-compass"></span></div>` +
+      `<div class="pop-row">VRate: <span class="pop-vrate"></span></div>` +
+      `<div class="pop-row">Sqwk: <span class="pop-squawk"></span></div>` +
+      `<div class="pop-row"><code class="pop-msgs"></code></div>`;
+    updatePopupContent(root, a, now, airports);
+    return root;
+  }
+
+  function updatePopupContent(root, a, now, airports) {
+    const q = (sel) => root.querySelector(sel);
+
+    q('.pop-callsign').textContent = a.callsign || '—';
+    q('.pop-icao').textContent = a.icao.toUpperCase();
+
+    const emEl = q('.pop-emergency');
+    if (a.emergency) {
+      emEl.innerHTML =
+        `<span class="emergency-label">EMERGENCY · ${escapeHtml(a.emergency)}</span>`;
+    } else {
+      emEl.textContent = '';
+    }
+
+    const regLine = q('.pop-reg-line');
+    if (a.registration || a.type_long) {
+      q('.pop-reg').textContent = [a.registration, a.type_long]
+        .filter(Boolean).join(' · ');
+      regLine.hidden = false;
+    } else {
+      regLine.hidden = true;
+    }
+
+    const routeLine = q('.pop-route-line');
+    const routeStr = routeLabel(a, airports);
+    if (routeStr) {
+      q('.pop-route').innerHTML = routeStr;
+      routeLine.hidden = false;
+    } else {
+      routeLine.hidden = true;
+    }
+
+    // Indicate altitude source: show (geo) when only geometric is known,
+    // or tag baro when both are known and they disagree meaningfully.
     let altLabel = uconv('alt', a.altitude);
     if (a.altitude_baro == null && a.altitude_geo != null) {
       altLabel += ' <span class="alt-tag">geo</span>';
@@ -246,20 +300,18 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
     const entry = aircraft.get(a.icao);
     const tAlt = trendInfo(entry, 'alt');
     const tSpd = trendInfo(entry, 'spd');
-    const route = routeLabel(a, airports);
-    const routeLine = route ? `<span class="ac-info">${route}</span><br>` : '';
-    const callsign = a.callsign ? escapeHtml(a.callsign) : '—';
-    const icao = escapeHtml(a.icao.toUpperCase());
-    const squawk = a.squawk ? escapeHtml(a.squawk) : '—';
-    return `
-      <b>${callsign}</b> <code>${icao}</code> ${emergency}<br>
-      ${regLine}
-      ${routeLine}
-      Alt: <span class="${tAlt.cls}"><b>${altLabel}</b>${tAlt.arrow}</span><br>
-      Spd: <span class="${tSpd.cls}">${uconv('spd', a.speed)}${tSpd.arrow}</span> &nbsp; Hdg: ${fmt(a.track, '°')}${compassIcon(a.track)}<br>
-      VRate: ${uconv('vrt', a.vrate)}<br>
-      Sqwk: ${squawk}<br>
-      <code>${a.msg_count} msgs · ${fmt(ageOf(a, now), 's', 1)} ago</code>`;
+
+    q('.pop-alt').innerHTML = altLabel;
+    q('.pop-alt-wrap').className = 'pop-alt-wrap ' + tAlt.cls;
+    q('.pop-alt-trend').innerHTML = tAlt.arrow;
+    q('.pop-spd').textContent = uconv('spd', a.speed);
+    q('.pop-spd-wrap').className = 'pop-spd-wrap ' + tSpd.cls;
+    q('.pop-spd-trend').innerHTML = tSpd.arrow;
+    q('.pop-hdg').textContent = fmt(a.track, '°');
+    q('.pop-compass').innerHTML = compassIcon(a.track);
+    q('.pop-vrate').textContent = uconv('vrt', a.vrate);
+    q('.pop-squawk').textContent = a.squawk || '—';
+    q('.pop-msgs').textContent = `${a.msg_count} msgs · ${fmt(ageOf(a, now), 's', 1)} ago`;
   }
 
   // Route string (e.g. "EGLL → KJFK") from snapshot fields. Returns '' when
@@ -514,15 +566,15 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
         entry.trail.clearLayers();
         entry.trailFp = null;
       }
-      entry.marker.setPopupContent(popupHtml(a, snap.now, snap.airports));
-      if (!entry.marker.getPopup()) {
+      if (!entry.popupEl) {
+        entry.popupEl = buildPopupContent(a, snap.now, snap.airports);
         // autoPan=false stops the map from drifting when the aircraft moves
         // while its popup is open (e.g. after returning from a hidden tab).
         // We pan explicitly on sidebar-triggered selections so the popup is
         // still in view when it first opens.
-        entry.marker.bindPopup(popupHtml(a, snap.now, snap.airports), {
-          autoPan: false,
-        });
+        entry.marker.bindPopup(entry.popupEl, { autoPan: false, maxWidth: 360 });
+      } else {
+        updatePopupContent(entry.popupEl, a, snap.now, snap.airports);
       }
 
       entry.data = a;
@@ -729,6 +781,44 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
     document.querySelectorAll('.ac-item').forEach(el => {
       el.classList.toggle('selected', el.dataset.icao === icao);
     });
+    fillAircraftPhoto(icao);
+  }
+
+  // Cache of adsbdb aircraft records by ICAO24 — keyed lowercase, value is
+  // either the info object or `null` for a confirmed miss. The server
+  // already caches for 30 days, but this client-side dict spares us a
+  // network round-trip when the user re-opens the same popup.
+  const aircraftInfoCache = new Map();
+
+  async function fillAircraftPhoto(icao) {
+    // Look up the slot the current popup rendered. If the popup closed
+    // before the fetch returns, the slot is gone and we quietly drop it.
+    const slotSelector = `.ac-photo[data-icao="${icao}"]`;
+    const findSlot = () => document.querySelector(slotSelector);
+    if (!findSlot()) return;
+
+    let info = aircraftInfoCache.get(icao);
+    if (info === undefined) {
+      try {
+        const r = await fetch(`/api/aircraft/${encodeURIComponent(icao)}`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        info = await r.json();
+      } catch (e) {
+        console.warn('aircraft lookup failed', icao, e);
+        info = null;
+      }
+      aircraftInfoCache.set(icao, info);
+    }
+
+    const slot = findSlot();
+    if (!slot || !info || !info.photo_thumbnail) return;
+    // Render the thumbnail with a link out to the full-size original; the
+    // photo URL goes through escapeHtml since it's upstream data.
+    const thumb = escapeHtml(info.photo_thumbnail);
+    const full = info.photo_url ? escapeHtml(info.photo_url) : thumb;
+    slot.innerHTML =
+      `<a href="${full}" target="_blank" rel="noopener">` +
+      `<img src="${thumb}" alt="" loading="lazy"></a>`;
   }
 
   // Fires when a popup closes (user clicked X, clicked the marker again,
@@ -791,9 +881,9 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
         renderSidebar(lastSnap);
         // Refresh open popups so their units update immediately.
         for (const entry of aircraft.values()) {
-          entry.marker.setPopupContent(
-            popupHtml(entry.data, lastSnap?.now, lastSnap?.airports),
-          );
+          if (entry.popupEl) {
+            updatePopupContent(entry.popupEl, entry.data, lastSnap.now, lastSnap.airports);
+          }
         }
       }
     });

@@ -216,21 +216,29 @@ If `beast-logs/aircraft_db.csv.gz` exists it wins over the baked copy.
 Remove it to fall back to the image's version. If neither is present,
 enrichment is silently disabled and the app behaves as before.
 
-## Origin / destination lookup (adsbdb)
+## adsbdb integration (routes, aircraft, photos)
 
-Flightjar enriches each aircraft with its origin + destination airports
-by querying [adsbdb.com](https://www.adsbdb.com/), a free community API
-that maps flight callsigns to airport pairs. It's on by default and needs
-no account or credentials — the broadcast callsign is enough.
+Flightjar talks to [adsbdb.com](https://www.adsbdb.com/), a free
+community API that needs no account, for two enrichments:
+
+- **Origin / destination by callsign.** Populated on every snapshot for
+  aircraft that have broadcast a callsign; shown as `EGLL → KJFK` in the
+  sidebar and popup.
+- **Per-tail details on popup open.** When you click a plane, the popup
+  fetches the aircraft record (registration, type, operator) and — when
+  one is available — displays a photograph at the top. Photos are
+  hotlinked direct from [airport-data.com](https://airport-data.com/)
+  (adsbdb's upstream), so your browser fetches them without involving
+  this server.
 
 Lookups are serialised with a small spacing (to stay a polite client),
-deduplicated, and cached server-side in `./beast-logs/flight_routes.json.gz`
-— 12h for known routes, 1h for "unknown callsign" (often registrations
-for GA or military traffic that the database doesn't cover). On first
-boot you'll see routes appear gradually as the cache populates.
+deduplicated, and cached server-side in `./beast-logs/flight_routes.json.gz`.
+TTLs: 12h for known routes, 1h for unknown callsigns, 30 days for known
+tails, 24h for unknown tails. On first boot you'll see routes and photos
+appear gradually as the cache populates.
 
 To disable outbound lookups entirely (offline or privacy-conscious
-deploys), set `FLIGHT_ROUTES=0`.
+deploys), set `FLIGHT_ROUTES=0`. That also suppresses photo fetches.
 
 ## Running multiple receivers
 
@@ -290,6 +298,7 @@ jq -r '.ts_rx[0:16]' beast-logs/beast.jsonl | uniq -c
 | `GET  /healthz`     | `200 {"status":"ok"}` when the BEAST feed is connected, `503` otherwise — drop this straight into a Docker `healthcheck:` block. |
 | `GET  /metrics`     | Prometheus-format metrics: `flightjar_frames_total`, `flightjar_aircraft_tracked`, `flightjar_websocket_clients`, `flightjar_beast_connected`. |
 | `GET  /api/flight/{callsign}` | Origin / destination for a callsign (adsbdb lookup). Returns nulls when the feature is disabled or the callsign is unknown. |
+| `GET  /api/aircraft/{icao24}` | Per-tail details (registration, type, operator, photo URLs) for one aircraft, via adsbdb. |
 | `GET  /api/airports` | Airports inside a lat/lon bounding box; takes `min_lat`, `min_lon`, `max_lat`, `max_lon`, optional `limit`. |
 | `WS   /ws`          | Live aircraft snapshots, one per `SNAPSHOT_INTERVAL`.              |
 

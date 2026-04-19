@@ -1,19 +1,22 @@
-"""adsbdb.com origin → destination lookup keyed by callsign.
+"""adsbdb.com lookups for flight routes and aircraft records.
 
-adsbdb is a free, no-auth community API built on top of crowd-sourced
-flight-route data. We ask it for the origin and destination airport ICAO
-codes for a given callsign (e.g. `BAW123`) and cache the answer for a
-while so popups stay snappy and we don't hammer a volunteer service.
+adsbdb is a free, no-auth community API on top of crowd-sourced data.
+Two endpoints matter to us:
 
-Lookups are lazy: a callsite asks for a callsign, we check the cache
-first, fall back to the upstream API on miss or stale, and memoise the
-answer with a TTL. Positive hits are cached for 12h (flight plans are
-stable for the duration of a flight + a little slack); negative answers
-("unknown callsign" — often registrations for GA / military) for 1h so
-we re-ask eventually without re-asking on every popup open.
+- `/v0/callsign/<callsign>` — origin + destination airports for the
+  flight currently (or most recently) operating under that callsign.
+- `/v0/aircraft/<mode_s_hex>` — per-tail details (registration, type,
+  operator, and a photo URL served by airport-data.com).
 
-This replaces an earlier OpenSky integration whose credit-limited API
-and aircraft-hex key proved too restrictive for the popup use case.
+Lookups are lazy: a callsite asks for a key, we check the cache first,
+fall back to the upstream API on miss or stale, and memoise the answer
+with a TTL. Route hits cache 12h (flight plans are stable over a flight
+and a little slack); aircraft hits cache 30 days (registrations and
+photos change very rarely). Negative answers cache shorter so a
+newly-seen callsign or tail gets retried periodically.
+
+Both kinds share one throttle and one 429 cooldown — we're a polite
+single client against a volunteer service.
 """
 
 import asyncio
@@ -21,6 +24,7 @@ import gzip
 import json
 import logging
 import time
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -45,28 +49,33 @@ def _parse_retry_after(resp: "httpx.Response") -> float:
             return DEFAULT_429_COOLDOWN
 
 
-ADSBDB_CALLSIGN_URL = "https://api.adsbdb.com/v0/callsign/{callsign}"
+ADSBDB_CALLSIGN_URL = "https://api.adsbdb.com/v0/callsign/{key}"
+ADSBDB_AIRCRAFT_URL = "https://api.adsbdb.com/v0/aircraft/{key}"
 
-CACHE_POSITIVE_TTL = 12 * 3600  # 12h — flight plans outlive a single flight
-CACHE_NEGATIVE_TTL = 1 * 3600  # 1h — retry "unknown callsign" periodically
-CACHE_MAX_SIZE = 10_000  # bound memory on busy receivers
+ROUTE_POSITIVE_TTL = 12 * 3600  # 12h — flight plans outlive a single flight
+ROUTE_NEGATIVE_TTL = 1 * 3600  # 1h — retry "unknown callsign" periodically
+AIRCRAFT_POSITIVE_TTL = 30 * 86400  # 30d — tails barely change
+AIRCRAFT_NEGATIVE_TTL = 24 * 3600  # 24h — retry tails adsbdb doesn't know
+
+CACHE_MAX_SIZE = 10_000  # per cache; bound memory on busy receivers
 MIN_REQUEST_INTERVAL = 1.2  # seconds between consecutive upstream calls
 DEFAULT_429_COOLDOWN = 60.0  # if adsbdb doesn't set Retry-After, back off this long
-CACHE_SCHEMA_VERSION = 2  # bump to invalidate on-disk cache after a key/schema change
+CACHE_SCHEMA_VERSION = 3  # bump on any key/schema change to invalidate on disk
 
 
 class AdsbdbClient:
-    """Callsign → route lookup against adsbdb.com, with on-disk caching."""
+    """Route + aircraft lookups against adsbdb.com, with on-disk caching."""
 
     def __init__(self, cache_path: Path | None = None, enabled: bool = True) -> None:
         self._enabled = enabled
         self.cache_path = cache_path
-        self._cache: dict[str, dict[str, Any]] = {}
+        self._routes: dict[str, dict[str, Any]] = {}
+        self._aircraft: dict[str, dict[str, Any]] = {}
         self._request_lock = asyncio.Lock()
         self._in_flight: set[str] = set()
-        # Paced throttle: requests are serialised and spaced by at least
-        # MIN_REQUEST_INTERVAL. If adsbdb 429s, we back off until this
-        # wall-clock time before allowing the next call.
+        # Paced throttle shared across both endpoint kinds: bursty requests
+        # are what can trip a community service's rate limiter. If adsbdb
+        # 429s, back off until this wall-clock time before next attempt.
         self._last_request_at: float = 0.0
         self._cooldown_until: float = 0.0
         self._load_cache()
@@ -78,65 +87,101 @@ class AdsbdbClient:
     # -------- key normalisation --------
 
     @staticmethod
-    def _key(callsign: str | None) -> str | None:
+    def _route_key(callsign: str | None) -> str | None:
         if not callsign:
             return None
         k = callsign.strip().upper()
         return k or None
 
-    # -------- public API --------
+    @staticmethod
+    def _aircraft_key(icao: str | None) -> str | None:
+        if not icao:
+            return None
+        k = icao.strip().lower()
+        if len(k) > 6 or not all(c in "0123456789abcdef" for c in k):
+            return None
+        return k or None
 
-    def lookup_cached(self, callsign: str) -> dict[str, Any] | None:
-        """Return cached data for this callsign without ever hitting the network.
+    # -------- public API: routes (by callsign) --------
 
-        Returns the cached payload (possibly `None`, for negative hits) when
-        still fresh, else the literal `None` when nothing's known. Callers
-        can tell the difference by checking the cache directly if needed;
-        for snapshot enrichment both "fresh-None" and "unknown" render the
-        same.
-        """
-        key = self._key(callsign)
+    def lookup_cached_route(self, callsign: str) -> dict[str, Any] | None:
+        """Return cached route for this callsign without touching the network."""
+        key = self._route_key(callsign)
+        return self._cached(self._routes, key) if key else None
+
+    async def lookup_route(self, callsign: str) -> dict[str, Any] | None:
+        """Return {origin, destination, callsign} for this callsign, or None."""
+        key = self._route_key(callsign)
         if key is None:
             return None
-        cached = self._cache.get(key)
-        if not cached:
-            return None
-        if time.time() >= cached["expires_at"]:
-            return None
-        return cached["data"]
+        return await self._lookup(
+            self._routes,
+            key,
+            self._fetch_route,
+            ROUTE_POSITIVE_TTL,
+            ROUTE_NEGATIVE_TTL,
+        )
 
-    async def lookup(self, callsign: str) -> dict[str, Any] | None:
-        """Return {origin, destination, callsign} for this callsign, or None.
+    # -------- public API: aircraft (by mode-s hex) --------
 
-        Uses the cache when fresh. Never raises — on upstream error, falls
-        back to a stale cache entry if we have one, otherwise None.
-        Concurrent calls for the same callsign are deduplicated; the second
-        caller returns whatever's already cached without firing a new
-        request.
+    def lookup_cached_aircraft(self, icao: str) -> dict[str, Any] | None:
+        """Return cached aircraft record for this hex without touching the network."""
+        key = self._aircraft_key(icao)
+        return self._cached(self._aircraft, key) if key else None
+
+    async def lookup_aircraft(self, icao: str) -> dict[str, Any] | None:
+        """Return {registration, type, manufacturer, operator, photo_url,
+        photo_thumbnail} for this ICAO24 hex, or None."""
+        key = self._aircraft_key(icao)
+        if key is None:
+            return None
+        return await self._lookup(
+            self._aircraft,
+            key,
+            self._fetch_aircraft,
+            AIRCRAFT_POSITIVE_TTL,
+            AIRCRAFT_NEGATIVE_TTL,
+        )
+
+    # -------- shared cache + throttle machinery --------
+
+    @staticmethod
+    def _cached(bucket: dict[str, dict[str, Any]], key: str) -> dict[str, Any] | None:
+        entry = bucket.get(key)
+        if not entry:
+            return None
+        if time.time() >= entry["expires_at"]:
+            return None
+        return entry["data"]
+
+    async def _lookup(
+        self,
+        bucket: dict[str, dict[str, Any]],
+        key: str,
+        fetcher: Callable[[str], Awaitable[dict[str, Any] | None]],
+        positive_ttl: int,
+        negative_ttl: int,
+    ) -> dict[str, Any] | None:
+        """Cache-aware lookup against one endpoint. Never raises — falls
+        back to a stale cache entry on upstream errors.
         """
         if not self._enabled:
             return None
-        key = self._key(callsign)
-        if key is None:
-            return None
         now = time.time()
-        cached = self._cache.get(key)
+        cached = bucket.get(key)
         if cached and now < cached["expires_at"]:
             return cached["data"]
-        # If adsbdb 429'd us recently, don't even try.
         if now < self._cooldown_until:
             return cached["data"] if cached else None
-        if key in self._in_flight:
+        # Dedupe concurrent callers on the same key, regardless of kind.
+        dedup = f"{id(bucket)}:{key}"
+        if dedup in self._in_flight:
             return cached["data"] if cached else None
 
-        self._in_flight.add(key)
+        self._in_flight.add(dedup)
         try:
-            # Serialise requests and space them; bursty requests are what
-            # can trip a community service's rate limiter.
             async with self._request_lock:
-                # Re-check cache inside the lock — a sibling coroutine may
-                # have filled it while we were waiting.
-                cached = self._cache.get(key)
+                cached = bucket.get(key)
                 now = time.time()
                 if cached and now < cached["expires_at"]:
                     return cached["data"]
@@ -146,7 +191,7 @@ class AdsbdbClient:
                 if wait > 0:
                     await asyncio.sleep(wait)
                 try:
-                    data = await self._fetch(key)
+                    data = await fetcher(key)
                 except httpx.HTTPStatusError as e:
                     if e.response.status_code == 429:
                         retry_after = _parse_retry_after(e.response)
@@ -164,26 +209,19 @@ class AdsbdbClient:
                     return cached["data"] if cached else None
                 finally:
                     self._last_request_at = time.time()
-            ttl = CACHE_POSITIVE_TTL if data else CACHE_NEGATIVE_TTL
-            self._cache[key] = {"data": data, "expires_at": time.time() + ttl}
-            self._prune_cache()
+            ttl = positive_ttl if data else negative_ttl
+            bucket[key] = {"data": data, "expires_at": time.time() + ttl}
+            self._prune(bucket)
             self._persist_cache()
             return data
         finally:
-            self._in_flight.discard(key)
+            self._in_flight.discard(dedup)
 
-    # -------- upstream call --------
+    # -------- upstream calls --------
 
-    async def _fetch(self, callsign: str) -> dict[str, Any] | None:
-        """Ask adsbdb for the flight route for this callsign.
-
-        adsbdb returns 404 with a `{"response": "unknown callsign"}` body
-        when it's never seen the callsign (e.g. a registration rather than
-        a flight number, or a brand-new callsign not yet in the dataset).
-        We surface that as `None` so callers can cache it as a negative
-        hit.
-        """
-        url = ADSBDB_CALLSIGN_URL.format(callsign=callsign)
+    async def _fetch_route(self, callsign: str) -> dict[str, Any] | None:
+        """Ask adsbdb for the flight route for this callsign."""
+        url = ADSBDB_CALLSIGN_URL.format(key=callsign)
         async with httpx.AsyncClient(timeout=15) as c:
             r = await c.get(url, headers={"accept": "application/json"})
         if r.status_code == 404:
@@ -203,16 +241,39 @@ class AdsbdbClient:
             "callsign": route.get("callsign") or callsign,
         }
 
+    async def _fetch_aircraft(self, icao: str) -> dict[str, Any] | None:
+        """Ask adsbdb for the aircraft record for this mode-s hex."""
+        url = ADSBDB_AIRCRAFT_URL.format(key=icao)
+        async with httpx.AsyncClient(timeout=15) as c:
+            r = await c.get(url, headers={"accept": "application/json"})
+        if r.status_code == 404:
+            return None
+        r.raise_for_status()
+        body = r.json() or {}
+        ac = (body.get("response") or {}).get("aircraft")
+        if not isinstance(ac, dict):
+            return None
+        return {
+            "registration": ac.get("registration") or None,
+            "type": ac.get("type") or None,
+            "icao_type": ac.get("icao_type") or None,
+            "manufacturer": ac.get("manufacturer") or None,
+            "operator": ac.get("registered_owner") or None,
+            "operator_country": ac.get("registered_owner_country_name") or None,
+            "photo_url": ac.get("url_photo") or None,
+            "photo_thumbnail": ac.get("url_photo_thumbnail") or None,
+        }
+
     # -------- cache persistence --------
 
-    def _prune_cache(self) -> None:
-        if len(self._cache) <= CACHE_MAX_SIZE:
+    def _prune(self, bucket: dict[str, dict[str, Any]]) -> None:
+        if len(bucket) <= CACHE_MAX_SIZE:
             return
-        # Drop the oldest-expiring entries first.
-        keep = sorted(self._cache.items(), key=lambda kv: kv[1]["expires_at"], reverse=True)[
+        keep = sorted(bucket.items(), key=lambda kv: kv[1]["expires_at"], reverse=True)[
             :CACHE_MAX_SIZE
         ]
-        self._cache = dict(keep)
+        bucket.clear()
+        bucket.update(keep)
 
     def _load_cache(self) -> None:
         if self.cache_path is None or not self.cache_path.exists():
@@ -223,8 +284,8 @@ class AdsbdbClient:
         except Exception as e:
             log.warning("flight-route cache unreadable at %s: %s", self.cache_path, e)
             return
-        # Old OpenSky-era caches used ICAO24 keys and no version marker.
-        # Drop them silently — they'd just sit unused under the new scheme.
+        # Older caches (v<3) used a single top-level "cache" dict and aren't
+        # useful under the new two-bucket layout — drop them silently.
         if data.get("version") != CACHE_SCHEMA_VERSION:
             log.info(
                 "flight-route cache schema %r != %d — starting fresh",
@@ -233,10 +294,15 @@ class AdsbdbClient:
             )
             return
         now = time.time()
-        for k, v in (data.get("cache") or {}).items():
-            if isinstance(v, dict) and v.get("expires_at", 0) > now:
-                self._cache[k] = v
-        log.info("loaded %d flight-route cache entries", len(self._cache))
+        for bucket_name, bucket in (("routes", self._routes), ("aircraft", self._aircraft)):
+            for k, v in (data.get(bucket_name) or {}).items():
+                if isinstance(v, dict) and v.get("expires_at", 0) > now:
+                    bucket[k] = v
+        log.info(
+            "loaded %d route + %d aircraft cache entries",
+            len(self._routes),
+            len(self._aircraft),
+        )
 
     def _persist_cache(self) -> None:
         if self.cache_path is None:
@@ -246,7 +312,11 @@ class AdsbdbClient:
             tmp = self.cache_path.with_suffix(self.cache_path.suffix + ".tmp")
             with gzip.open(tmp, "wt", encoding="utf-8") as fh:
                 json.dump(
-                    {"version": CACHE_SCHEMA_VERSION, "cache": self._cache},
+                    {
+                        "version": CACHE_SCHEMA_VERSION,
+                        "routes": self._routes,
+                        "aircraft": self._aircraft,
+                    },
                     fh,
                     separators=(",", ":"),
                 )

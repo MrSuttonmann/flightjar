@@ -198,6 +198,12 @@
   .leaflet-popup-content { font-size: 12px; line-height: 1.5; margin: 8px 12px; }
   .leaflet-popup-content code { font-size: 11px; color: var(--muted); }
   .ac-info { color: var(--muted); font-size: 11px; }
+  .ac-photo { margin: -4px -6px 6px; }
+  .ac-photo:empty { display: none; }
+  .ac-photo img {
+    display: block; width: 100%; height: auto;
+    border-radius: 3px; border: 1px solid var(--border);
+  }
   .airport-code[data-title] { border-bottom: 1px dotted currentColor; cursor: help; }
   #airport-tooltip {
     position: fixed; z-index: 10000;

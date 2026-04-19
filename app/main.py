@@ -239,7 +239,7 @@ def build_snapshot(now: float | None = None) -> dict:
         referenced_airports: set[str] = set()
         for ac in snap["aircraft"]:
             cs = ac.get("callsign")
-            data = adsbdb.lookup_cached(cs) if cs else None
+            data = adsbdb.lookup_cached_route(cs) if cs else None
             if data:
                 ac["origin"] = data.get("origin")
                 ac["destination"] = data.get("destination")
@@ -249,7 +249,7 @@ def build_snapshot(now: float | None = None) -> dict:
                 # Fire-and-forget enrichment for next snapshot, but only
                 # when we actually have a callsign to query against.
                 if cs:
-                    _spawn_background(adsbdb.lookup(cs))
+                    _spawn_background(adsbdb.lookup_route(cs))
             if ac["origin"]:
                 referenced_airports.add(ac["origin"])
             if ac["destination"]:
@@ -502,10 +502,32 @@ async def api_flight(callsign: str):
         return JSONResponse({"callsign": callsign, "error": "bad callsign"}, status_code=400)
     if not adsbdb.enabled:
         return {"callsign": cs, "origin": None, "destination": None}
-    data = await adsbdb.lookup(cs)
+    data = await adsbdb.lookup_route(cs)
     if data is None:
         return {"callsign": cs, "origin": None, "destination": None}
     return {"callsign": cs, **data}
+
+
+@app.get("/api/aircraft/{icao24}", summary="Per-tail details for an aircraft")
+async def api_aircraft_info(icao24: str):
+    """Lookup per-tail details (registration, type, owner, photo URLs) for
+    this Mode-S ICAO24.
+
+    Uses adsbdb.com's `/v0/aircraft/<hex>` endpoint, cached server-side
+    for 30 days (positive) / 24h (negative). Returns a null payload when
+    the feature is disabled or adsbdb has no record. Photo URLs point
+    direct to airport-data.com — the browser fetches them without
+    involving this server, so images are cached by the user-agent.
+    """
+    icao = icao24.strip().lower()
+    if not icao or len(icao) > 6 or not all(c in "0123456789abcdef" for c in icao):
+        return JSONResponse({"icao": icao24, "error": "bad icao"}, status_code=400)
+    if not adsbdb.enabled:
+        return {"icao": icao}
+    data = await adsbdb.lookup_aircraft(icao)
+    if data is None:
+        return {"icao": icao}
+    return {"icao": icao, **data}
 
 
 @app.get("/api/stats", summary="App-level metrics as JSON")
