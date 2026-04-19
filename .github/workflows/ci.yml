@@ -29,3 +29,10 @@ jobs:
 
       - name: Pytest
         run: pytest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Node tests (frontend modules)
+        run: node --test tests/js/

@@ -1,3 +1,9 @@
+import { fmt, ageOf, compassIcon } from './format.js';
+import { UNIT_SYSTEMS, getUnitSystem, setUnitSystem, uconv } from './units.js';
+import { altColor } from './altitude.js';
+import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
+import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
+
 (() => {
   const map = L.map('map', { worldCopyJump: true }).setView([51.5, -0.1], 6);
 
@@ -69,35 +75,8 @@
   let sortKey = 'callsign';
   let sortDir = defaultDir[sortKey];
 
-  // Unit system. Feed speeds/alts are knots and feet; distances are km.
-  // Conversions below keep each system internally consistent.
-  const UNIT_SYSTEMS = {
-    metric:   { alt: { mul: 0.3048,   suf: ' m',    digits: 0 },
-                spd: { mul: 1.852,    suf: ' km/h', digits: 0 },
-                vrt: { mul: 0.00508,  suf: ' m/s',  digits: 1 },
-                dst: { mul: 1,        suf: ' km',   digits: 0 } },
-    imperial: { alt: { mul: 1,        suf: ' ft',   digits: 0 },
-                spd: { mul: 1.15078,  suf: ' mph',  digits: 0 },
-                vrt: { mul: 1,        suf: ' fpm',  digits: 0 },
-                dst: { mul: 0.621371, suf: ' mi',   digits: 0 } },
-    nautical: { alt: { mul: 1,        suf: ' ft',   digits: 0 },
-                spd: { mul: 1,        suf: ' kt',   digits: 0 },
-                vrt: { mul: 1,        suf: ' fpm',  digits: 0 },
-                dst: { mul: 0.539957, suf: ' nm',   digits: 0 } },
-  };
-  let unitSystem = localStorage.getItem('flightjar.units');
-  if (!UNIT_SYSTEMS[unitSystem]) unitSystem = 'nautical';
-
-  function uconv(kind, value) {
-    if (value == null || isNaN(value)) return '—';
-    // Metric altitude: show km once we cross 1 km, otherwise metres.
-    if (unitSystem === 'metric' && kind === 'alt') {
-      const m = Number(value) * 0.3048;
-      return m >= 1000 ? (m / 1000).toFixed(1) + ' km' : m.toFixed(0) + ' m';
-    }
-    const u = UNIT_SYSTEMS[unitSystem][kind];
-    return (Number(value) * u.mul).toFixed(u.digits) + u.suf;
-  }
+  // Unit system lives in units.js; initialise from localStorage.
+  setUnitSystem(localStorage.getItem('flightjar.units') || 'nautical');
 
   function sortValue(a, key, now) {
     switch (key) {
@@ -107,120 +86,6 @@
       case 'distance': return a.distance_km;
     }
     return null;
-  }
-
-  // Altitude → colour ramp. Stops picked from ColorBrewer's Spectral (reversed)
-  // for a smooth, perceptually-even transition: warm red at low altitudes,
-  // through yellow/green at mid, to cool blue/violet at high. Linear
-  // interpolation in RGB between adjacent stops.
-  const ALT_STOPS = [
-    [    0, [213,  62,  79]],  // #d53e4f  low
-    [ 4000, [244, 109,  67]],  // #f46d43
-    [ 8000, [253, 174,  97]],  // #fdae61
-    [13000, [254, 224, 139]],  // #fee08b
-    [18000, [230, 245, 152]],  // #e6f598
-    [23000, [171, 221, 164]],  // #abdda4
-    [28000, [102, 194, 165]],  // #66c2a5
-    [33000, [ 50, 136, 189]],  // #3288bd
-    [40000, [ 94,  79, 162]],  // #5e4fa2  high
-  ];
-
-  function altColor(alt) {
-    if (alt == null) return '#8a94a3';
-    if (alt <= ALT_STOPS[0][0]) return _rgb(ALT_STOPS[0][1]);
-    const last = ALT_STOPS[ALT_STOPS.length - 1];
-    if (alt >= last[0]) return _rgb(last[1]);
-    for (let i = 1; i < ALT_STOPS.length; i++) {
-      const [a1, c1] = ALT_STOPS[i];
-      if (alt <= a1) {
-        const [a0, c0] = ALT_STOPS[i - 1];
-        const t = (alt - a0) / (a1 - a0);
-        return _rgb([
-          Math.round(c0[0] + t * (c1[0] - c0[0])),
-          Math.round(c0[1] + t * (c1[1] - c0[1])),
-          Math.round(c0[2] + t * (c1[2] - c0[2])),
-        ]);
-      }
-    }
-    return _rgb(last[1]);
-  }
-  function _rgb([r, g, b]) { return `rgb(${r},${g},${b})`; }
-
-  // Top-down silhouettes. All designed around viewBox -14 -14 28 28 so a single
-  // planeIcon() can swap paths. Rotated to match the aircraft's ground track.
-  const PLANE_SHAPES = {
-    generic: {
-      size: 26,
-      paths: ['M0,-10 L7,8 L0,4 L-7,8 Z'],
-    },
-    jet: {
-      size: 28,
-      paths: ['M0,-12 L2,-9 L2,-2 L11,2 L11,4 L2,3 L2,8 L4,11 L4,12 L-4,12 L-4,11 L-2,8 L-2,3 L-11,4 L-11,2 L-2,-2 L-2,-9 Z'],
-    },
-    widebody: {
-      size: 32,
-      paths: ['M0,-13 L3,-10 L3,-2 L14,3 L14,5 L3,4 L3,10 L6,13 L6,14 L-6,14 L-6,13 L-3,10 L-3,4 L-14,5 L-14,3 L-3,-2 L-3,-10 Z'],
-    },
-    turboprop: {
-      size: 26,
-      paths: ['M0,-11 L2,-8 L2,-1 L11,-1 L11,1 L2,2 L2,7 L4,10 L4,11 L-4,11 L-4,10 L-2,7 L-2,2 L-11,1 L-11,-1 L-2,-1 L-2,-8 Z'],
-    },
-    light: {
-      size: 22,
-      paths: ['M0,-9 L1,-6 L1,-1 L9,-1 L9,1 L1,2 L1,6 L3,8 L3,9 L-3,9 L-3,8 L-1,6 L-1,2 L-9,1 L-9,-1 L-1,-1 L-1,-6 Z'],
-    },
-    heli: {
-      size: 28,
-      // Rotor disc + small teardrop fuselage.
-      paths: [
-        'M0,-2 L1,1 L1,6 L-1,6 L-1,1 Z',           // fuselage
-      ],
-      disc: { r: 12, dash: '2 3' },
-    },
-  };
-
-  // Maps ICAO type codes to a silhouette family. Just the common ones;
-  // everything else falls through to category heuristics.
-  const TYPE_SHAPES = {
-    // Wide-body
-    B772: 'widebody', B773: 'widebody', B77L: 'widebody', B77W: 'widebody',
-    B744: 'widebody', B748: 'widebody', B788: 'widebody', B789: 'widebody',
-    B78X: 'widebody', A332: 'widebody', A333: 'widebody', A338: 'widebody',
-    A339: 'widebody', A342: 'widebody', A343: 'widebody', A345: 'widebody',
-    A346: 'widebody', A359: 'widebody', A35K: 'widebody', A388: 'widebody',
-    // Narrow-body jets
-    B712: 'jet', B736: 'jet', B737: 'jet', B738: 'jet', B739: 'jet',
-    B73G: 'jet', B38M: 'jet', B39M: 'jet', B3XM: 'jet',
-    A319: 'jet', A320: 'jet', A321: 'jet', A318: 'jet',
-    A19N: 'jet', A20N: 'jet', A21N: 'jet',
-    E170: 'jet', E175: 'jet', E190: 'jet', E195: 'jet', E290: 'jet', E295: 'jet',
-    CRJ2: 'jet', CRJ7: 'jet', CRJ9: 'jet', CRJX: 'jet',
-    // Turboprop
-    DH8A: 'turboprop', DH8B: 'turboprop', DH8C: 'turboprop', DH8D: 'turboprop',
-    AT42: 'turboprop', AT43: 'turboprop', AT44: 'turboprop', AT45: 'turboprop',
-    AT46: 'turboprop', AT72: 'turboprop', AT75: 'turboprop', AT76: 'turboprop',
-    BE20: 'turboprop', B350: 'turboprop', BE30: 'turboprop', BE9L: 'turboprop',
-    PC12: 'turboprop', TBM9: 'turboprop', TBM8: 'turboprop',
-    // Light single / twin piston
-    C152: 'light', C172: 'light', C162: 'light', C182: 'light', C206: 'light',
-    C210: 'light', PA28: 'light', P28A: 'light', P28R: 'light', PA32: 'light',
-    PA34: 'light', PA44: 'light', PA46: 'light', SR20: 'light', SR22: 'light',
-    DA40: 'light', DA42: 'light', DA62: 'light', DR40: 'light', AA5: 'light',
-  };
-
-  function silhouette(a) {
-    const t = a.type_icao;
-    if (t && TYPE_SHAPES[t]) return TYPE_SHAPES[t];
-    // Helicopter type codes typically start with H in the ICAO designator list.
-    if (t && t[0] === 'H') return 'heli';
-    switch (a.category) {
-      case 1: return 'light';     // light < 15500 lb
-      case 2: return 'jet';       // small
-      case 3: return 'jet';       // large
-      case 5: return 'widebody';  // heavy
-      case 7: return 'heli';      // rotorcraft
-    }
-    return 'generic';
   }
 
   function planeIcon(track, color, selected, emergency, shapeName) {
@@ -247,57 +112,6 @@
       iconSize: [size, size],
       iconAnchor: [half, half],
     });
-  }
-
-  function fmt(n, suffix = '', digits = 0) {
-    if (n == null || isNaN(n)) return '—';
-    return Number(n).toFixed(digits) + suffix;
-  }
-
-  // Per-aircraft rolling history used to derive trend arrows. The buffer
-  // holds the last HIST_LEN sampled values; trend() compares ends with a
-  // dead-zone so tiny fluctuations don't flicker between up / down / steady.
-  const HIST_LEN = 10;
-  const TREND_THRESHOLDS = { alt: 50, spd: 3, dst: 0.5 };  // ft, kt, km
-
-  // Small triangle rotated to the compass heading. 0° points up (north).
-  function compassIcon(deg) {
-    if (deg == null || isNaN(deg)) return '';
-    return `<svg class="compass" viewBox="-6 -6 12 12" width="12" height="12" style="transform: rotate(${Number(deg)}deg)"><path d="M0,-5 L3,4 L0,2 L-3,4 Z" fill="currentColor"/></svg>`;
-  }
-
-  function pushHistory(entry, a) {
-    const h = entry.hist;
-    for (const [key, value] of [['alt', a.altitude], ['spd', a.speed], ['dst', a.distance_km]]) {
-      const buf = h[key];
-      buf.push(value);
-      if (buf.length > HIST_LEN) buf.shift();
-    }
-  }
-
-  function trendInfo(entry, key) {
-    const buf = entry?.hist?.[key];
-    if (!buf || buf.length < 3) return { dir: '', arrow: '', cls: '' };
-    // Find oldest and newest non-null values; ignore gaps.
-    let oldVal = null, newVal = null;
-    for (let i = 0; i < buf.length; i++) {
-      if (buf[i] != null) { oldVal = buf[i]; break; }
-    }
-    for (let i = buf.length - 1; i >= 0; i--) {
-      if (buf[i] != null) { newVal = buf[i]; break; }
-    }
-    if (oldVal == null || newVal == null) return { dir: '', arrow: '', cls: '' };
-    const delta = newVal - oldVal;
-    const th = TREND_THRESHOLDS[key] ?? 0;
-    let dir = 'flat', glyph = '—', cls = '';
-    if (delta > th)  { dir = 'up'; glyph = '↑'; cls = 'trend-up'; }
-    else if (delta < -th) { dir = 'down'; glyph = '↓'; cls = 'trend-down'; }
-    return { dir, arrow: `<span class="trend">${glyph}</span>`, cls };
-  }
-
-  function ageOf(a, now) {
-    if (now == null || a.last_seen == null) return null;
-    return Math.max(0, now - a.last_seen);
   }
 
   function popupHtml(a, now) {
@@ -748,13 +562,13 @@
     // Scoped to #unit-switch so the view toggles (which share .unit-btn for
     // styling) aren't dragged into the unit-switch's active-state bookkeeping.
     document.querySelectorAll('#unit-switch .unit-btn').forEach(el => {
-      el.classList.toggle('active', el.dataset.unit === unitSystem);
+      el.classList.toggle('active', el.dataset.unit === getUnitSystem());
     });
   }
   document.querySelectorAll('#unit-switch .unit-btn').forEach(el => {
     el.addEventListener('click', () => {
-      unitSystem = el.dataset.unit;
-      try { localStorage.setItem('flightjar.units', unitSystem); } catch (_) {}
+      setUnitSystem(el.dataset.unit);
+      try { localStorage.setItem('flightjar.units', getUnitSystem()); } catch (_) {}
       renderUnitSwitch();
       if (lastSnap) {
         renderSidebar(lastSnap);
@@ -865,7 +679,7 @@
       if (pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.2), { maxZoom: 10 });
     } else if (e.key === 'u' || e.key === 'U') {
       const order = ['metric', 'imperial', 'nautical'];
-      const next = order[(order.indexOf(unitSystem) + 1) % order.length];
+      const next = order[(order.indexOf(getUnitSystem()) + 1) % order.length];
       document.querySelector(`.unit-btn[data-unit="${next}"]`)?.click();
     }
   });

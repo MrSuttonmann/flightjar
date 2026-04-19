@@ -1,0 +1,8 @@
+{
+  "name": "flightjar-frontend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/js/"
+  }
+}

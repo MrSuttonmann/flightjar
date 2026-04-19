@@ -264,10 +264,16 @@ pip install -r requirements-dev.txt
 ruff check .            # lint
 ruff format .           # apply formatting
 mypy                    # type-check app/
-pytest                  # run the test suite
+pytest                  # run the backend test suite
+node --test tests/js/   # run the frontend test suite (Node 20+)
 ```
 
-GitHub Actions runs all four on every push and pull request.
+The frontend is split into small ES modules under `app/static/` —
+`format.js`, `units.js`, `altitude.js`, `trend.js`, `silhouette.js` — so
+the pure helpers are unit-testable without a browser. `app.js` is the
+entrypoint and imports the rest.
+
+GitHub Actions runs all of the above on every push and pull request.
 
 ### Configuration is validated at startup
 
