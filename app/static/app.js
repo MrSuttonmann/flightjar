@@ -40,7 +40,7 @@ import { PLANE_SHAPES, TYPE_SHAPES, silhouette } from './silhouette.js';
     }),
   };
   const savedBase = localStorage.getItem('flightjar.basemap');
-  const defaultBaseName = savedBase && baseLayers[savedBase] ? savedBase : 'Carto Dark';
+  const defaultBaseName = savedBase && baseLayers[savedBase] ? savedBase : 'OpenStreetMap';
   baseLayers[defaultBaseName].addTo(map);
 
   // Range-ring overlay (centred on receiver; rebuilt when receiver is known).
