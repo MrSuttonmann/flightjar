@@ -446,6 +446,7 @@
           color, weight: 2, opacity: 0.55,
         }).addTo(map);
         marker.on('popupopen', () => onSelected(a.icao));
+        marker.on('popupclose', () => onDeselected(a.icao));
         marker.on('mouseover', () => peekListItem(a.icao, true));
         marker.on('mouseout',  () => peekListItem(a.icao, false));
         entry = { marker, trail, label: null, data: a };
@@ -598,6 +599,22 @@
     }
     document.querySelectorAll('.ac-item').forEach(el => {
       el.classList.toggle('selected', el.dataset.icao === icao);
+    });
+  }
+
+  // Fires when a popup closes (user clicked X, clicked the marker again,
+  // clicked map background, or moved selection to another plane).
+  function onDeselected(icao) {
+    if (selectedIcao !== icao) return;  // already moved to something else
+    selectedIcao = null;
+    writeDeepLink(null);
+    const entry = aircraft.get(icao);
+    if (entry) {
+      const a = entry.data;
+      entry.marker.setIcon(planeIcon(a.track, altColor(a.altitude), false, !!a.emergency));
+    }
+    document.querySelectorAll('.ac-item').forEach(el => {
+      if (el.dataset.icao === icao) el.classList.remove('selected');
     });
   }
 
