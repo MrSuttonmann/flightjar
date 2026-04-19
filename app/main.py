@@ -412,7 +412,29 @@ app = FastAPI(
 )
 
 STATIC_DIR = Path(__file__).parent / "static"
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+class RevalidatingStaticFiles(StaticFiles):
+    """StaticFiles that forces browsers to revalidate via ETag every request.
+
+    The bundle is split across several ES modules (app.js imports format.js,
+    units.js, …). Only the top-level app.js URL carries a content-hash query
+    string, so without explicit cache headers Safari applies its heuristic
+    freshness rule and serves submodule imports from local cache even after a
+    deploy. The result: a new app.js that imports a newly-exported symbol
+    fails to load against the old cached submodule, and the whole page
+    silently breaks. `no-cache` keeps the entry in cache but forces a
+    conditional GET on every request — the server returns 304 when the ETag
+    still matches, so the bandwidth cost is a handful of bytes per file.
+    """
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
+app.mount("/static", RevalidatingStaticFiles(directory=STATIC_DIR), name="static")
 
 
 def _asset_hash(name: str) -> str:
