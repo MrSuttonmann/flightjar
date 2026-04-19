@@ -40,7 +40,7 @@
   #status.live .dot { background: #4ade80; }
   #status.dead .dot { background: #ef4444; }
   #view-controls { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
-  #labels-toggle { border: 1px solid var(--border); border-radius: 3px; }
+  #labels-toggle, #trails-toggle { border: 1px solid var(--border); border-radius: 3px; }
   #unit-switch { display: flex; border: 1px solid var(--border); border-radius: 3px;
                  overflow: hidden; flex-shrink: 0; }
   .unit-btn { background: transparent; color: var(--muted); border: 0; padding: 2px 6px;
@@ -145,6 +145,7 @@
         <div id="status"><span class="dot"></span><span id="status-text">Connecting…</span></div>
         <div id="view-controls">
           <button id="labels-toggle" class="unit-btn" title="Toggle aircraft labels">Labels</button>
+          <button id="trails-toggle" class="unit-btn" title="Toggle altitude-coloured trails">Trails</button>
           <div id="unit-switch" title="Units">
             <button class="unit-btn" data-unit="metric">Metric</button>
             <button class="unit-btn" data-unit="imperial">Imperial</button>
@@ -236,6 +237,7 @@
   const aircraft = new Map(); // icao -> { marker, trail, label, data }
   let selectedIcao = null;
   let showLabels = localStorage.getItem('flightjar.labels') !== '0';
+  let showTrails = localStorage.getItem('flightjar.trails') !== '0';
   let firstUpdate = true;
   let lastSnap = null;
   let receiverLayer = null;  // L.LayerGroup containing marker + optional anon circle
@@ -299,23 +301,106 @@
     return `hsl(${hue}, 75%, 55%)`;
   }
 
-  function planeIcon(track, color, selected, emergency = false) {
+  // Top-down silhouettes. All designed around viewBox -14 -14 28 28 so a single
+  // planeIcon() can swap paths. Rotated to match the aircraft's ground track.
+  const PLANE_SHAPES = {
+    generic: {
+      size: 26,
+      paths: ['M0,-10 L7,8 L0,4 L-7,8 Z'],
+    },
+    jet: {
+      size: 28,
+      paths: ['M0,-12 L2,-9 L2,-2 L11,2 L11,4 L2,3 L2,8 L4,11 L4,12 L-4,12 L-4,11 L-2,8 L-2,3 L-11,4 L-11,2 L-2,-2 L-2,-9 Z'],
+    },
+    widebody: {
+      size: 32,
+      paths: ['M0,-13 L3,-10 L3,-2 L14,3 L14,5 L3,4 L3,10 L6,13 L6,14 L-6,14 L-6,13 L-3,10 L-3,4 L-14,5 L-14,3 L-3,-2 L-3,-10 Z'],
+    },
+    turboprop: {
+      size: 26,
+      paths: ['M0,-11 L2,-8 L2,-1 L11,-1 L11,1 L2,2 L2,7 L4,10 L4,11 L-4,11 L-4,10 L-2,7 L-2,2 L-11,1 L-11,-1 L-2,-1 L-2,-8 Z'],
+    },
+    light: {
+      size: 22,
+      paths: ['M0,-9 L1,-6 L1,-1 L9,-1 L9,1 L1,2 L1,6 L3,8 L3,9 L-3,9 L-3,8 L-1,6 L-1,2 L-9,1 L-9,-1 L-1,-1 L-1,-6 Z'],
+    },
+    heli: {
+      size: 28,
+      // Rotor disc + small teardrop fuselage.
+      paths: [
+        'M0,-2 L1,1 L1,6 L-1,6 L-1,1 Z',           // fuselage
+      ],
+      disc: { r: 12, dash: '2 3' },
+    },
+  };
+
+  // Maps ICAO type codes to a silhouette family. Just the common ones;
+  // everything else falls through to category heuristics.
+  const TYPE_SHAPES = {
+    // Wide-body
+    B772: 'widebody', B773: 'widebody', B77L: 'widebody', B77W: 'widebody',
+    B744: 'widebody', B748: 'widebody', B788: 'widebody', B789: 'widebody',
+    B78X: 'widebody', A332: 'widebody', A333: 'widebody', A338: 'widebody',
+    A339: 'widebody', A342: 'widebody', A343: 'widebody', A345: 'widebody',
+    A346: 'widebody', A359: 'widebody', A35K: 'widebody', A388: 'widebody',
+    // Narrow-body jets
+    B712: 'jet', B736: 'jet', B737: 'jet', B738: 'jet', B739: 'jet',
+    B73G: 'jet', B38M: 'jet', B39M: 'jet', B3XM: 'jet',
+    A319: 'jet', A320: 'jet', A321: 'jet', A318: 'jet',
+    A19N: 'jet', A20N: 'jet', A21N: 'jet',
+    E170: 'jet', E175: 'jet', E190: 'jet', E195: 'jet', E290: 'jet', E295: 'jet',
+    CRJ2: 'jet', CRJ7: 'jet', CRJ9: 'jet', CRJX: 'jet',
+    // Turboprop
+    DH8A: 'turboprop', DH8B: 'turboprop', DH8C: 'turboprop', DH8D: 'turboprop',
+    AT42: 'turboprop', AT43: 'turboprop', AT44: 'turboprop', AT45: 'turboprop',
+    AT46: 'turboprop', AT72: 'turboprop', AT75: 'turboprop', AT76: 'turboprop',
+    BE20: 'turboprop', B350: 'turboprop', BE30: 'turboprop', BE9L: 'turboprop',
+    PC12: 'turboprop', TBM9: 'turboprop', TBM8: 'turboprop',
+    // Light single / twin piston
+    C152: 'light', C172: 'light', C162: 'light', C182: 'light', C206: 'light',
+    C210: 'light', PA28: 'light', P28A: 'light', P28R: 'light', PA32: 'light',
+    PA34: 'light', PA44: 'light', PA46: 'light', SR20: 'light', SR22: 'light',
+    DA40: 'light', DA42: 'light', DA62: 'light', DR40: 'light', AA5: 'light',
+  };
+
+  function silhouette(a) {
+    const t = a.type_icao;
+    if (t && TYPE_SHAPES[t]) return TYPE_SHAPES[t];
+    // Helicopter type codes typically start with H in the ICAO designator list.
+    if (t && t[0] === 'H') return 'heli';
+    switch (a.category) {
+      case 1: return 'light';     // light < 15500 lb
+      case 2: return 'jet';       // small
+      case 3: return 'jet';       // large
+      case 5: return 'widebody';  // heavy
+      case 7: return 'heli';      // rotorcraft
+    }
+    return 'generic';
+  }
+
+  function planeIcon(track, color, selected, emergency, shapeName) {
+    const shape = PLANE_SHAPES[shapeName] || PLANE_SHAPES.generic;
     const rot = track == null ? 0 : track;
     let stroke = selected ? '#fff' : '#000';
     let sw = selected ? 1.5 : 0.6;
     if (emergency) { stroke = '#ef4444'; sw = 2; }
+    const size = shape.size;
+    const half = size / 2;
+    const disc = shape.disc
+      ? `<circle cx="0" cy="0" r="${shape.disc.r}" fill="none" stroke="${stroke}" stroke-width="${sw}" stroke-dasharray="${shape.disc.dash}" opacity="0.7"/>`
+      : '';
+    const paths = shape.paths.map(d =>
+      `<path d="${d}" fill="${color}" stroke="${stroke}" stroke-width="${sw}" stroke-linejoin="round"/>`
+    ).join('');
     const svg = `
-      <svg xmlns="http://www.w3.org/2000/svg" width="26" height="26" viewBox="-13 -13 26 26">
-        <path d="M0 -10 L7 8 L0 4 L-7 8 Z"
-              transform="rotate(${rot})"
-              fill="${color}" stroke="${stroke}" stroke-width="${sw}"
-              stroke-linejoin="round"/>
+      <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="-14 -14 28 28">
+        <g transform="rotate(${rot})">${disc}${paths}</g>
       </svg>`;
     return L.divIcon({
       html: svg,
       className: 'plane-icon',
-      iconSize: [26, 26],
-      iconAnchor: [13, 13],
+      iconSize: [size, size],
+      iconAnchor: [half, half],
     });
   }
 
@@ -381,6 +466,18 @@
     document.getElementById('labels-toggle').classList.toggle('active', showLabels);
   }
 
+  function applyTrailsVisibility() {
+    for (const entry of aircraft.values()) {
+      if (showTrails) {
+        rebuildTrail(entry, entry.data.trail);
+      } else {
+        entry.trail.clearLayers();
+        entry.trailLen = 0;
+      }
+    }
+    document.getElementById('trails-toggle').classList.toggle('active', showTrails);
+  }
+
   function setHoverHalo(icao) {
     if (hoverHalo) { map.removeLayer(hoverHalo); hoverHalo = null; }
     if (!icao) return;
@@ -398,6 +495,40 @@
     if (!el) return;
     el.classList.toggle('peek', on);
     if (on) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+
+  // Rebuild the per-aircraft trail as a chain of short segments, each
+  // coloured by the altitude at that point. Using many small segments with
+  // round lineJoin gives a smooth curved look without a splines library.
+  function rebuildTrail(entry, points) {
+    if (!points || points.length < 2) {
+      if (entry.trailLen !== 0) { entry.trail.clearLayers(); entry.trailLen = 0; }
+      return;
+    }
+    // Skip rebuild if nothing changed (common between snapshot ticks when
+    // the aircraft hasn't reported a new position).
+    if (points.length === entry.trailLen) return;
+
+    entry.trail.clearLayers();
+    for (let i = 1; i < points.length; i++) {
+      const p0 = points[i - 1];
+      const p1 = points[i];
+      // Colour by the later point's altitude (falls back to earlier point).
+      const alt = p1[2] != null ? p1[2] : p0[2];
+      const color = altColor(alt);
+      // Increase opacity towards the end of the trail.
+      const opacity = 0.25 + 0.55 * (i / points.length);
+      L.polyline([[p0[0], p0[1]], [p1[0], p1[1]]], {
+        color,
+        weight: 2.5,
+        opacity,
+        lineCap: 'round',
+        lineJoin: 'round',
+        smoothFactor: 0,
+        interactive: false,
+      }).addTo(entry.trail);
+    }
+    entry.trailLen = points.length;
   }
 
   function renderReceiver(rx) {
@@ -437,31 +568,32 @@
 
       const color = altColor(a.altitude);
       const isSelected = a.icao === selectedIcao;
-      const icon = planeIcon(a.track, color, isSelected, !!a.emergency);
+      const shape = silhouette(a);
+      const icon = planeIcon(a.track, color, isSelected, !!a.emergency, shape);
 
       let entry = aircraft.get(a.icao);
       if (!entry) {
         const marker = L.marker([a.lat, a.lon], { icon }).addTo(map);
-        const trail = L.polyline([], {
-          color, weight: 2, opacity: 0.55,
-        }).addTo(map);
+        const trail = L.layerGroup().addTo(map);
         marker.on('popupopen', () => onSelected(a.icao));
         marker.on('popupclose', () => onDeselected(a.icao));
         marker.on('mouseover', () => peekListItem(a.icao, true));
         marker.on('mouseout',  () => peekListItem(a.icao, false));
-        entry = { marker, trail, label: null, data: a };
+        entry = { marker, trail, label: null, data: a, trailLen: 0 };
         aircraft.set(a.icao, entry);
       } else {
         entry.marker.setLatLng([a.lat, a.lon]);
         entry.marker.setIcon(icon);
-        entry.trail.setStyle({ color });
       }
       if (hoveredFromListIcao === a.icao && hoverHalo) {
         hoverHalo.setLatLng([a.lat, a.lon]);
       }
 
-      if (a.trail && a.trail.length > 1) {
-        entry.trail.setLatLngs(a.trail);
+      if (showTrails) {
+        rebuildTrail(entry, a.trail);
+      } else if (entry.trailLen !== 0) {
+        entry.trail.clearLayers();
+        entry.trailLen = 0;
       }
       entry.marker.setPopupContent(popupHtml(a));
       if (!entry.marker.getPopup()) entry.marker.bindPopup(popupHtml(a));
@@ -595,7 +727,7 @@
     const entry = aircraft.get(icao);
     if (entry) {
       const a = entry.data;
-      entry.marker.setIcon(planeIcon(a.track, altColor(a.altitude), true, !!a.emergency));
+      entry.marker.setIcon(planeIcon(a.track, altColor(a.altitude), true, !!a.emergency, silhouette(a)));
     }
     document.querySelectorAll('.ac-item').forEach(el => {
       el.classList.toggle('selected', el.dataset.icao === icao);
@@ -611,7 +743,7 @@
     const entry = aircraft.get(icao);
     if (entry) {
       const a = entry.data;
-      entry.marker.setIcon(planeIcon(a.track, altColor(a.altitude), false, !!a.emergency));
+      entry.marker.setIcon(planeIcon(a.track, altColor(a.altitude), false, !!a.emergency, silhouette(a)));
     }
     document.querySelectorAll('.ac-item').forEach(el => {
       if (el.dataset.icao === icao) el.classList.remove('selected');
@@ -673,6 +805,13 @@
   });
   applyLabelsVisibility();
 
+  document.getElementById('trails-toggle').addEventListener('click', () => {
+    showTrails = !showTrails;
+    try { localStorage.setItem('flightjar.trails', showTrails ? '1' : '0'); } catch (_) {}
+    applyTrailsVisibility();
+  });
+  applyTrailsVisibility();
+
   // ---- sidebar search ----
   const searchInput = document.getElementById('search');
   searchInput.addEventListener('input', () => {
@@ -717,6 +856,8 @@
     if (inField) return;
     if (e.key === 'l' || e.key === 'L') {
       document.getElementById('labels-toggle').click();
+    } else if (e.key === 't' || e.key === 'T') {
+      document.getElementById('trails-toggle').click();
     } else if (e.key === 'f' || e.key === 'F') {
       const pts = [];
       for (const entry of aircraft.values()) pts.push(entry.marker.getLatLng());

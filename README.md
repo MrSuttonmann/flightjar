@@ -11,8 +11,10 @@ network and get a lightweight map, log file, and simple API on top.
 
 ## What you get
 
-- **Live map** at `http://<host>:8080/` with planes coloured by altitude,
-  short trails, and a callsign label on each one (toggleable).
+- **Live map** at `http://<host>:8080/` with type-specific plane silhouettes
+  (widebody / jet / turboprop / light / helicopter, falling back to ADS-B
+  category), altitude-coloured trails showing each aircraft's recent
+  altitude history, and a toggleable callsign label on each one.
 - **Sidebar list** of currently tracked aircraft, sortable by callsign,
   altitude, distance from the receiver, or age. Hover a plane on the map
   to highlight its row, and vice-versa.
@@ -89,6 +91,8 @@ Logs land in `./beast-logs/beast.jsonl` next to the compose file by default.
   Metric altitude flips to km once you cross 1 km.
 - **Labels** — the Labels button toggles the permanent callsign labels
   next to each plane on the map. Your preference is remembered.
+- **Trails** — the Trails button toggles altitude-coloured trails for
+  every aircraft. Same persistence.
 - **Base map** — the layers control (top-right of the map) swaps between
   OpenStreetMap, Carto Dark, and Esri Satellite tiles. Choice is remembered.
 - **Range rings** — optional overlay at 50 / 100 / 200 NM around the
@@ -103,6 +107,7 @@ Logs land in `./beast-logs/beast.jsonl` next to the compose file by default.
 - **Keyboard shortcuts**:
   - `/` — focus the search box
   - `L` — toggle aircraft labels
+  - `T` — toggle trails
   - `F` — fit the map to current aircraft
   - `U` — cycle units (Metric → Imperial → Nautical)
   - `Esc` — close the popup and clear selection

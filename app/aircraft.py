@@ -21,7 +21,7 @@ from .aircraft_db import AircraftDB
 log = logging.getLogger("beast.aircraft")
 
 POSITION_PAIR_MAX_AGE = 10.0  # seconds; CPR global decode validity window
-TRAIL_MAX_POINTS = 60  # ~1 minute at typical 1Hz position rate
+TRAIL_MAX_POINTS = 120  # ~2 minutes at typical 1Hz position rate
 AIRCRAFT_TIMEOUT = 60.0  # drop from registry after this many seconds idle
 
 EMERGENCY_SQUAWKS = {
@@ -156,22 +156,22 @@ class AircraftRegistry:
             self._update_position(ac, msg, now, r, surface=True)
 
         elif 9 <= tc <= 18:
-            # Airborne baro altitude
+            # Airborne baro altitude. Set first so the trail point captures it.
             ac.on_ground = False
-            self._update_position(ac, msg, now, r, surface=False)
             alt = r.get("altitude")
             if alt is not None:
                 with contextlib.suppress(TypeError, ValueError):
                     ac.altitude_baro = int(alt)
+            self._update_position(ac, msg, now, r, surface=False)
 
         elif 20 <= tc <= 22:
-            # Airborne GNSS (geometric) altitude
+            # Airborne GNSS (geometric) altitude.
             ac.on_ground = False
-            self._update_position(ac, msg, now, r, surface=False)
             alt = r.get("altitude")
             if alt is not None:
                 with contextlib.suppress(TypeError, ValueError):
                     ac.altitude_geo = int(alt)
+            self._update_position(ac, msg, now, r, surface=False)
 
         elif tc == 19:
             # Velocity. Subtypes 1/2 give groundspeed+track; 3/4 give airspeed+heading.
@@ -290,7 +290,7 @@ class AircraftRegistry:
         ac.lat = new_lat
         ac.lon = new_lon
         ac.last_position_time = now
-        ac.trail.append((round(new_lat, 5), round(new_lon, 5), now))
+        ac.trail.append((round(new_lat, 5), round(new_lon, 5), ac.altitude, now))
 
     # -------- output --------
 
@@ -350,7 +350,7 @@ class AircraftRegistry:
                     "age": round(now - ac.last_seen, 1),
                     "msg_count": ac.msg_count,
                     "distance_km": distance_km,
-                    "trail": [[lat, lon] for lat, lon, _ in ac.trail],
+                    "trail": [[lat, lon, alt] for lat, lon, alt, _ in ac.trail],
                 }
             )
         # Newest first

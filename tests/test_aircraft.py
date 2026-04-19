@@ -214,6 +214,20 @@ def test_mlat_ticks_is_recorded_on_ingest():
     assert reg.aircraft["abc123"].last_seen_mlat == 1234567890
 
 
+def test_trail_points_include_altitude():
+    with patch("app.aircraft.pms.decode", side_effect=fake_decode):
+        reg = AircraftRegistry(lat_ref=52.0, lon_ref=-1.0)
+        # Two position-with-altitude messages produce two trail points.
+        reg.ingest("AP01xxxx", now=1.0)
+        reg.ingest("AP01yyyy", now=2.0)
+    snap = reg.snapshot(now=2.1)
+    trail = snap["aircraft"][0]["trail"]
+    assert len(trail) >= 1
+    for pt in trail:
+        assert len(pt) == 3  # [lat, lon, alt]
+        assert pt[2] == 37000
+
+
 def test_snapshot_exposes_both_altitude_fields():
     with patch("app.aircraft.pms.decode", side_effect=fake_decode):
         reg = AircraftRegistry(lat_ref=52.0, lon_ref=-1.0)
