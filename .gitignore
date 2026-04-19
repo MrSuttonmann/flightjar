@@ -19,6 +19,9 @@ venv/
 # Node (only used for dev; no runtime deps)
 node_modules/
 
+# Local docker-compose overrides (user-specific ports, coords, SITE_NAME, ...)
+docker-compose.override.yml
+
 # Locally-downloaded aircraft DB (baked at image build time).
 app/aircraft_db.csv.gz
 
