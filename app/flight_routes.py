@@ -30,6 +30,21 @@ import httpx
 
 log = logging.getLogger("beast.flight_routes")
 
+
+def _parse_retry_after(resp: "httpx.Response") -> float:
+    """Read the Retry-After header (seconds or HTTP-date); fall back to default."""
+    raw = resp.headers.get("retry-after")
+    if not raw:
+        return DEFAULT_429_COOLDOWN
+    try:
+        return float(raw)
+    except ValueError:
+        from email.utils import parsedate_to_datetime
+        try:
+            return max(0.0, (parsedate_to_datetime(raw).timestamp() - time.time()))
+        except Exception:
+            return DEFAULT_429_COOLDOWN
+
 OPENSKY_TOKEN_URL = (
     "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token"
 )
@@ -40,7 +55,8 @@ CACHE_NEGATIVE_TTL = 1 * 3600  # 1h — retry "unknown" results periodically
 CACHE_MAX_SIZE = 10_000  # bound memory on busy receivers
 LOOKUP_WINDOW_HOURS = 12  # how far back to query OpenSky for flights
 TOKEN_REFRESH_SKEW = 60  # refresh when <= this many seconds remain
-MAX_CONCURRENT_LOOKUPS = 3  # throttle upstream fan-out for busy skies
+MIN_REQUEST_INTERVAL = 1.2  # seconds between consecutive upstream calls
+DEFAULT_429_COOLDOWN = 60.0  # if OpenSky doesn't set Retry-After, back off this long
 
 
 class OpenSkyClient:
@@ -59,8 +75,13 @@ class OpenSkyClient:
         self._token_expires_at: float = 0.0
         self._cache: dict[str, dict[str, Any]] = {}
         self._token_lock = asyncio.Lock()
+        self._request_lock = asyncio.Lock()
         self._in_flight: set[str] = set()
-        self._semaphore = asyncio.Semaphore(MAX_CONCURRENT_LOOKUPS)
+        # Paced throttle: requests are serialised and spaced by at least
+        # MIN_REQUEST_INTERVAL. If OpenSky 429s, we back off until this
+        # wall-clock time before allowing the next call.
+        self._last_request_at: float = 0.0
+        self._cooldown_until: float = 0.0
         self._load_cache()
 
     @property
@@ -101,17 +122,47 @@ class OpenSkyClient:
         cached = self._cache.get(key)
         if cached and now < cached["expires_at"]:
             return cached["data"]
+        # If OpenSky 429'd us recently, don't even try.
+        if now < self._cooldown_until:
+            return cached["data"] if cached else None
         if key in self._in_flight:
             return cached["data"] if cached else None
 
         self._in_flight.add(key)
         try:
-            async with self._semaphore:
+            # Serialise requests and space them; bursty requests are what
+            # trigger OpenSky's per-second throttle.
+            async with self._request_lock:
+                # Re-check cache inside the lock — a sibling coroutine may
+                # have filled it while we were waiting.
+                cached = self._cache.get(key)
+                now = time.time()
+                if cached and now < cached["expires_at"]:
+                    return cached["data"]
+                if now < self._cooldown_until:
+                    return cached["data"] if cached else None
+                wait = (self._last_request_at + MIN_REQUEST_INTERVAL) - now
+                if wait > 0:
+                    await asyncio.sleep(wait)
                 try:
                     data = await self._fetch(key)
+                except httpx.HTTPStatusError as e:
+                    if e.response.status_code == 429:
+                        retry_after = _parse_retry_after(e.response)
+                        self._cooldown_until = time.time() + retry_after
+                        log.warning(
+                            "opensky 429 for %s — cooling down for %.0fs",
+                            key, retry_after,
+                        )
+                    else:
+                        log.warning("opensky HTTP %s for %s: %s",
+                                    e.response.status_code, key, e)
+                    return cached["data"] if cached else None
                 except Exception as e:
                     log.warning("opensky lookup failed for %s: %s", key, e)
                     return cached["data"] if cached else None
+                finally:
+                    self._last_request_at = time.time()
             ttl = CACHE_POSITIVE_TTL if data else CACHE_NEGATIVE_TTL
             self._cache[key] = {"data": data, "expires_at": time.time() + ttl}
             self._prune_cache()

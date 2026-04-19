@@ -91,6 +91,42 @@ def test_cache_persists_and_loads(tmp_path: Path):
     assert c2._cache["deadbe"]["data"]["origin"] == "LFPG"
 
 
+def test_429_triggers_cooldown_and_suppresses_further_requests(tmp_path: Path):
+    import asyncio
+
+    import httpx
+
+    c = _client(tmp_path)
+    request = httpx.Request("GET", "https://example/test")
+    response = httpx.Response(429, request=request)
+    err = httpx.HTTPStatusError("rate limited", request=request, response=response)
+    fetch = AsyncMock(side_effect=err)
+    with patch.object(c, "_fetch", fetch):
+        r1 = asyncio.run(c.lookup("abc123"))
+        r2 = asyncio.run(c.lookup("def456"))
+    # First call hit upstream; second bailed on cooldown without fetching.
+    assert r1 is None
+    assert r2 is None
+    assert fetch.await_count == 1
+    assert c._cooldown_until > time.time()
+
+
+def test_429_respects_retry_after_header(tmp_path: Path):
+    import asyncio
+
+    import httpx
+
+    c = _client(tmp_path)
+    request = httpx.Request("GET", "https://example/test")
+    response = httpx.Response(429, headers={"retry-after": "30"}, request=request)
+    err = httpx.HTTPStatusError("rate limited", request=request, response=response)
+    with patch.object(c, "_fetch", AsyncMock(side_effect=err)):
+        asyncio.run(c.lookup("abc123"))
+    # Cooldown ends ~30s in the future (not the 60s default).
+    delta = c._cooldown_until - time.time()
+    assert 25 < delta < 35
+
+
 def test_expired_entries_are_dropped_on_reload(tmp_path: Path):
     import gzip
     import json
