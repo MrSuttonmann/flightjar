@@ -23,7 +23,7 @@
   #site-name::before { content: "· "; }
   #header-row2 { display: flex; flex-direction: column; gap: 6px;
                  margin-top: 6px; align-items: flex-start; }
-  #status { font-size: 11px; color: var(--muted); }
+  #status { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
   #status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
                  background: #888; margin-right: 6px; vertical-align: middle; }
   #status.live .dot { background: #4ade80; }
@@ -56,6 +56,12 @@
   .sort-chip.active { color: var(--text); background: #1d2533; border-color: var(--border); }
   .sort-chip .arrow { display: inline-block; width: 8px; color: var(--accent); }
   #ac-list { flex: 1; overflow-y: auto; }
+  .ac-empty { padding: 24px 16px; text-align: center; color: var(--muted);
+              font-size: 12px; font-style: italic; }
+  #heartbeat { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  #heartbeat.stale { color: #f59e0b; }
+  #heartbeat.dead { color: #ef4444; }
+  #heartbeat:empty { display: none; }
   #sidebar-footer { grid-area: footer; padding: 10px 14px;
                     border-top: 1px solid var(--border);
                     border-right: 1px solid var(--border);

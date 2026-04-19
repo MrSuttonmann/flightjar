@@ -53,6 +53,7 @@
   let showTrails = localStorage.getItem('flightjar.trails') !== '0';
   let firstUpdate = true;
   let lastSnap = null;
+  let lastSnapAt = 0;  // Date.now() of the most recent snapshot, for the heartbeat.
   let receiverLayer = null;  // L.LayerGroup containing marker + optional anon circle
   let hoveredFromListIcao = null;  // icao currently hovered in the sidebar
   let hoveredFromMapIcao  = null;  // icao whose marker is currently hovered
@@ -450,6 +451,7 @@
 
   function update(snap) {
     lastSnap = snap;
+    lastSnapAt = Date.now();
     renderReceiver(snap.receiver);
     const seen = new Set();
 
@@ -574,6 +576,15 @@
     });
 
     const list = document.getElementById('ac-list');
+    if (rows.length === 0) {
+      const msg = q
+        ? 'No matches for this search.'
+        : snap.count === 0
+          ? 'Waiting for aircraft…'
+          : 'No aircraft have a callsign or position yet.';
+      list.innerHTML = `<div class="ac-empty">${msg}</div>`;
+      return;
+    }
     list.innerHTML = rows.map(a => {
       const classes = [
         'ac-item',
@@ -773,6 +784,24 @@
       document.querySelector(`.unit-btn[data-unit="${next}"]`)?.click();
     }
   });
+
+  // ---- heartbeat ----
+  // Only shown when the feed is stalled — amber after 5s since last snapshot,
+  // red after 15s. When fresh, the element stays empty (and is hidden via
+  // the :empty CSS rule) so the header isn't cluttered during normal ops.
+  const hb = document.getElementById('heartbeat');
+  setInterval(() => {
+    if (!lastSnapAt) { hb.textContent = ''; return; }
+    const secs = Math.round((Date.now() - lastSnapAt) / 1000);
+    if (secs < 5) {
+      hb.textContent = '';
+      hb.classList.remove('stale', 'dead');
+      return;
+    }
+    hb.textContent = `· ${secs}s ago`;
+    hb.classList.toggle('stale', secs < 15);
+    hb.classList.toggle('dead', secs >= 15);
+  }, 1000);
 
   // ---- WebSocket ----
   let ws;
