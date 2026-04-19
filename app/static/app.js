@@ -52,6 +52,7 @@
   let showLabels = localStorage.getItem('flightjar.labels') !== '0';
   let showTrails = localStorage.getItem('flightjar.trails') !== '0';
   let followSelected = localStorage.getItem('flightjar.follow') === '1';
+  let compactMode = localStorage.getItem('flightjar.compact') === '1';
   let firstUpdate = true;
   let lastSnap = null;
   let lastSnapAt = 0;  // Date.now() of the most recent snapshot, for the heartbeat.
@@ -776,6 +777,21 @@
   });
   applyFollowState();
 
+  function applyCompactMode() {
+    document.body.classList.toggle('compact-mode', compactMode);
+    document.getElementById('compact-toggle').classList.toggle('active', compactMode);
+    // The map container's size just changed — Leaflet needs a nudge.
+    map.invalidateSize();
+  }
+  function setCompact(value) {
+    compactMode = value;
+    try { localStorage.setItem('flightjar.compact', compactMode ? '1' : '0'); } catch (_) {}
+    applyCompactMode();
+  }
+  document.getElementById('compact-toggle').addEventListener('click', () => setCompact(!compactMode));
+  document.getElementById('sidebar-restore').addEventListener('click', () => setCompact(false));
+  applyCompactMode();
+
   // ---- sidebar search ----
   const searchInput = document.getElementById('search');
   searchInput.addEventListener('input', () => {
@@ -822,6 +838,8 @@
       document.getElementById('labels-toggle').click();
     } else if (e.key === 't' || e.key === 'T') {
       document.getElementById('trails-toggle').click();
+    } else if (e.key === 'c' || e.key === 'C') {
+      setCompact(!compactMode);
     } else if (e.key === 'f' || e.key === 'F') {
       const pts = [];
       for (const entry of aircraft.values()) pts.push(entry.marker.getLatLng());

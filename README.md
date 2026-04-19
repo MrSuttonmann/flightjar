@@ -100,6 +100,8 @@ Logs land in `./beast-logs/beast.jsonl` next to the compose file by default.
   every aircraft. Same persistence.
 - **Follow** — when a plane is selected and Follow is on, the map
   auto-pans to keep it centred. Toggle off for a static view.
+- **Compact** — hides the sidebar for a full-map view. A small
+  `☰ sidebar` button pinned top-left brings it back; `C` toggles.
 - **Base map** — the layers control (top-right of the map) swaps between
   OpenStreetMap, Carto Dark, and Esri Satellite tiles. Choice is remembered.
 - **Range rings** — optional overlay at 50 / 100 / 200 NM around the
@@ -115,6 +117,7 @@ Logs land in `./beast-logs/beast.jsonl` next to the compose file by default.
   - `/` — focus the search box
   - `L` — toggle aircraft labels
   - `T` — toggle trails
+  - `C` — toggle compact (sidebar-hidden) mode
   - `F` — fit the map to current aircraft
   - `U` — cycle units (Metric → Imperial → Nautical)
   - `Esc` — close the popup and clear selection
