@@ -16,6 +16,7 @@ from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
 
 from .aircraft import AircraftRegistry
 from .aircraft_db import AircraftDB
@@ -278,6 +279,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan, title="Flightjar")
 
 STATIC_DIR = Path(__file__).parent / "static"
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 @app.get("/")
