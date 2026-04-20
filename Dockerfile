@@ -1,39 +1,59 @@
-FROM python:3.12-slim
+# ---- builder ----
+#
+# Install the runtime deps into a self-contained virtualenv and fetch the
+# external data artefacts that get baked into the image (aircraft DB,
+# airports DB, tar1090 silhouettes). Keeping all of this in the builder
+# means pip, its wheel cache, and the silhouette-fetch script never land
+# in the runtime image.
+FROM python:3.12-slim AS builder
 
-WORKDIR /app
+# --copies so the venv is self-contained — the runtime stage can just
+# lift /opt/venv across without worrying about dangling symlinks.
+RUN python -m venv --copies /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
+WORKDIR /build
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app /app/app
-
-# Aircraft DB for ICAO24 -> registration / type lookup (tar1090-db / Mictronics).
-# Users can override at runtime by placing a newer file at /data/aircraft_db.csv.gz.
 ARG AIRCRAFT_DB_URL=https://raw.githubusercontent.com/wiedehopf/tar1090-db/refs/heads/csv/aircraft.csv.gz
-RUN python -c "import urllib.request; urllib.request.urlretrieve('${AIRCRAFT_DB_URL}', '/app/app/aircraft_db.csv.gz')"
+RUN python -c "import urllib.request; urllib.request.urlretrieve('${AIRCRAFT_DB_URL}', '/build/aircraft_db.csv.gz')"
 
-# OurAirports CSV for ICAO airport code -> name / city lookup. Public domain.
-# Override at runtime by placing /data/airports.csv.
 ARG AIRPORTS_DB_URL=https://raw.githubusercontent.com/davidmegginson/ourairports-data/main/airports.csv
-RUN python -c "import urllib.request; urllib.request.urlretrieve('${AIRPORTS_DB_URL}', '/app/app/airports.csv')"
+RUN python -c "import urllib.request; urllib.request.urlretrieve('${AIRPORTS_DB_URL}', '/build/airports.csv')"
 
-# Tar1090 per-type aircraft silhouettes (GPL-2.0+) — SVG polygon paths
-# exposed as an ES module for the frontend to import.
-COPY scripts/fetch_plane_shapes.py /tmp/fetch_plane_shapes.py
-RUN python /tmp/fetch_plane_shapes.py && rm /tmp/fetch_plane_shapes.py
+COPY app /build/app
+COPY scripts/fetch_plane_shapes.py /build/scripts/fetch_plane_shapes.py
+RUN TAR1090_SHAPES_DEST=/build/app/static/tar1090_shapes.js \
+    python /build/scripts/fetch_plane_shapes.py
 
-VOLUME ["/data"]
 
-ENV BEAST_HOST=readsb \
+# ---- runtime ----
+#
+# Same base image so the venv's compiled extensions line up. We copy the
+# venv plus the app + its baked-in data assets; pip, gcc, and the fetch
+# script stay behind.
+FROM python:3.12-slim
+
+ENV PATH="/opt/venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    BEAST_HOST=readsb \
     BEAST_PORT=30005 \
     BEAST_OUTFILE=/data/beast.jsonl \
     BEAST_ROTATE=daily \
     BEAST_ROTATE_KEEP=14 \
     BEAST_STDOUT=0 \
     BEAST_NO_DECODE=0 \
-    SNAPSHOT_INTERVAL=1.0 \
-    PYTHONUNBUFFERED=1
+    SNAPSHOT_INTERVAL=1.0
 
+WORKDIR /app
+
+COPY --from=builder /opt/venv /opt/venv
+COPY --from=builder /build/app /app/app
+COPY --from=builder /build/aircraft_db.csv.gz /app/app/aircraft_db.csv.gz
+COPY --from=builder /build/airports.csv /app/app/airports.csv
+
+VOLUME ["/data"]
 EXPOSE 8080
 
 # /healthz returns 503 when the BEAST feed is disconnected, which makes
