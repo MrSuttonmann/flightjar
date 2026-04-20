@@ -180,6 +180,12 @@
                        padding-left: 11px; }
   .ac-item.emergency .cs { color: #fecaca; }
   .ac-item.emergency.selected { background: #4a1818; }
+  /* Watchlisted aircraft get a subtle amber accent so they're easy to
+     spot in a long sidebar. Emergency still wins — a watched plane
+     squawking 7700 reads as emergency-red. */
+  .ac-item.watched { border-left: 3px solid #fbbf24; padding-left: 11px; }
+  .ac-item.watched.selected { border-left-color: var(--accent); }
+  .ac-item.watched.emergency { border-left-color: #ef4444; }
   .emergency-label { display: inline-block; background: #ef4444; color: #fff;
                      font-size: 9px; font-weight: 700; text-transform: uppercase;
                      padding: 1px 4px; border-radius: 2px; margin-left: 4px;
@@ -317,11 +323,23 @@
                 left 0.22s ease, visibility 0s;
   }
   #detail-header {
-    display: flex; justify-content: flex-end;
+    display: flex; justify-content: space-between; align-items: center;
     padding: 6px 6px 0; position: sticky; top: 0;
     background: var(--panel); z-index: 2;
     border-top-left-radius: 8px; border-top-right-radius: 8px;
   }
+  #detail-header::before { content: ""; flex: 1; }
+  #detail-watch {
+    width: 28px; height: 28px; padding: 0;
+    background: transparent; color: var(--muted);
+    border: 1px solid var(--border); border-radius: 4px;
+    cursor: pointer; font-family: inherit;
+    display: inline-flex; align-items: center; justify-content: center;
+    margin-right: 4px;
+  }
+  #detail-watch:hover { color: var(--text); background: #1d222b; }
+  #detail-watch.watched { color: #fbbf24; border-color: #fbbf24; }
+  #detail-watch.watched svg { fill: currentColor; }
   #detail-content { padding: 2px 14px 14px; }
   #detail-close {
     width: 28px; height: 28px; padding: 0;

@@ -11,6 +11,7 @@ import {
   signalLabel,
 } from './profile.js';
 import { initAirportTooltip } from './tooltip.js';
+import { createWatchlist } from './watchlist.js';
 
 (() => {
   const map = L.map('map', { worldCopyJump: true, zoomControl: false })
@@ -698,6 +699,7 @@ import { initAirportTooltip } from './tooltip.js';
       }
     }
 
+    watchlist.noticeAppearances(snap.aircraft);
     renderSidebar(snap);
 
     // Resolve any pending #icao= deep link once its aircraft appears.
@@ -816,6 +818,7 @@ import { initAirportTooltip } from './tooltip.js';
         'ac-item',
         a.icao === selectedIcao ? 'selected' : '',
         a.emergency ? 'emergency' : '',
+        watchlist.has(a.icao) ? 'watched' : '',
       ].filter(Boolean).join(' ');
       const emergencyBadge = a.emergency
         ? `<span class="emergency-label">${escapeHtml(a.emergency)}</span>`
@@ -874,8 +877,36 @@ import { initAirportTooltip } from './tooltip.js';
 
   const detailPanelEl = document.getElementById('detail-panel');
   const detailContentHost = document.getElementById('detail-content');
+  const detailWatchBtn = document.getElementById('detail-watch');
   const appEl = document.getElementById('app');
   let detailPanelContent = null;
+
+  const watchlist = createWatchlist();
+
+  function applyWatchStateToPanel() {
+    if (!selectedIcao) {
+      detailWatchBtn.classList.remove('watched');
+      return;
+    }
+    const on = watchlist.has(selectedIcao);
+    detailWatchBtn.classList.toggle('watched', on);
+    detailWatchBtn.setAttribute(
+      'aria-label', on ? 'Remove from watchlist' : 'Add to watchlist',
+    );
+    detailWatchBtn.title = on
+      ? 'Remove from watchlist'
+      : 'Add to watchlist (notify when this aircraft reappears)';
+  }
+
+  detailWatchBtn.addEventListener('click', async () => {
+    if (!selectedIcao) return;
+    const nowWatching = watchlist.toggle(selectedIcao);
+    // Best-effort: first time the user stars anything, ask for
+    // notification permission so we can actually announce reappearances.
+    if (nowWatching) await watchlist.setNotifyEnabled(true);
+    applyWatchStateToPanel();
+    if (lastSnap) renderSidebar(lastSnap);
+  });
 
   // Cache of adsbdb aircraft records by ICAO24 — the server already caches
   // for 30 days, but this client-side dict spares a network round-trip
@@ -930,6 +961,7 @@ import { initAirportTooltip } from './tooltip.js';
       el.classList.toggle('selected', el.dataset.icao === icao);
     });
     fillAircraftPhoto(icao);
+    applyWatchStateToPanel();
     // Follow the selected aircraft automatically while its panel is open.
     // The user can still toggle Follow off manually to regain free panning.
     followSelected = true;
