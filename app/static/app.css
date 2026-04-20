@@ -75,7 +75,9 @@
     transition: left 0.22s ease, color 0.15s ease, background 0.15s ease;
   }
   #sidebar-toggle:hover { color: var(--text); background: #1d222b; }
-  #sidebar-toggle svg { transition: transform 0.22s ease; }
+  /* display:block strips the inline SVG's baseline descender — without
+     it the glyph sits ~2px too low inside the flex-centred button. */
+  #sidebar-toggle svg { display: block; transition: transform 0.22s ease; }
   body.compact-mode #sidebar-toggle { left: 10px; }
   body.compact-mode #sidebar-toggle svg { transform: scaleX(-1); }
   body.compact-mode #app.panel-open ~ #sidebar-toggle { left: 382px; }
