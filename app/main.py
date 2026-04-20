@@ -184,7 +184,7 @@ async def beast_consumer():
                     stats.frames += 1
 
                     if type_name in ("mode_s_short", "mode_s_long"):
-                        registry.ingest(hex_msg, now, mlat_ticks=mlat_ticks)
+                        registry.ingest(hex_msg, now, mlat_ticks=mlat_ticks, signal=sig)
 
                     if jsonl.enabled:
                         record = {

@@ -107,7 +107,14 @@
                 padding: 6px 10px 4px; font-size: 10px; color: var(--muted);
                 font-variant-numeric: tabular-nums; pointer-events: none;
                 box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-                user-select: none; }
+                user-select: none;
+                transition: left 0.22s ease; }
+  /* When the detail panel is open, shift the legend into the centre of
+     the visible strip of map (the panel occupies ~370px on the left of
+     the map, so half of that — 185px — is the right shift that
+     re-centres the legend under the visible area). Mobile's full-screen
+     panel overlays the map entirely, so skip the shift there. */
+  #app.panel-open .alt-legend { left: calc(50% + 185px); }
   .alt-legend-bar { height: 8px; width: 240px; border-radius: 2px;
                     margin-bottom: 2px; }
   .alt-legend-ticks { display: flex; justify-content: space-between; }
@@ -220,7 +227,21 @@
     background-size: 200% 100%;
     animation: ac-photo-skel 1.4s linear infinite;
   }
-  .ac-photo.no-photo { display: none; }
+  /* "No photo available" placeholder — keeps the reserved aspect ratio
+     but stops the loading shimmer and shows a muted camera-off icon
+     plus a label, so the panel doesn't feel broken for aircraft adsbdb
+     has no photograph of. */
+  .ac-photo.no-photo {
+    animation: none;
+    background: rgba(255, 255, 255, 0.03);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--muted);
+  }
+  .ac-photo .no-photo-inner {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 4px; font-size: 11px; letter-spacing: 0.3px;
+  }
+  .ac-photo .no-photo-inner svg { opacity: 0.7; }
   .ac-photo img {
     display: block; width: 100%; height: 100%;
     object-fit: cover; background: #0a0c10;
@@ -261,7 +282,11 @@
   #detail-panel {
     /* Floats over the map so opening the panel doesn't resize the map
        out from under the user. Anchored to #app (position:relative),
-       top-right of the sidebar with a small gap. */
+       top-right of the sidebar with a small gap.
+       Default state is hidden with a small slide-off offset; adding the
+       `.open` class slides it in. `visibility: hidden` (with a delayed
+       transition on close only) keeps it out of the a11y tree and blocks
+       pointer events when invisible. */
     position: absolute; top: 10px; bottom: 10px;
     left: 330px; width: 360px; z-index: 1000;
     background: var(--panel);
@@ -269,6 +294,17 @@
     overflow-y: auto;
     font-size: 12px; line-height: 1.5;
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+    opacity: 0; visibility: hidden;
+    transform: translateX(-14px);
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease,
+                visibility 0s linear 0.2s;
+  }
+  #detail-panel.open {
+    opacity: 1; visibility: visible;
+    transform: translateX(0);
+    pointer-events: auto;
+    transition: opacity 0.2s ease, transform 0.2s ease, visibility 0s;
   }
   #detail-header {
     display: flex; justify-content: flex-end;
@@ -346,8 +382,48 @@
   .panel-meta .metric .val { font-size: 13px; margin-top: 1px;
                              white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 
-  .panel-footer { font-size: 10px; color: var(--muted); text-align: center;
-                  padding-top: 6px; border-top: 1px solid var(--border); }
+  /* Altitude profile sparkline — stretches to the panel width and scales
+     with the panel. Drawn each tick by renderAltProfile() in app.js. */
+  .panel-profile {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border); border-radius: 4px;
+    padding: 6px 8px 4px;
+  }
+  .panel-profile .pop-alt-profile {
+    display: block; width: 100%; height: 40px; color: var(--muted);
+  }
+
+  /* External tracker links — compact row of pill-style buttons, each
+     paired with a small "opens in new tab" glyph. */
+  .panel-links { display: flex; flex-wrap: wrap; gap: 4px; }
+  .panel-links a {
+    flex: 1 1 auto; min-width: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: 4px;
+    text-align: center; font-size: 10px; letter-spacing: 0.2px;
+    padding: 5px 6px; border-radius: 4px;
+    color: var(--muted); text-decoration: none;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border);
+  }
+  .panel-links a:hover { background: #1d222b; color: var(--text); }
+  .panel-links .link-icon { opacity: 0.7; flex-shrink: 0; }
+  .panel-links a:hover .link-icon { opacity: 1; }
+
+  /* Reception stats strip — same card style as the metric cells. */
+  .panel-stats {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+    padding-top: 8px; border-top: 1px solid var(--border);
+  }
+  .panel-stats .stat {
+    display: flex; flex-direction: column; gap: 1px;
+    font-variant-numeric: tabular-nums;
+  }
+  .panel-stats .stat-label {
+    font-size: 9px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.6px;
+  }
+  .panel-stats .stat-val { font-size: 12px; color: var(--text); }
 
   @media (max-width: 600px) {
     #app {
@@ -356,10 +432,16 @@
       grid-template-areas: "sidebar" "map" "footer";
     }
     #detail-panel {
-      /* Overlays the whole app on mobile — no room for a side card. */
+      /* Overlays the whole app on mobile — no room for a side card.
+         Slide up from the bottom instead of the horizontal desktop slide. */
       position: fixed; inset: 0; width: auto;
       margin: 0; border-radius: 0; z-index: 2000;
+      transform: translateY(20px);
     }
+    #detail-panel.open { transform: translateY(0); }
+    /* Legend's horizontal shift is pointless when the panel covers the
+       whole map, so undo it on mobile. */
+    #app.panel-open .alt-legend { left: 50%; }
     #sidebar { border-right: none; border-bottom: 1px solid var(--border); }
     #sidebar-footer { border-right: 0; }
     /* Small decorative status widgets get hard to read on a phone —

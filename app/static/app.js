@@ -232,6 +232,17 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
     5: 'Heavy', 6: 'High-performance', 7: 'Rotorcraft',
   };
 
+  // Small "opens-in-new-tab" glyph baked into every external-tracker link.
+  // currentColor so each button's link icon inherits its text tone.
+  const LINK_ICON_SVG =
+    `<svg class="link-icon" viewBox="0 0 16 16" width="9" height="9" ` +
+      `aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" ` +
+      `stroke-linecap="round" stroke-linejoin="round">` +
+      `<path d="M10 3h3v3"/>` +
+      `<path d="M13 3l-6 6"/>` +
+      `<path d="M12 9v3a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3"/>` +
+    `</svg>`;
+
   // Build the panel DOM once per aircraft, with placeholder children for
   // every field that changes on snapshot tick. Subsequent ticks call
   // updatePopupContent() to mutate those placeholders in place — this
@@ -296,9 +307,85 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
         `<div class="metric"><div class="label">Age</div>` +
           `<div class="val pop-age"></div></div>` +
       `</div>` +
-      `<div class="panel-footer"><code class="pop-msgs"></code></div>`;
+      `<div class="panel-profile">` +
+        `<div class="panel-mini-label">Altitude profile (last 5 min)</div>` +
+        `<svg class="pop-alt-profile" viewBox="0 0 200 40" ` +
+          `preserveAspectRatio="none" aria-hidden="true"></svg>` +
+      `</div>` +
+      `<div class="panel-links">` +
+        `<a class="pop-link-fa" target="_blank" rel="noopener">` +
+          `<span>FlightAware</span>${LINK_ICON_SVG}</a>` +
+        `<a class="pop-link-fr24" target="_blank" rel="noopener">` +
+          `<span>Flightradar24</span>${LINK_ICON_SVG}</a>` +
+        `<a class="pop-link-airnav" target="_blank" rel="noopener">` +
+          `<span>AirNav Radar</span>${LINK_ICON_SVG}</a>` +
+        `<a class="pop-link-ps" target="_blank" rel="noopener">` +
+          `<span>Planespotters</span>${LINK_ICON_SVG}</a>` +
+      `</div>` +
+      `<div class="panel-stats">` +
+        `<div class="stat"><span class="stat-label">Messages</span>` +
+          `<span class="stat-val pop-msgs"></span></div>` +
+        `<div class="stat"><span class="stat-label">Peak signal</span>` +
+          `<span class="stat-val pop-signal"></span></div>` +
+        `<div class="stat"><span class="stat-label">First seen</span>` +
+          `<span class="stat-val pop-first-seen"></span></div>` +
+      `</div>`;
     updatePopupContent(root, a, now, airports);
     return root;
+  }
+
+  // Render a tiny altitude-history polyline from the snapshot's per-aircraft
+  // trail. Segments are coloured via altColor so the chart matches the map
+  // trails at a glance. SVG is sized via viewBox + preserveAspectRatio=none
+  // so the rendered width stretches to the panel and we don't have to hit
+  // getBoundingClientRect every tick.
+  function renderAltProfile(svgEl, trail) {
+    if (!trail || trail.length < 2) {
+      svgEl.innerHTML =
+        `<text x="100" y="22" text-anchor="middle" ` +
+        `font-size="10" fill="currentColor" opacity="0.5">awaiting altitude data</text>`;
+      return;
+    }
+    const W = 200, H = 40, PAD = 2;
+    const alts = trail.map(p => p[2]).filter(a => a != null);
+    if (alts.length < 2) {
+      svgEl.innerHTML = '';
+      return;
+    }
+    const minA = 0;
+    const maxA = Math.max(...alts, 1000);
+    const span = Math.max(1, maxA - minA);
+    const xStep = (W - 2 * PAD) / (alts.length - 1);
+    const y = (a) => H - PAD - (a - minA) / span * (H - 2 * PAD);
+    let out = '';
+    for (let i = 1; i < alts.length; i++) {
+      const x0 = PAD + (i - 1) * xStep;
+      const x1 = PAD + i * xStep;
+      out +=
+        `<line x1="${x0.toFixed(1)}" y1="${y(alts[i - 1]).toFixed(1)}" ` +
+        `x2="${x1.toFixed(1)}" y2="${y(alts[i]).toFixed(1)}" ` +
+        `stroke="${altColor(alts[i])}" stroke-width="1.6" ` +
+        `stroke-linecap="round" vector-effect="non-scaling-stroke"/>`;
+    }
+    svgEl.innerHTML = out;
+  }
+
+  // Rough BEAST signal byte → dBFS label. The byte is the peak-sample fraction
+  // of full scale, so 10*log10((b/255)^2) puts 255 at 0 dBFS. Matches the
+  // convention readsb's own dashboard uses.
+  function signalLabel(byte) {
+    if (byte == null || byte <= 0) return '—';
+    const db = 10 * Math.log10((byte / 255) ** 2);
+    return db.toFixed(1) + ' dBFS';
+  }
+
+  // Short relative-age label: "45s", "12m", "3.4h" from a unix timestamp.
+  function relativeAge(t, now) {
+    if (!t || !now) return '—';
+    const s = Math.max(0, now - t);
+    if (s < 60) return Math.round(s) + 's ago';
+    if (s < 3600) return Math.round(s / 60) + 'm ago';
+    return (s / 3600).toFixed(1) + 'h ago';
   }
 
   function updatePopupContent(root, a, now, airports) {
@@ -420,7 +507,33 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
     q('.pop-lat').textContent = a.lat != null ? a.lat.toFixed(4) + '°' : '—';
     q('.pop-lon').textContent = a.lon != null ? a.lon.toFixed(4) + '°' : '—';
     q('.pop-age').textContent = fmt(ageOf(a, now), 's', 1) + ' ago';
-    q('.pop-msgs').textContent = `${a.msg_count} messages received`;
+
+    // Bottom section: altitude profile, external links, reception stats.
+    renderAltProfile(q('.pop-alt-profile'), a.trail);
+
+    const hexUpper = a.icao.toUpperCase();
+    const hexLower = a.icao.toLowerCase();
+    // Hex-keyed trackers work for any aircraft.
+    q('.pop-link-fa').href = `https://flightaware.com/live/modes/${hexLower}/redirect`;
+    q('.pop-link-ps').href = `https://www.planespotters.net/hex/${hexUpper}`;
+    // FR24 and AirNav Radar deep-link by registration; hide the button
+    // until we've got a tail (sparing users a dead-end 404).
+    const fr24 = q('.pop-link-fr24');
+    const airnav = q('.pop-link-airnav');
+    if (a.registration) {
+      const regLower = a.registration.toLowerCase();
+      fr24.href = `https://www.flightradar24.com/data/aircraft/${regLower}`;
+      airnav.href = `https://www.airnavradar.com/data/aircraft/${regLower}`;
+      fr24.hidden = false;
+      airnav.hidden = false;
+    } else {
+      fr24.hidden = true;
+      airnav.hidden = true;
+    }
+
+    q('.pop-msgs').textContent = a.msg_count.toLocaleString();
+    q('.pop-signal').textContent = signalLabel(a.signal_peak);
+    q('.pop-first-seen').textContent = relativeAge(a.first_seen, now);
   }
 
   // Route string (e.g. "EGLL → KJFK") from snapshot fields. Returns '' when
@@ -892,7 +1005,7 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
   // right by half the panel's occluded width, trading map-centre for
   // visible-area-centre.
   function panToFollowed(latlng, opts) {
-    if (detailPanelEl.hidden) {
+    if (!detailPanelEl.classList.contains('open')) {
       map.panTo(latlng, opts);
       return;
     }
@@ -925,7 +1038,7 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
     detailContentHost.innerHTML = '';
     detailPanelContent = buildPopupContent(a, lastSnap?.now, lastSnap?.airports);
     detailContentHost.appendChild(detailPanelContent);
-    detailPanelEl.hidden = false;
+    detailPanelEl.classList.add('open');
     appEl.classList.add('panel-open');
     entry.marker.setIcon(
       planeIcon(a.track, altColor(a.altitude), true, !!a.emergency, a.type_icao),
@@ -945,10 +1058,17 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
     if (!icao) return;
     selectedIcao = null;
     writeDeepLink(null);
-    detailPanelEl.hidden = true;
+    detailPanelEl.classList.remove('open');
     appEl.classList.remove('panel-open');
+    // Let the slide-out finish before clearing the DOM so the photo +
+    // fields don't flash blank during the transition.
+    const prevContent = detailPanelContent;
     detailPanelContent = null;
-    detailContentHost.innerHTML = '';
+    setTimeout(() => {
+      if (detailPanelContent === null && detailContentHost.firstChild === prevContent) {
+        detailContentHost.innerHTML = '';
+      }
+    }, 220);
     const entry = aircraft.get(icao);
     if (entry) {
       const a = entry.data;
@@ -1000,6 +1120,17 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
     if (!slot) return;
     if (!info || !info.photo_thumbnail) {
       slot.classList.add('no-photo');
+      slot.innerHTML =
+        `<div class="no-photo-inner">` +
+          `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" ` +
+            `stroke="currentColor" stroke-width="1.5" stroke-linecap="round" ` +
+            `stroke-linejoin="round" aria-hidden="true">` +
+            `<path d="M3 7h4l1.5-2h7L17 7h4v12H3z"/>` +
+            `<circle cx="12" cy="13" r="3"/>` +
+            `<line x1="3" y1="3" x2="21" y2="21"/>` +
+          `</svg>` +
+          `<span>No photo available</span>` +
+        `</div>`;
       return;
     }
     const thumb = escapeHtml(info.photo_thumbnail);

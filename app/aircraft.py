@@ -50,6 +50,7 @@ class Aircraft:
 
     last_seen: float = 0.0
     last_position_time: float = 0.0
+    first_seen: float = 0.0
     # Most recent BEAST MLAT tick stamp; a per-receiver 12 MHz counter.
     # Useful for sub-second spacing; don't compare across receivers.
     last_seen_mlat: int | None = None
@@ -62,6 +63,11 @@ class Aircraft:
 
     trail: deque = field(default_factory=lambda: deque(maxlen=TRAIL_MAX_POINTS))
     msg_count: int = 0
+    # Peak BEAST signal byte (0-255) seen for this aircraft. dump1090/readsb
+    # pack the per-message signal level into a single byte; we keep the max
+    # so the panel can show "best reception seen" rather than a jittery
+    # per-frame value.
+    signal_peak: int | None = None
 
     @property
     def altitude(self) -> int | None:
@@ -108,6 +114,7 @@ class AircraftRegistry:
         hex_msg: str,
         now: float | None = None,
         mlat_ticks: int | None = None,
+        signal: int | None = None,
     ) -> bool:
         """Update state from one Mode S message. Returns True if accepted."""
         if now is None:
@@ -117,15 +124,23 @@ class AircraftRegistry:
         if df is None:
             return False
         if df in (17, 18):
-            return self._ingest_adsb(r, hex_msg, now, mlat_ticks)
-        if df in (4, 5, 11, 20, 21):
-            return self._ingest_surveillance(r, now, mlat_ticks)
-        return False
+            accepted = self._ingest_adsb(r, hex_msg, now, mlat_ticks)
+        elif df in (4, 5, 11, 20, 21):
+            accepted = self._ingest_surveillance(r, now, mlat_ticks)
+        else:
+            return False
+        if accepted and signal is not None:
+            icao = r.get("icao")
+            if icao:
+                ac = self.aircraft.get(icao)
+                if ac is not None and (ac.signal_peak is None or signal > ac.signal_peak):
+                    ac.signal_peak = signal
+        return accepted
 
     def _get(self, icao: str) -> Aircraft:
         ac = self.aircraft.get(icao)
         if ac is None:
-            ac = Aircraft(icao=icao)
+            ac = Aircraft(icao=icao, first_seen=time.time())
             self.aircraft[icao] = ac
         return ac
 
@@ -312,8 +327,10 @@ class AircraftRegistry:
         "on_ground",
         "last_seen",
         "last_position_time",
+        "first_seen",
         "last_seen_mlat",
         "msg_count",
+        "signal_peak",
     )
 
     def serialize(self) -> dict:
@@ -411,6 +428,8 @@ class AircraftRegistry:
                     "emergency": EMERGENCY_SQUAWKS.get(ac.squawk) if ac.squawk else None,
                     "on_ground": ac.on_ground,
                     "last_seen": ac.last_seen,
+                    "first_seen": ac.first_seen or None,
+                    "signal_peak": ac.signal_peak,
                     "msg_count": ac.msg_count,
                     "distance_km": distance_km,
                     "trail": [[lat, lon, alt] for lat, lon, alt, _ in ac.trail],
