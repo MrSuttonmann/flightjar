@@ -40,49 +40,55 @@
   .leaflet-touch .home-control { width: 30px; height: 30px; }
   .home-control:hover { background: #f4f4f4; color: #1d4ed8; }
   .home-control svg { display: block; }
-  /* Follow + Compact live next to the layers control in the top-right.
-     They share Leaflet's bar sizing rules (see .home-control above) and
-     add an `active` tint when the feature is on. */
-  .follow-control, .compact-control {
+  /* Follow lives next to the layers control in the top-right, sharing
+     Leaflet's .leaflet-bar a sizing rules (see .home-control above) and
+     adding an `active` tint when Follow is engaged. */
+  .follow-control {
     width: 26px; height: 26px; display: flex;
     align-items: center; justify-content: center;
     color: #333; background: #fff; cursor: pointer; text-decoration: none;
   }
-  .leaflet-touch .follow-control,
-  .leaflet-touch .compact-control { width: 30px; height: 30px; }
-  .follow-control:hover, .compact-control:hover { background: #f4f4f4; }
-  .follow-control svg, .compact-control svg { display: block; }
-  .follow-control.active, .compact-control.active {
-    color: #fff; background: var(--accent);
-  }
-  .follow-control.active:hover, .compact-control.active:hover {
-    background: #1d4ed8;
-  }
+  .leaflet-touch .follow-control { width: 30px; height: 30px; }
+  .follow-control:hover { background: #f4f4f4; }
+  .follow-control svg { display: block; }
+  .follow-control.active { color: #fff; background: var(--accent); }
+  .follow-control.active:hover { background: #1d4ed8; }
   .airport-icon { background: transparent !important; border: none !important; }
   .airport-dot { width: 8px; height: 8px; border-radius: 50%;
                  background: #fbbf24; border: 1.5px solid #0e1116;
                  box-shadow: 0 0 0 1px #fbbf24; margin: 1px; }
   /* Zoom control lives bottom-left now, so the top-left corner is free. */
-  #sidebar-restore { display: none; position: fixed; top: 12px; left: 12px;
-                     z-index: 1001; padding: 5px 10px;
-                     background: var(--panel); color: var(--text);
-                     border: 1px solid var(--border); border-radius: 4px;
-                     font-size: 12px; font-family: inherit; cursor: pointer;
-                     box-shadow: 0 2px 8px rgba(0,0,0,0.35); }
-  #sidebar-restore:hover { background: #1d222b; }
-  #sidebar-restore { transition: left 0.22s ease; }
-  body.compact-mode #sidebar-restore { display: block; }
+  /* Single sidebar toggle. Sits inside the sidebar top-right by default
+     (so it doesn't steal map real estate), slides to the viewport's
+     top-left when compact-mode hides the sidebar, and shifts further
+     right again when the detail panel is open in compact mode — any
+     other position would sit behind the panel. The chevron flips via
+     CSS scaleX to reflect open / closed state. */
+  #sidebar-toggle {
+    position: fixed; top: 10px; left: 288px; z-index: 1100;
+    width: 28px; height: 28px; padding: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--panel); color: var(--muted);
+    border: 1px solid var(--border); border-radius: 4px;
+    font-family: inherit; cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+    transition: left 0.22s ease, color 0.15s ease, background 0.15s ease;
+  }
+  #sidebar-toggle:hover { color: var(--text); background: #1d222b; }
+  #sidebar-toggle svg { transition: transform 0.22s ease; }
+  body.compact-mode #sidebar-toggle { left: 10px; }
+  body.compact-mode #sidebar-toggle svg { transform: scaleX(-1); }
+  body.compact-mode #app.panel-open ~ #sidebar-toggle { left: 382px; }
+
   body.compact-mode #sidebar,
   body.compact-mode #sidebar-footer { display: none; }
   body.compact-mode #app { grid-template-columns: 1fr;
                            grid-template-rows: 1fr;
                            grid-template-areas: "map"; }
-  /* Compact mode drops the sidebar, so the detail panel should hug the
-     left edge of the viewport instead of sitting where the sidebar used
-     to be. The restore-sidebar button also shifts right of the panel so
-     it's still clickable while the panel is open. */
+  /* Compact mode drops the sidebar, so the detail panel hugs the left
+     edge of the viewport instead of sitting where the sidebar used
+     to be. */
   body.compact-mode #detail-panel { left: 10px; }
-  body.compact-mode #app.panel-open ~ #sidebar-restore { left: 382px; }
   #unit-switch { display: flex; border: 1px solid var(--border); border-radius: 3px;
                  overflow: hidden; flex-shrink: 0; }
   .unit-btn { background: transparent; color: var(--muted); border: 0; padding: 2px 6px;
@@ -140,9 +146,6 @@
   #msg-rate { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
   #msg-rate:empty { display: none; }
   #msg-rate::before { content: "· "; }
-  #sparkline { display: inline-block; height: 14px; line-height: 0; color: var(--muted); }
-  #sparkline:empty { display: none; }
-  #sparkline svg { vertical-align: middle; }
   #heartbeat { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
   #heartbeat.stale { color: #f59e0b; }
   #heartbeat.dead { color: #ef4444; }
@@ -158,10 +161,12 @@
   #sidebar-footer a:hover { color: var(--text); }
   #sidebar-footer svg { width: 14px; height: 14px; fill: currentColor; }
   #sidebar-footer img { display: block; height: 28px; width: auto; }
-  #about-btn { color: var(--muted); background: transparent; border: 0;
-               font-size: 11px; font-family: inherit; cursor: pointer;
-               padding: 0; }
-  #about-btn:hover { color: var(--text); }
+  #about-btn, #stats-btn {
+    color: var(--muted); background: transparent; border: 0;
+    font-size: 11px; font-family: inherit; cursor: pointer;
+    padding: 0;
+  }
+  #about-btn:hover, #stats-btn:hover { color: var(--text); }
   #about-dialog { max-width: 540px; width: 90vw; border: 1px solid var(--border);
                   border-radius: 6px; background: var(--panel); color: var(--text);
                   padding: 20px 24px 24px; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
@@ -183,6 +188,51 @@
                                line-height: 1; cursor: pointer;
                                padding: 0 4px; margin: -8px -8px 0 0; }
   #about-dialog .about-close:hover { color: var(--text); }
+
+  /* Stats dialog — reuses the about-dialog visual shell but replaces
+     the bulleted lists with a responsive stat-card grid and a bigger
+     sparkline. Redraws live on each snapshot tick while the dialog is
+     open (see renderStats in app.js). */
+  #stats-dialog { max-width: 540px; width: 90vw;
+                  border: 1px solid var(--border); border-radius: 6px;
+                  background: var(--panel); color: var(--text);
+                  padding: 20px 24px 24px;
+                  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+                  font-size: 13px; line-height: 1.45; }
+  #stats-dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
+  #stats-dialog h2 { margin: 0 0 8px; font-size: 18px; font-weight: 600; }
+  #stats-dialog h3 { margin: 16px 0 6px; font-size: 11px;
+                     text-transform: uppercase; letter-spacing: 0.6px;
+                     color: var(--muted); font-weight: 600; }
+  #stats-dialog .about-close-form { margin: 0; padding: 0; display: flex;
+                                    justify-content: flex-end; }
+  #stats-dialog .about-close { background: transparent; border: 0;
+                               color: var(--muted); font-size: 22px;
+                               line-height: 1; cursor: pointer;
+                               padding: 0 4px; margin: -8px -8px 0 0; }
+  #stats-dialog .about-close:hover { color: var(--text); }
+  .stats-grid { display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+                gap: 6px; }
+  .stats-grid .stat-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border); border-radius: 4px;
+    padding: 6px 10px; overflow: hidden;
+    font-variant-numeric: tabular-nums;
+  }
+  .stats-grid .stat-card.wide { grid-column: span 2; }
+  .stats-grid .stat-label { font-size: 9px; color: var(--muted);
+                            text-transform: uppercase; letter-spacing: 0.6px; }
+  .stats-grid .stat-val { font-size: 14px; margin-top: 2px;
+                          white-space: nowrap; overflow: hidden;
+                          text-overflow: ellipsis; }
+  .stats-grid .stat-val.stat-ok { color: #4ade80; }
+  .stats-grid .stat-val.stat-bad { color: #ef4444; }
+  #stats-sparkline { display: block; width: 100%; height: 80px;
+                     background: rgba(255, 255, 255, 0.03);
+                     border: 1px solid var(--border); border-radius: 4px;
+                     padding: 0; color: var(--muted); }
+  #stats-sparkline svg { display: block; width: 100%; height: 100%; }
   .ac-item { position: relative; padding: 8px 14px; border-bottom: 1px solid var(--border);
              cursor: pointer; font-size: 12px; line-height: 1.4; }
   .ac-item:hover, .ac-item.peek { background: #1d222b; }
@@ -499,7 +549,7 @@
     #sidebar-footer { border-right: 0; }
     /* Small decorative status widgets get hard to read on a phone —
        hide them to reclaim some vertical space. */
-    #msg-rate, #sparkline { display: none; }
+    #msg-rate { display: none; }
     /* Surface the Filters toggle; the panel below it starts collapsed. */
     #filters-toggle { display: block; }
   }

@@ -19,7 +19,7 @@
     <div id="header">
       <h1>Flightjar<span id="site-name"></span></h1>
       <div id="header-row2">
-        <div id="status"><span class="dot"></span><span id="status-text">Connecting…</span><span id="msg-rate" title="Messages per second"></span><span id="sparkline" title="Aircraft count over the last minute"></span><span id="heartbeat"></span></div>
+        <div id="status"><span class="dot"></span><span id="status-text">Connecting…</span><span id="msg-rate" title="Messages per second"></span><span id="heartbeat"></span></div>
         <div id="unit-switch" title="Units">
           <button class="unit-btn" data-unit="metric">Metric</button>
           <button class="unit-btn" data-unit="imperial">Imperial</button>
@@ -65,12 +65,45 @@
       </svg>
       GitHub
     </a>
+    <button id="stats-btn" type="button" title="Receiver stats">Stats</button>
     <button id="about-btn" type="button" title="Credits and dependencies">About</button>
     <a href="https://www.buymeacoffee.com/mrsuttonmann" target="_blank" rel="noopener"
        title="Buy me a coffee">
       <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee">
     </a>
   </div>
+
+<dialog id="stats-dialog">
+  <form method="dialog" class="about-close-form">
+    <button class="about-close" value="close" aria-label="Close">&times;</button>
+  </form>
+  <h2>Receiver stats</h2>
+
+  <div class="stats-grid">
+    <div class="stat-card"><div class="stat-label">Uptime</div><div class="stat-val" id="stats-uptime">—</div></div>
+    <div class="stat-card"><div class="stat-label">Frames received</div><div class="stat-val" id="stats-frames">—</div></div>
+    <div class="stat-card"><div class="stat-label">Current rate</div><div class="stat-val" id="stats-rate">—</div></div>
+    <div class="stat-card"><div class="stat-label">Tracked aircraft</div><div class="stat-val" id="stats-tracked">—</div></div>
+    <div class="stat-card"><div class="stat-label">With position</div><div class="stat-val" id="stats-positioned">—</div></div>
+    <div class="stat-card"><div class="stat-label">WebSocket clients</div><div class="stat-val" id="stats-ws">—</div></div>
+  </div>
+
+  <h3>Aircraft count — last 60s</h3>
+  <div id="stats-sparkline" title="Aircraft count over the last minute"></div>
+
+  <h3>Polar coverage</h3>
+  <div class="stats-grid">
+    <div class="stat-card"><div class="stat-label">Max range</div><div class="stat-val" id="stats-max-range">—</div></div>
+    <div class="stat-card"><div class="stat-label">Avg range</div><div class="stat-val" id="stats-avg-range">—</div></div>
+    <div class="stat-card"><div class="stat-label">Sectors seen</div><div class="stat-val" id="stats-sectors">—</div></div>
+  </div>
+
+  <h3>BEAST feed</h3>
+  <div class="stats-grid">
+    <div class="stat-card wide"><div class="stat-label">Source</div><div class="stat-val" id="stats-beast-target">—</div></div>
+    <div class="stat-card"><div class="stat-label">Connection</div><div class="stat-val" id="stats-beast-connected">—</div></div>
+  </div>
+</dialog>
 
 <dialog id="about-dialog">
   <form method="dialog" class="about-close-form">
@@ -120,7 +153,14 @@
 </dialog>
 </div>
 
-<button id="sidebar-restore" title="Show sidebar (C)">☰ sidebar</button>
+<button id="sidebar-toggle" type="button" aria-label="Toggle sidebar">
+  <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"
+       fill="none" stroke="currentColor" stroke-width="1.8"
+       stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="12 4 6 10 12 16"/>
+    <polyline points="17 4 11 10 17 16"/>
+  </svg>
+</button>
 
 <!-- data-cfasync="false" opts out of Cloudflare Rocket Loader, which
      otherwise rewrites these to inline scripts and trips our CSP. -->

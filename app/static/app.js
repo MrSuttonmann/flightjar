@@ -774,26 +774,10 @@ import { createWatchlist } from './watchlist.js';
     });
   }
 
-  // Tiny sparkline showing count-over-time in the header. ~1 minute of
-  // history at 1Hz snapshot rate.
+  // Rolling aircraft-count history, fed into the Stats dialog sparkline.
+  // ~1 minute at 1Hz snapshot rate.
   const countHistory = [];
   const COUNT_HISTORY_LEN = 60;
-
-  function renderSparkline() {
-    const el = document.getElementById('sparkline');
-    if (countHistory.length < 2) { el.innerHTML = ''; return; }
-    const max = Math.max(1, ...countHistory);
-    const w = 60, h = 12;
-    const step = w / Math.max(1, COUNT_HISTORY_LEN - 1);
-    // Align to the right so the newest sample is always at x = w.
-    const offset = w - (countHistory.length - 1) * step;
-    const pts = countHistory.map((c, i) => {
-      const x = offset + i * step;
-      const y = h - (c / max) * (h - 2) - 1;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    }).join(' ');
-    el.innerHTML = `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline points="${pts}" fill="none" stroke="currentColor" stroke-width="1" stroke-linejoin="round" stroke-linecap="round" opacity="0.75"/></svg>`;
-  }
 
   // Messages/sec from successive snapshots (server ships cumulative frame
   // counter, we diff here). Needs two samples before anything renders.
@@ -812,10 +796,11 @@ import { createWatchlist } from './watchlist.js';
   }
 
   function renderSidebar(snap) {
-    // Push the current count onto the sparkline buffer before drawing.
+    // Push the current count onto the rolling history (consumed by the
+    // Stats dialog sparkline when it's open).
     countHistory.push(snap.count);
     if (countHistory.length > COUNT_HISTORY_LEN) countHistory.shift();
-    renderSparkline();
+    if (statsDialog?.open) renderStats(snap);
     updateMsgRate(snap);
     const status = document.getElementById('status-text');
     status.textContent =
@@ -1186,6 +1171,110 @@ import { createWatchlist } from './watchlist.js';
     if (!inside) aboutDialog.close();
   });
 
+  // ---- Stats dialog ----
+  // Replaces the tiny sparkline that used to live in the sidebar status
+  // bar. A full receiver-stats overview: uptime, frame rate + total
+  // frames, tracked aircraft (total + positioned), WebSocket clients,
+  // a ~1-min aircraft-count sparkline, and a polar-coverage summary
+  // (max + avg observed range). Redraws live on each snapshot tick
+  // while the dialog is open.
+  const statsDialog = document.getElementById('stats-dialog');
+  const statsSparkEl = document.getElementById('stats-sparkline');
+
+  function fmtDuration(s) {
+    if (s == null) return '—';
+    if (s < 60) return `${Math.round(s)}s`;
+    if (s < 3600) return `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
+    if (s < 86400) return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+    const d = Math.floor(s / 86400);
+    return `${d}d ${Math.floor((s % 86400) / 3600)}h`;
+  }
+
+  function renderStatsSparkline() {
+    if (countHistory.length < 2) { statsSparkEl.innerHTML = ''; return; }
+    const W = 420, H = 80, PAD = 4;
+    const max = Math.max(1, ...countHistory);
+    const step = (W - 2 * PAD) / Math.max(1, COUNT_HISTORY_LEN - 1);
+    // Right-align newest sample.
+    const offset = W - PAD - (countHistory.length - 1) * step;
+    const pts = countHistory.map((c, i) => {
+      const x = offset + i * step;
+      const y = H - PAD - (c / max) * (H - 2 * PAD);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+    statsSparkEl.innerHTML =
+      `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">` +
+      `<polyline points="${pts}" fill="none" stroke="var(--accent)" ` +
+      `stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" ` +
+      `vector-effect="non-scaling-stroke"/></svg>`;
+  }
+
+  let statsServerInfo = null;
+
+  async function refreshServerStats() {
+    try {
+      const [s, c] = await Promise.all([
+        fetch('/api/stats').then(r => r.ok ? r.json() : null),
+        fetch('/api/coverage').then(r => r.ok ? r.json() : null),
+      ]);
+      statsServerInfo = { stats: s, coverage: c };
+    } catch (e) {
+      console.warn('stats fetch failed', e);
+    }
+  }
+
+  function renderStats(snap) {
+    // Basic snapshot-derived fields.
+    document.getElementById('stats-tracked').textContent = snap?.count ?? '—';
+    document.getElementById('stats-positioned').textContent = snap?.positioned ?? '—';
+    renderStatsSparkline();
+
+    // Server /api/stats fields (populated by refreshServerStats on open).
+    const s = statsServerInfo?.stats;
+    if (s) {
+      document.getElementById('stats-uptime').textContent = fmtDuration(s.uptime_s);
+      document.getElementById('stats-frames').textContent = s.frames.toLocaleString();
+      document.getElementById('stats-ws').textContent = s.websocket_clients;
+      document.getElementById('stats-beast-target').textContent = s.beast_target;
+      document.getElementById('stats-beast-connected').textContent =
+        s.beast_connected ? 'Connected' : 'Disconnected';
+      document.getElementById('stats-beast-connected').className =
+        'stat-val ' + (s.beast_connected ? 'stat-ok' : 'stat-bad');
+    }
+    // Current rate from the msg-rate element (computed from frame diffs).
+    document.getElementById('stats-rate').textContent =
+      document.getElementById('msg-rate').textContent || '—';
+
+    // Polar coverage summary.
+    const bearings = statsServerInfo?.coverage?.bearings ?? [];
+    if (bearings.length > 0) {
+      const dists = bearings.map(b => b.dist_km);
+      const maxD = Math.max(...dists);
+      const avgD = dists.reduce((a, b) => a + b, 0) / dists.length;
+      document.getElementById('stats-max-range').textContent = uconv('dst', maxD);
+      document.getElementById('stats-avg-range').textContent = uconv('dst', avgD);
+      document.getElementById('stats-sectors').textContent =
+        `${bearings.length} / 36`;
+    } else {
+      document.getElementById('stats-max-range').textContent = '—';
+      document.getElementById('stats-avg-range').textContent = '—';
+      document.getElementById('stats-sectors').textContent = '—';
+    }
+  }
+
+  document.getElementById('stats-btn').addEventListener('click', async () => {
+    await refreshServerStats();
+    renderStats(lastSnap);
+    if (typeof statsDialog.showModal === 'function') statsDialog.showModal();
+    else statsDialog.setAttribute('open', '');
+  });
+  statsDialog.addEventListener('click', (e) => {
+    const r = statsDialog.getBoundingClientRect();
+    const inside = e.clientX >= r.left && e.clientX <= r.right
+                && e.clientY >= r.top && e.clientY <= r.bottom;
+    if (!inside) statsDialog.close();
+  });
+
   function setTrails(value) {
     showTrails = value;
     try { localStorage.setItem('flightjar.trails', showTrails ? '1' : '0'); } catch (_) {}
@@ -1251,9 +1340,7 @@ import { createWatchlist } from './watchlist.js';
 
   function applyCompactMode() {
     document.body.classList.toggle('compact-mode', compactMode);
-    document.querySelectorAll('.compact-control').forEach(
-      el => el.classList.toggle('active', compactMode),
-    );
+    sidebarToggleBtn.title = compactMode ? 'Show sidebar (C)' : 'Hide sidebar (C)';
     // The map container's size just changed — Leaflet needs a nudge.
     // pan: false so the map stays anchored to whatever the user was
     // looking at instead of drifting to preserve the old geographic centre.
@@ -1264,20 +1351,11 @@ import { createWatchlist } from './watchlist.js';
     try { localStorage.setItem('flightjar.compact', compactMode ? '1' : '0'); } catch (_) {}
     applyCompactMode();
   }
-  // Double-chevron glyph suggesting "collapse sidebar into the map".
-  // Top-left so it's near the sidebar edge it'll hide / reveal.
-  const CompactControl = makeIconControl({
-    className: 'compact-control',
-    title: 'Hide the sidebar (C)',
-    pathD:
-      `<polyline points="12 4 6 10 12 16"/>` +
-      `<polyline points="17 4 11 10 17 16"/>`,
-    onClick: () => setCompact(!compactMode),
-  });
-  const compactCtl = new CompactControl();
-  compactCtl.options.position = 'topleft';
-  map.addControl(compactCtl);
-  document.getElementById('sidebar-restore').addEventListener('click', () => setCompact(false));
+  // One floating sidebar toggle for both "hide" and "show" — the chevron
+  // flips via CSS when compact-mode is active, and the button slides
+  // between positions so it never overlaps the detail panel.
+  const sidebarToggleBtn = document.getElementById('sidebar-toggle');
+  sidebarToggleBtn.addEventListener('click', () => setCompact(!compactMode));
   applyCompactMode();
 
   // ---- airports overlay ----
