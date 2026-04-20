@@ -247,3 +247,131 @@ def test_unknown_df_is_ignored():
         reg = AircraftRegistry()
         assert reg.ingest("XXX1", now=1.0) is False
     assert len(reg.aircraft) == 0
+
+
+def test_dead_reckon_extrapolates_stale_positions():
+    """When a position is a few seconds stale and we have track+speed,
+    snapshot() should project the aircraft forward along its heading."""
+    from app.aircraft import Aircraft
+
+    reg = AircraftRegistry()
+    ac = Aircraft(icao="abc123")
+    ac.callsign = "TEST1"
+    ac.lat = 52.0
+    ac.lon = -1.0
+    ac.speed = 480.0  # knots
+    ac.track = 90.0  # due east
+    ac.altitude_baro = 30000
+    ac.last_seen = 100.0
+    ac.last_position_time = 100.0
+    ac.on_ground = False
+    reg.aircraft["abc123"] = ac
+
+    # 10 seconds on, no fresh data: extrapolated ~2.47 km east of the
+    # last fix (480 kn * 1.852 * 10/3600).
+    snap = reg.snapshot(now=110.0)
+    entry = snap["aircraft"][0]
+    assert entry["position_stale"] is True
+    # Due-east travel — lat barely moves (great-circle math drifts by a
+    # few micro-degrees, so allow slop).
+    assert abs(entry["lat"] - 52.0) < 1e-4
+    # ~2.47 km east, longitude step at this latitude is ~68 km/°, so
+    # delta should be small but positive (~0.036°).
+    assert 0.02 < entry["lon"] - (-1.0) < 0.05
+
+
+def test_dead_reckon_skipped_for_recent_and_very_stale_positions():
+    """Positions younger than MIN_AGE or older than MAX_AGE pass through
+    unchanged — the extrapolation window is bounded both ways."""
+    from app.aircraft import DEAD_RECKON_MAX_AGE, Aircraft
+
+    reg = AircraftRegistry()
+    ac = Aircraft(icao="abc123")
+    ac.callsign = "TEST1"
+    ac.lat, ac.lon = 52.0, -1.0
+    ac.speed, ac.track = 480.0, 90.0
+    ac.altitude_baro = 30000
+    ac.last_seen = 100.0
+    ac.last_position_time = 100.0
+    ac.on_ground = False
+    reg.aircraft["abc123"] = ac
+
+    # Fresh: no extrapolation.
+    snap_fresh = reg.snapshot(now=100.5)
+    assert snap_fresh["aircraft"][0]["position_stale"] is False
+    assert snap_fresh["aircraft"][0]["lon"] == -1.0
+    # Past the cap: no more extrapolation — frozen at last known fix.
+    snap_very_stale = reg.snapshot(now=100.0 + DEAD_RECKON_MAX_AGE + 5)
+    assert snap_very_stale["aircraft"][0]["position_stale"] is False
+    assert snap_very_stale["aircraft"][0]["lon"] == -1.0
+
+
+def test_dead_reckon_resume_clears_trail_on_large_correction():
+    """When a plane reappears far from where extrapolation placed it,
+    the trail should be cleared so the next coloured segment starts
+    from the fresh fix rather than drawing a diagonal across the gap."""
+    from app.aircraft import Aircraft, AircraftRegistry
+
+    # Custom decoder: AP01 bytes resolve to (52.0, -1.0); AP02 bytes to
+    # (52.2, -0.9). Both through the reference-based local decode path.
+    def mixed_decode(msg, **kw):
+        if "reference" in kw or "surface_ref" in kw:
+            if msg.startswith("AP02"):
+                return {"latitude": 52.2, "longitude": -0.9}
+            return {"latitude": 52.0, "longitude": -1.0}
+        base = {
+            "df": 17,
+            "crc_valid": True,
+            "icao": "abc123",
+            "typecode": 11,
+            "altitude": 30000,
+            "cpr_format": 0 if msg.startswith("AP01") else 1,
+        }
+        return base
+
+    with patch("app.aircraft.pms.decode", side_effect=mixed_decode):
+        reg = AircraftRegistry(lat_ref=52.0, lon_ref=-1.0)
+        # Seed velocity so dead-reckoning has something to extrapolate.
+        # 480 kn due east.
+        reg.aircraft["abc123"] = Aircraft(
+            icao="abc123",
+            speed=480.0,
+            track=90.0,
+            on_ground=False,
+        )
+        # First real fix.
+        reg.ingest("AP01aaaa", now=100.0)
+        reg.aircraft["abc123"].speed = 480.0
+        reg.aircraft["abc123"].track = 90.0
+        assert len(reg.aircraft["abc123"].trail) == 1
+        # 20 s later, the plane actually turned north (AP02 resolves far
+        # from where eastward extrapolation would have placed it).
+        reg.ingest("AP02bbbb", now=120.0)
+    ac = reg.aircraft["abc123"]
+    # Big correction detected — trail cleared and restarted at the new fix.
+    assert len(ac.trail) == 1
+    assert ac.trail[-1][0] == 52.2
+    assert ac.trail[-1][1] == -0.9
+
+
+def test_dead_reckon_skipped_on_ground():
+    """Surface positions shouldn't dead-reckon — a taxiing plane isn't
+    going to keep travelling at the last decoded groundspeed along a
+    straight line."""
+    from app.aircraft import Aircraft
+
+    reg = AircraftRegistry()
+    ac = Aircraft(icao="abc123")
+    ac.callsign = "TEST1"
+    ac.lat, ac.lon = 52.0, -1.0
+    ac.speed, ac.track = 15.0, 90.0
+    ac.altitude_baro = 0
+    ac.on_ground = True
+    ac.last_seen = 100.0
+    ac.last_position_time = 100.0
+    reg.aircraft["abc123"] = ac
+
+    snap = reg.snapshot(now=110.0)
+    assert snap["aircraft"][0]["position_stale"] is False
+    assert snap["aircraft"][0]["lat"] == 52.0
+    assert snap["aircraft"][0]["lon"] == -1.0

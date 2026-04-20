@@ -24,6 +24,20 @@ POSITION_PAIR_MAX_AGE = 10.0  # seconds; CPR global decode validity window
 TRAIL_MAX_POINTS = 300  # ~5 minutes at typical 1Hz position rate
 AIRCRAFT_TIMEOUT = 60.0  # drop from registry after this many seconds idle
 PERSIST_MAX_AGE = 600.0  # restored aircraft older than this are discarded
+# Dead-reckoning window. When a position is older than
+# DEAD_RECKON_MIN_AGE we extrapolate along the last known track at the
+# last known groundspeed so the plane keeps moving smoothly between
+# reception gaps. Past DEAD_RECKON_MAX_AGE we freeze at the last real
+# fix — straight-line extrapolation over a minute of silence is as
+# likely to mislead as to help.
+DEAD_RECKON_MIN_AGE = 1.5
+DEAD_RECKON_MAX_AGE = 30.0
+# When a real fix resumes after dead-reckoning and it's more than this far
+# from where we'd extrapolated to, treat the extrapolation as misleading:
+# clear the trail so the next coloured segment starts from the new fix
+# rather than drawing a diagonal straight across the gap.
+DEAD_RECKON_RESUME_RESET_KM = 5.0
+EARTH_KM = 6371.0
 
 EMERGENCY_SQUAWKS = {
     "7500": "hijack",
@@ -73,6 +87,37 @@ class Aircraft:
     def altitude(self) -> int | None:
         """Best-known altitude: prefer barometric, fall back to GNSS."""
         return self.altitude_baro if self.altitude_baro is not None else self.altitude_geo
+
+
+def _approx_distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Equirectangular approximation — accurate enough for the <20 km
+    corrections we care about here, and cheaper than haversine."""
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1) * math.cos(math.radians((lat1 + lat2) / 2))
+    return math.hypot(dlat, dlon) * EARTH_KM
+
+
+def _dead_reckon(
+    lat: float, lon: float, track_deg: float, speed_kn: float, elapsed_s: float
+) -> tuple[float, float]:
+    """Project a position along a great-circle track at groundspeed.
+
+    All inputs in the canonical wire units: lat/lon in degrees, track in
+    degrees (0=N, 90=E), groundspeed in knots, elapsed in seconds.
+    """
+    dist_km = (speed_kn * 1.852) * (elapsed_s / 3600.0)
+    if dist_km <= 0:
+        return lat, lon
+    phi1 = math.radians(lat)
+    lam1 = math.radians(lon)
+    theta = math.radians(track_deg)
+    d = dist_km / EARTH_KM
+    phi2 = math.asin(math.sin(phi1) * math.cos(d) + math.cos(phi1) * math.sin(d) * math.cos(theta))
+    lam2 = lam1 + math.atan2(
+        math.sin(theta) * math.sin(d) * math.cos(phi1),
+        math.cos(d) - math.sin(phi1) * math.sin(phi2),
+    )
+    return math.degrees(phi2), ((math.degrees(lam2) + 540) % 360) - 180
 
 
 def _decode(msg, **kw) -> dict:
@@ -303,6 +348,34 @@ class AircraftRegistry:
                 )
                 return
 
+        # Dead-reckoning correction check: if the plane went silent long
+        # enough that the frontend had been extrapolating, compare the new
+        # fix to where extrapolation would have placed it. A big delta
+        # (turn during the gap, missed altitude change, etc.) means the
+        # straight-line dashed dead-reckoning line was misleading — clear
+        # the trail so the next coloured segment starts from this fix
+        # instead of drawing a long diagonal across the gap.
+        if (
+            not surface
+            and ac.lat is not None
+            and ac.lon is not None
+            and ac.last_position_time > 0
+            and ac.speed is not None
+            and ac.track is not None
+        ):
+            elapsed = now - ac.last_position_time
+            if DEAD_RECKON_MIN_AGE < elapsed <= DEAD_RECKON_MAX_AGE:
+                pred_lat, pred_lon = _dead_reckon(ac.lat, ac.lon, ac.track, ac.speed, elapsed)
+                error_km = _approx_distance_km(pred_lat, pred_lon, new_lat, new_lon)
+                if error_km > DEAD_RECKON_RESUME_RESET_KM:
+                    log.info(
+                        "dead-reckon miss %s: %.1f km off after %.1fs — clearing trail",
+                        ac.icao,
+                        error_km,
+                        elapsed,
+                    )
+                    ac.trail.clear()
+
         ac.lat = new_lat
         ac.lon = new_lon
         ac.last_position_time = now
@@ -404,17 +477,35 @@ class AircraftRegistry:
             # a lone squawk or ICAO isn't enough to be worth listing.
             if ac.callsign is None and ac.lat is None and ac.speed is None and ac.altitude is None:
                 continue
+            # Dead-reckon: if the last real fix is a few seconds stale but
+            # we still have a track + groundspeed, project forward so the
+            # marker slides smoothly between position reports instead of
+            # freezing. Airborne only (surface decoding shouldn't cheat).
+            disp_lat, disp_lon = ac.lat, ac.lon
+            position_stale = False
+            if (
+                ac.lat is not None
+                and ac.lon is not None
+                and not ac.on_ground
+                and ac.speed is not None
+                and ac.track is not None
+                and ac.last_position_time > 0
+            ):
+                age = now - ac.last_position_time
+                if DEAD_RECKON_MIN_AGE < age <= DEAD_RECKON_MAX_AGE:
+                    disp_lat, disp_lon = _dead_reckon(ac.lat, ac.lon, ac.track, ac.speed, age)
+                    position_stale = True
             distance_km = None
             if (
                 ref_lat is not None
                 and ref_lon is not None
-                and ac.lat is not None
-                and ac.lon is not None
+                and disp_lat is not None
+                and disp_lon is not None
             ):
-                dlat = math.radians(ac.lat - ref_lat)
-                dlon = math.radians(ac.lon - ref_lon) * math.cos(math.radians(ref_lat))
+                dlat = math.radians(disp_lat - ref_lat)
+                dlon = math.radians(disp_lon - ref_lon) * math.cos(math.radians(ref_lat))
                 distance_km = round(math.hypot(dlat, dlon) * 6371, 2)
-            if ac.lat is not None:
+            if disp_lat is not None:
                 positioned += 1
             info = self.aircraft_db.lookup(ac.icao) if self.aircraft_db else None
             out.append(
@@ -425,8 +516,9 @@ class AircraftRegistry:
                     "registration": info.get("registration") if info else None,
                     "type_icao": info.get("type_icao") if info else None,
                     "type_long": info.get("type_long") if info else None,
-                    "lat": ac.lat,
-                    "lon": ac.lon,
+                    "lat": disp_lat,
+                    "lon": disp_lon,
+                    "position_stale": position_stale,
                     "altitude": ac.altitude,
                     "altitude_baro": ac.altitude_baro,
                     "altitude_geo": ac.altitude_geo,

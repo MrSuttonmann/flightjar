@@ -597,7 +597,10 @@ import { createWatchlist } from './watchlist.js';
   function applyTrailsVisibility() {
     for (const entry of aircraft.values()) {
       if (showTrails) {
-        rebuildTrail(entry, entry.data.trail);
+        const a = entry.data;
+        const drTo = a.position_stale && a.lat != null && a.lon != null
+          ? [a.lat, a.lon] : null;
+        rebuildTrail(entry, a.trail, drTo);
       } else {
         entry.trail.clearLayers();
         entry.trailFp = null;
@@ -628,38 +631,63 @@ import { createWatchlist } from './watchlist.js';
   // Rebuild the per-aircraft trail as a chain of short segments, each
   // coloured by the altitude at that point. Using many small segments with
   // round lineJoin gives a smooth curved look without a splines library.
-  function rebuildTrail(entry, points) {
-    if (!points || points.length < 2) {
+  // `drTo`, when set to [lat, lon], is appended as a dotted dark segment
+  // from the last real trail point to the dead-reckoned current position,
+  // so viewers can tell observed data from extrapolated data at a glance.
+  function rebuildTrail(entry, points, drTo) {
+    const havePoints = points && points.length >= 2;
+    if (!havePoints && !drTo) {
       if (entry.trailFp != null) { entry.trail.clearLayers(); entry.trailFp = null; }
       return;
     }
     // Skip rebuild if nothing changed (common between snapshot ticks when
     // the aircraft hasn't reported a new position). Comparing length alone
     // breaks once the server's trail deque is full and starts rotating —
-    // same length, different contents — so fingerprint the endpoints too.
-    const last = points[points.length - 1];
-    const first = points[0];
-    const fp = `${points.length}:${first[0]},${first[1]}:${last[0]},${last[1]}`;
+    // same length, different contents — so fingerprint the endpoints too,
+    // plus the dead-reckoned tip so extrapolation movement re-renders.
+    const last = havePoints ? points[points.length - 1] : null;
+    const first = havePoints ? points[0] : null;
+    const drTag = drTo ? `${drTo[0].toFixed(4)},${drTo[1].toFixed(4)}` : '-';
+    const fp = havePoints
+      ? `${points.length}:${first[0]},${first[1]}:${last[0]},${last[1]}:${drTag}`
+      : `dr:${drTag}`;
     if (fp === entry.trailFp) return;
     entry.trailFp = fp;
 
     entry.trail.clearLayers();
-    for (let i = 1; i < points.length; i++) {
-      const p0 = points[i - 1];
-      const p1 = points[i];
-      // Colour by the later point's altitude (falls back to earlier point).
-      const alt = p1[2] != null ? p1[2] : p0[2];
-      const color = altColor(alt);
-      // Fade older segments, but keep a high floor so the whole trail
-      // stays legible against busy base tiles.
-      const opacity = 0.65 + 0.3 * (i / points.length);
-      L.polyline([[p0[0], p0[1]], [p1[0], p1[1]]], {
+    if (havePoints) {
+      for (let i = 1; i < points.length; i++) {
+        const p0 = points[i - 1];
+        const p1 = points[i];
+        // Colour by the later point's altitude (falls back to earlier point).
+        const alt = p1[2] != null ? p1[2] : p0[2];
+        const color = altColor(alt);
+        // Fade older segments, but keep a high floor so the whole trail
+        // stays legible against busy base tiles.
+        const opacity = 0.65 + 0.3 * (i / points.length);
+        L.polyline([[p0[0], p0[1]], [p1[0], p1[1]]], {
+          renderer: trailsCanvas,
+          color,
+          weight: 3,
+          opacity,
+          lineCap: 'round',
+          lineJoin: 'round',
+          smoothFactor: 0,
+          interactive: false,
+        }).addTo(entry.trail);
+      }
+    }
+    if (drTo && last) {
+      // Dashed near-black link from the last observed point to the
+      // currently-extrapolated position. Dashes imply "inferred, not
+      // observed"; a darker colour separates it from the altitude palette.
+      L.polyline([[last[0], last[1]], drTo], {
         renderer: trailsCanvas,
-        color,
-        weight: 3,
-        opacity,
+        color: '#0b0e14',
+        weight: 2,
+        opacity: 0.85,
+        dashArray: '2 4',
         lineCap: 'round',
-        lineJoin: 'round',
         smoothFactor: 0,
         interactive: false,
       }).addTo(entry.trail);
@@ -727,7 +755,9 @@ import { createWatchlist } from './watchlist.js';
       }
 
       if (showTrails) {
-        rebuildTrail(entry, a.trail);
+        const drTo = a.position_stale && a.lat != null && a.lon != null
+          ? [a.lat, a.lon] : null;
+        rebuildTrail(entry, a.trail, drTo);
       } else if (entry.trailFp != null) {
         entry.trail.clearLayers();
         entry.trailFp = null;
