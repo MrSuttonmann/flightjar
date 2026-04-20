@@ -448,12 +448,19 @@ app = FastAPI(
 # hash-based CSP would be much noisier for little practical benefit.
 _CSP = (
     "default-src 'self'; "
-    "script-src 'self' https://unpkg.com; "
+    # Cloudflare Browser Insights (enabled by default on Cloudflare-
+    # proxied domains) injects static.cloudflareinsights.com/beacon.min.js
+    # plus a small inline init snippet whose SHA-256 Cloudflare publishes.
+    # Allow both so installs behind Cloudflare work without flipping the
+    # feature off; self-hosted users not on Cloudflare are unaffected.
+    "script-src 'self' https://unpkg.com https://static.cloudflareinsights.com "
+    "'sha256-asFSVupCgsPL5mU5ld7+5o3vRJtou88ZCgxUmh4pD74='; "
     "style-src 'self' https://unpkg.com 'unsafe-inline'; "
     "img-src 'self' data: blob: https:; "
     # unpkg appears in connect-src too so Leaflet's sourcemap fetch
-    # (/leaflet.js.map) succeeds when devtools is open.
-    "connect-src 'self' ws: wss: https://unpkg.com; "
+    # (/leaflet.js.map) succeeds when devtools is open; cloudflareinsights
+    # for the beacon's telemetry POSTs.
+    "connect-src 'self' ws: wss: https://unpkg.com https://cloudflareinsights.com; "
     "font-src 'self'; "
     "frame-ancestors 'none'; "
     "base-uri 'self'; "
