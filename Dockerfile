@@ -32,11 +32,13 @@ RUN echo "data fetch ${DATA_CACHEBUST}" \
  && python -c "import urllib.request; urllib.request.urlretrieve('${AIRCRAFT_DB_URL}', '/build/aircraft_db.csv.gz')"
 
 ARG AIRPORTS_DB_URL=https://raw.githubusercontent.com/davidmegginson/ourairports-data/main/airports.csv
-RUN python -c "import urllib.request; urllib.request.urlretrieve('${AIRPORTS_DB_URL}', '/build/airports.csv')"
+RUN echo "data fetch ${DATA_CACHEBUST}" \
+ && python -c "import urllib.request; urllib.request.urlretrieve('${AIRPORTS_DB_URL}', '/build/airports.csv')"
 
 COPY app /build/app
 COPY scripts/fetch_plane_shapes.py /build/scripts/fetch_plane_shapes.py
-RUN TAR1090_SHAPES_DEST=/build/app/static/tar1090_shapes.js \
+RUN echo "data fetch ${DATA_CACHEBUST}" \
+ && TAR1090_SHAPES_DEST=/build/app/static/tar1090_shapes.js \
     python /build/scripts/fetch_plane_shapes.py
 
 
