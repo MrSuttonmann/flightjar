@@ -1263,6 +1263,7 @@ import { createWatchlist } from './watchlist.js';
     applyCompactMode();
   }
   // Double-chevron glyph suggesting "collapse sidebar into the map".
+  // Top-left so it's near the sidebar edge it'll hide / reveal.
   const CompactControl = makeIconControl({
     className: 'compact-control',
     title: 'Hide the sidebar (C)',
@@ -1271,7 +1272,9 @@ import { createWatchlist } from './watchlist.js';
       `<polyline points="17 4 11 10 17 16"/>`,
     onClick: () => setCompact(!compactMode),
   });
-  map.addControl(new CompactControl());
+  const compactCtl = new CompactControl();
+  compactCtl.options.position = 'topleft';
+  map.addControl(compactCtl);
   document.getElementById('sidebar-restore').addEventListener('click', () => setCompact(false));
   applyCompactMode();
 
