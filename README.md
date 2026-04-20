@@ -7,6 +7,11 @@ It reads the BEAST feed from a running readsb, dump1090, or ultrafeeder
 instance — so you can point it at whatever's already decoding ADS-B on your
 network and get a lightweight map, log file, and simple API on top.
 
+| Overview | Detail panel | Stats panel |
+| ---------| -------------|-------------|
+| ![Overview](https://github.com/user-attachments/assets/6a2c1809-aa7d-467c-9a07-b1adfcc4d894) | ![Detail panel](https://github.com/user-attachments/assets/5bb9877b-6680-4d44-bd1c-e347913d8a65) | ![Stats panel](https://github.com/user-attachments/assets/4860bb18-5689-427e-abde-651f9a842c00)
+
+
 ## What you get
 
 - **Live map** at `http://<host>:8080/` with per-type plane silhouettes
