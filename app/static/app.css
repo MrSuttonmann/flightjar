@@ -58,12 +58,19 @@
                      font-size: 12px; font-family: inherit; cursor: pointer;
                      box-shadow: 0 2px 8px rgba(0,0,0,0.35); }
   #sidebar-restore:hover { background: #1d222b; }
+  #sidebar-restore { transition: left 0.22s ease; }
   body.compact-mode #sidebar-restore { display: block; }
   body.compact-mode #sidebar,
   body.compact-mode #sidebar-footer { display: none; }
   body.compact-mode #app { grid-template-columns: 1fr;
                            grid-template-rows: 1fr;
                            grid-template-areas: "map"; }
+  /* Compact mode drops the sidebar, so the detail panel should hug the
+     left edge of the viewport instead of sitting where the sidebar used
+     to be. The restore-sidebar button also shifts right of the panel so
+     it's still clickable while the panel is open. */
+  body.compact-mode #detail-panel { left: 10px; }
+  body.compact-mode #app.panel-open ~ #sidebar-restore { left: 382px; }
   #unit-switch { display: flex; border: 1px solid var(--border); border-radius: 3px;
                  overflow: hidden; flex-shrink: 0; }
   .unit-btn { background: transparent; color: var(--muted); border: 0; padding: 2px 6px;
@@ -298,13 +305,14 @@
     transform: translateX(-14px);
     pointer-events: none;
     transition: opacity 0.2s ease, transform 0.2s ease,
-                visibility 0s linear 0.2s;
+                left 0.22s ease, visibility 0s linear 0.2s;
   }
   #detail-panel.open {
     opacity: 1; visibility: visible;
     transform: translateX(0);
     pointer-events: auto;
-    transition: opacity 0.2s ease, transform 0.2s ease, visibility 0s;
+    transition: opacity 0.2s ease, transform 0.2s ease,
+                left 0.22s ease, visibility 0s;
   }
   #detail-header {
     display: flex; justify-content: flex-end;
