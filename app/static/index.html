@@ -48,6 +48,12 @@
     </div>
     <div id="ac-list"></div>
   </div>
+  <aside id="detail-panel" hidden>
+    <div id="detail-header">
+      <button id="detail-close" type="button" aria-label="Close">&times;</button>
+    </div>
+    <div id="detail-content"></div>
+  </aside>
   <div id="map"></div>
   <div id="sidebar-footer">
     <a href="https://github.com/MrSuttonmann/flightjar" target="_blank" rel="noopener"
@@ -102,9 +108,10 @@
     <li><a href="https://www.esri.com/" target="_blank" rel="noopener">Esri</a>
         — satellite imagery tiles.</li>
     <li><a href="https://www.adsbdb.com/" target="_blank" rel="noopener">adsbdb.com</a>
-        — origin / destination lookups by callsign, and per-tail metadata.</li>
+        — origin / destination by callsign, plus per-tail details
+        (operator, country of registration, photo URL).</li>
     <li><a href="https://airport-data.com/" target="_blank" rel="noopener">airport-data.com</a>
-        — aircraft photos surfaced in popups via adsbdb.</li>
+        — aircraft photographs shown in the detail panel, surfaced via adsbdb.</li>
   </ul>
 </dialog>
 </div>

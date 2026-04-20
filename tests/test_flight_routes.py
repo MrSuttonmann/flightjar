@@ -93,6 +93,7 @@ def test_aircraft_cache_hit_skips_upstream(tmp_path: Path):
         "manufacturer": "Airbus Sas",
         "operator": "easyJet Airline",
         "operator_country": "United Kingdom",
+        "operator_country_iso": "GB",
         "photo_url": "https://airport-data.com/images/aircraft/001.jpg",
         "photo_thumbnail": "https://airport-data.com/images/aircraft/thumb/001.jpg",
     }

@@ -25,6 +25,20 @@ export function ageOf(a, now) {
   return Math.max(0, now - a.last_seen);
 }
 
+// ISO 3166 alpha-2 country code → flag emoji (e.g. 'GB' → '🇬🇧') by
+// offsetting each letter into the Regional Indicator Symbols block.
+// Returns '' for anything that isn't a 2-letter code so callers can
+// concat the result unconditionally.
+export function flagEmoji(iso) {
+  if (!iso || typeof iso !== 'string' || iso.length !== 2) return '';
+  const upper = iso.toUpperCase();
+  if (!/^[A-Z]{2}$/.test(upper)) return '';
+  return String.fromCodePoint(
+    127397 + upper.charCodeAt(0),
+    127397 + upper.charCodeAt(1),
+  );
+}
+
 // Small rotated triangle; 0° points up (north). `currentColor` so it
 // inherits from the surrounding tone.
 export function compassIcon(deg) {

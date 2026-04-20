@@ -12,12 +12,21 @@ network and get a lightweight map, log file, and simple API on top.
 - **Live map** at `http://<host>:8080/` with per-type plane silhouettes
   sourced from the [tar1090](https://github.com/wiedehopf/tar1090) SVG
   shape set (GPL-2.0+; covers ~450 ICAO type codes, with a generic
-  arrow for anything unmapped), altitude-coloured trails
-  showing each aircraft's recent altitude history, and a toggleable
-  callsign label on each one.
+  arrow for anything unmapped), altitude-coloured trails showing each
+  aircraft's recent altitude history, and a toggleable callsign label
+  on each one.
+- **Detail panel** — click any aircraft and a floating card opens with
+  a photo of the plane (when we have one), its registration, type,
+  operator, country flag, full route with airport names, and a full
+  telemetry grid (altitude, speed, heading, vertical rate, squawk,
+  distance, lat/lon, age). The panel auto-follows the plane while it's
+  open and closes with the × button, the `Esc` key, or a click on empty
+  map. On desktop it floats over the map so the map isn't resized;
+  on mobile it overlays the whole viewport.
 - **Sidebar list** of currently tracked aircraft, sortable by callsign,
-  altitude, distance from the receiver, or age. Hover a plane on the map
-  to highlight its row, and vice-versa.
+  altitude, distance from the receiver, or age. Each row shows the
+  registration country flag, callsign, tail/type, and live telemetry.
+  Hover a plane on the map to highlight its row, and vice-versa.
 - **Unit switcher** — Metric, Imperial, or Nautical — applied across
   altitude, speed, vertical rate, and distance. Your choice is remembered.
 - **A record of every message** written as JSON Lines to a file on disk,
@@ -27,13 +36,15 @@ network and get a lightweight map, log file, and simple API on top.
 - **Optional site name** shown in the header and browser tab so you can
   tell multiple installs apart at a glance.
 - **Aircraft DB enrichment** — each aircraft is tagged with its
-  registration and type (e.g. `G-ABCD · BOEING 737-800`), so the popup and
-  sidebar show the actual tail number rather than just the ICAO hex.
-- **Origin / destination** — the popup and sidebar show `EGLL → KJFK`
-  routing looked up by callsign from [adsbdb.com](https://www.adsbdb.com/),
-  a free community-maintained API (no signup required). Hovering the code
-  reveals the full airport name; lookups are cached server-side for 12h
-  so they're cheap to re-consult.
+  registration and type (e.g. `G-ABCD · BOEING 737-800`), so the detail
+  panel and sidebar show the actual tail number rather than just the
+  ICAO hex.
+- **adsbdb enrichment** — origin / destination by callsign, operator
+  name, country, and an aircraft photo, all looked up from
+  [adsbdb.com](https://www.adsbdb.com/) (a free community-maintained
+  API; no signup required). Routes render as `EGLL → KJFK` in the
+  sidebar and as a full ticket (with airport names) in the detail panel.
+  Lookups are cached server-side for 12h (routes) / 30 days (tails).
 - **Airports overlay** — a toggle drops ~2,000 nearest airports onto the
   map as small markers (biggest first so wide views still show the
   majors). Sourced from the OurAirports public-domain database baked
@@ -123,8 +134,12 @@ for the dev loop.
 
 ## Using the map
 
-- **Click a plane** (on the map or in the sidebar) to centre on it and see
-  speed, altitude, heading, vertical rate and squawk.
+- **Click a plane** (on the map or in the sidebar) to open the detail
+  panel. It floats over the left side of the map with a photo of the
+  aircraft (when adsbdb has one), its registration, type, operator,
+  country flag, the full route, and a grid of live telemetry. The plane
+  is auto-followed while the panel is open. Close the panel with the ×
+  button, the `Esc` key, or a click on empty map.
 - **Hover sync** — hovering a plane on the map highlights its sidebar row
   (and scrolls it into view); hovering a sidebar row draws a ring around
   the aircraft on the map.
@@ -138,8 +153,9 @@ for the dev loop.
   next to each plane on the map. Your preference is remembered.
 - **Trails** — the Trails button toggles altitude-coloured trails for
   every aircraft. Same persistence.
-- **Follow** — when a plane is selected and Follow is on, the map
-  auto-pans to keep it centred. Toggle off for a static view.
+- **Follow** — auto-enabled while a detail panel is open; auto-disabled
+  when it closes. You can still toggle it manually for a static view
+  while leaving the panel open.
 - **Compact** — hides the sidebar for a full-map view. A small
   `☰ sidebar` button pinned top-left brings it back; `C` toggles.
 - **Base map** — the layers control (top-right of the map) swaps between
@@ -148,9 +164,11 @@ for the dev loop.
   receiver, toggled from the same control.
 - **Emergency alerts** — aircraft squawking 7500 (hijack), 7600 (radio),
   or 7700 (general) get a red marker outline, a red-tinted sidebar row,
-  and a prominent label in the popup.
+  and a prominent label in the detail panel.
 - **Search** — a search box filters the sidebar by callsign or ICAO.
   Press `/` to jump straight into it.
+- **Airport tooltips** — tap or hover any ICAO airport code in the route
+  line (sidebar or panel) to see the full airport name.
 - **Deep links** — the URL fragment tracks the selected aircraft
   (`#icao=4CA2D1`), so you can share a link that pre-selects a plane.
 - **Keyboard shortcuts**:
@@ -161,7 +179,7 @@ for the dev loop.
   - `C` — toggle compact (sidebar-hidden) mode
   - `F` — fit the map to current aircraft
   - `U` — cycle units (Metric → Imperial → Nautical)
-  - `Esc` — close the popup and clear selection
+  - `Esc` — close the detail panel and clear selection
 - **Title bar** shows how many aircraft are currently being tracked (and
   your site name, if set) — handy when the tab is in the background.
 
@@ -189,7 +207,7 @@ Flightjar ships with a snapshot of the
 [tar1090-db](https://github.com/wiedehopf/tar1090-db) / Mictronics aircraft
 registry, downloaded at Docker build time. This gives you
 `registration` / `type_icao` / `type_long` on every aircraft in the API
-snapshot, and in the sidebar/popup UI.
+snapshot, and in the sidebar and detail panel.
 
 To refresh without rebuilding the image you have two options:
 
@@ -208,7 +226,7 @@ never replaces the live copy.
 
 ```bash
 curl -L -o beast-logs/aircraft_db.csv.gz \
-  https://github.com/wiedehopf/tar1090-db/raw/refs/heads/csv/aircraft.csv.gz
+  https://raw.githubusercontent.com/wiedehopf/tar1090-db/refs/heads/csv/aircraft.csv.gz
 docker compose restart flightjar
 ```
 
@@ -223,19 +241,21 @@ community API that needs no account, for two enrichments:
 
 - **Origin / destination by callsign.** Populated on every snapshot for
   aircraft that have broadcast a callsign; shown as `EGLL → KJFK` in the
-  sidebar and popup.
-- **Per-tail details on popup open.** When you click a plane, the popup
-  fetches the aircraft record (registration, type, operator) and — when
-  one is available — displays a photograph at the top. Photos are
-  hotlinked direct from [airport-data.com](https://airport-data.com/)
-  (adsbdb's upstream), so your browser fetches them without involving
-  this server.
+  sidebar and as a full ticket (with airport names) in the detail panel.
+- **Per-tail details on panel open.** When you click a plane, the detail
+  panel fetches the aircraft record (registration, type, manufacturer,
+  operator, country of registration) and — when one is available —
+  displays a photograph at the top. Photos are hotlinked direct from
+  [airport-data.com](https://airport-data.com/) (adsbdb's upstream), so
+  your browser fetches them without involving this server. The operator
+  country flag also surfaces as an emoji in the sidebar next to each
+  callsign.
 
 Lookups are serialised with a small spacing (to stay a polite client),
 deduplicated, and cached server-side in `./beast-logs/flight_routes.json.gz`.
 TTLs: 12h for known routes, 1h for unknown callsigns, 30 days for known
-tails, 24h for unknown tails. On first boot you'll see routes and photos
-appear gradually as the cache populates.
+tails, 24h for unknown tails. On first boot you'll see routes, flags and
+photos appear gradually as the cache populates.
 
 To disable outbound lookups entirely (offline or privacy-conscious
 deploys), set `FLIGHT_ROUTES=0`. That also suppresses photo fetches.
@@ -303,17 +323,20 @@ jq -r '.ts_rx[0:16]' beast-logs/beast.jsonl | uniq -c
 | `WS   /ws`          | Live aircraft snapshots, one per `SNAPSHOT_INTERVAL`.              |
 
 Each aircraft in the snapshot carries an `emergency` field — `"hijack"`,
-`"radio"`, `"general"`, or `null` — derived from squawks 7500/7600/7700.
-When `FLIGHT_ROUTES` is enabled (the default), aircraft also carry
-`origin` and `destination` (ICAO airport codes, or `null` if the
-callsign isn't in adsbdb's database).
+`"radio"`, `"general"`, or `null` — derived from squawks 7500/7600/7700,
+and a `category` byte from ADS-B TC 4 (1=Light, 2=Small, 3=Large,
+4=High-vortex, 5=Heavy, 6=High-performance, 7=Rotorcraft). When
+`FLIGHT_ROUTES` is enabled (the default), aircraft also carry `origin`
+and `destination` (ICAO airport codes, or `null` if the callsign isn't
+in adsbdb's database), plus `operator`, `operator_country`, and
+`country_iso` from the per-tail lookup.
 
 Altitude is exposed three ways:
 `altitude_baro` (barometric, from DF17 TC 9-18 or DF4/20 surveillance),
 `altitude_geo` (geometric / GNSS, from DF17 TC 20-22), and `altitude`
-(the best available — prefers baro, falls back to geo). The popup labels
-the source when only geometric altitude is known, or when the two disagree
-by more than 100 ft.
+(the best available — prefers baro, falls back to geo). The detail panel
+labels the source when only geometric altitude is known, or when the two
+disagree by more than 100 ft.
 
 Aircraft also carry `last_seen_mlat` — the BEAST 12 MHz tick counter from
 the most recent message — which is useful for sub-second timing between

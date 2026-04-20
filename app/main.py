@@ -239,10 +239,10 @@ def build_snapshot(now: float | None = None) -> dict:
         referenced_airports: set[str] = set()
         for ac in snap["aircraft"]:
             cs = ac.get("callsign")
-            data = adsbdb.lookup_cached_route(cs) if cs else None
-            if data:
-                ac["origin"] = data.get("origin")
-                ac["destination"] = data.get("destination")
+            route = adsbdb.lookup_cached_route(cs) if cs else None
+            if route:
+                ac["origin"] = route.get("origin")
+                ac["destination"] = route.get("destination")
             else:
                 ac["origin"] = None
                 ac["destination"] = None
@@ -254,6 +254,17 @@ def build_snapshot(now: float | None = None) -> dict:
                 referenced_airports.add(ac["origin"])
             if ac["destination"]:
                 referenced_airports.add(ac["destination"])
+
+            info = adsbdb.lookup_cached_aircraft(ac["icao"])
+            if info:
+                ac["operator"] = info.get("operator")
+                ac["operator_country"] = info.get("operator_country")
+                ac["country_iso"] = info.get("operator_country_iso")
+            else:
+                ac["operator"] = None
+                ac["operator_country"] = None
+                ac["country_iso"] = None
+                _spawn_background(adsbdb.lookup_aircraft(ac["icao"]))
         # One lookup per unique airport — frontend resolves name/lat/lon by code.
         snap["airports"] = {
             code: info for code in referenced_airports if (info := _airport_info(code)) is not None

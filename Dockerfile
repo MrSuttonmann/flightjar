@@ -9,7 +9,7 @@ COPY app /app/app
 
 # Aircraft DB for ICAO24 -> registration / type lookup (tar1090-db / Mictronics).
 # Users can override at runtime by placing a newer file at /data/aircraft_db.csv.gz.
-ARG AIRCRAFT_DB_URL=https://github.com/wiedehopf/tar1090-db/raw/refs/heads/csv/aircraft.csv.gz
+ARG AIRCRAFT_DB_URL=https://raw.githubusercontent.com/wiedehopf/tar1090-db/refs/heads/csv/aircraft.csv.gz
 RUN python -c "import urllib.request; urllib.request.urlretrieve('${AIRCRAFT_DB_URL}', '/app/app/aircraft_db.csv.gz')"
 
 # OurAirports CSV for ICAO airport code -> name / city lookup. Public domain.

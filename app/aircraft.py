@@ -395,6 +395,7 @@ class AircraftRegistry:
                 {
                     "icao": ac.icao,
                     "callsign": ac.callsign,
+                    "category": ac.category,
                     "registration": info.get("registration") if info else None,
                     "type_icao": info.get("type_icao") if info else None,
                     "type_long": info.get("type_long") if info else None,

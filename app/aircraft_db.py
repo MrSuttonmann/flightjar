@@ -27,7 +27,9 @@ DEFAULT_PATHS: list[Path] = [
     Path(__file__).parent / "aircraft_db.csv.gz",
 ]
 
-DEFAULT_REFRESH_URL = "https://github.com/wiedehopf/tar1090-db/raw/refs/heads/csv/aircraft.csv.gz"
+DEFAULT_REFRESH_URL = (
+    "https://raw.githubusercontent.com/wiedehopf/tar1090-db/refs/heads/csv/aircraft.csv.gz"
+)
 
 
 class AircraftDB:

@@ -1,4 +1,4 @@
-import { ageOf, compassIcon, escapeHtml, fmt } from './format.js';
+import { ageOf, compassIcon, escapeHtml, flagEmoji, fmt } from './format.js';
 import { UNIT_SYSTEMS, getUnitSystem, setUnitSystem, uconv } from './units.js';
 import { ALT_STOPS, altColor } from './altitude.js';
 import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
@@ -6,7 +6,7 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
 (() => {
   const map = L.map('map', { worldCopyJump: true, zoomControl: false })
     .setView([51.5, -0.1], 6);
-  L.control.zoom({ position: 'bottomleft' }).addTo(map);
+  L.control.zoom({ position: 'bottomright' }).addTo(map);
 
   // Canvas renderer for trails — one element handles hundreds of short
   // polyline segments far more cheaply than an SVG path each. Lives in
@@ -225,37 +225,90 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
     });
   }
 
-  // Build the popup DOM once per aircraft, with placeholder children for
+  // Maps ADS-B emitter category (TC 4) bytes to human-readable names.
+  // Keys < 1 or > 7 are not surfaced to the user.
+  const CATEGORY_NAMES = {
+    1: 'Light', 2: 'Small', 3: 'Large', 4: 'High-vortex',
+    5: 'Heavy', 6: 'High-performance', 7: 'Rotorcraft',
+  };
+
+  // Build the panel DOM once per aircraft, with placeholder children for
   // every field that changes on snapshot tick. Subsequent ticks call
   // updatePopupContent() to mutate those placeholders in place — this
   // leaves the .ac-photo slot untouched between ticks, so the aircraft
   // photograph doesn't flicker in and out every second the way it did
-  // when we rebuilt the whole popup from an HTML string.
+  // when we rebuilt everything from an HTML string each tick.
   function buildPopupContent(a, now, airports) {
     const root = document.createElement('div');
-    root.className = 'ac-popup';
+    root.className = 'ac-panel';
     root.innerHTML =
       `<div class="ac-photo" data-icao="${escapeHtml(a.icao)}"></div>` +
-      `<div class="pop-head">` +
-        `<b class="pop-callsign"></b> <code class="pop-icao"></code> ` +
-        `<span class="pop-emergency"></span>` +
+      `<div class="panel-head">` +
+        `<div class="panel-title-row">` +
+          `<span class="pop-flag"></span>` +
+          `<b class="pop-callsign"></b>` +
+          `<code class="pop-icao"></code>` +
+          `<span class="pop-emergency"></span>` +
+          `<span class="pop-ground" hidden>ON GROUND</span>` +
+        `</div>` +
+        `<div class="panel-subline pop-reg-line" hidden><span class="pop-reg"></span></div>` +
+        `<div class="panel-subline pop-manuf-line" hidden><span class="pop-manuf"></span></div>` +
+        `<div class="panel-subline pop-op-line" hidden><span class="pop-op"></span></div>` +
+        `<div class="panel-badges">` +
+          `<span class="pop-type-badge badge" hidden></span>` +
+          `<span class="pop-cat-badge badge" hidden></span>` +
+        `</div>` +
       `</div>` +
-      `<div class="pop-reg-line" hidden><span class="ac-info pop-reg"></span></div>` +
-      `<div class="pop-route-line" hidden><span class="ac-info pop-route"></span></div>` +
-      `<div class="pop-row">Alt: <span class="pop-alt-wrap"><b class="pop-alt"></b>` +
-        `<span class="pop-alt-trend"></span></span></div>` +
-      `<div class="pop-row">Spd: <span class="pop-spd-wrap"><span class="pop-spd"></span>` +
-        `<span class="pop-spd-trend"></span></span> &nbsp; ` +
-        `Hdg: <span class="pop-hdg"></span><span class="pop-compass"></span></div>` +
-      `<div class="pop-row">VRate: <span class="pop-vrate"></span></div>` +
-      `<div class="pop-row">Sqwk: <span class="pop-squawk"></span></div>` +
-      `<div class="pop-row"><code class="pop-msgs"></code></div>`;
+      `<div class="panel-route pop-route-line" hidden>` +
+        `<div class="panel-mini-label">Route</div>` +
+        `<div class="route-ticket">` +
+          `<div class="route-end">` +
+            `<div class="route-code pop-origin-code"></div>` +
+            `<div class="route-name pop-origin-name"></div>` +
+          `</div>` +
+          `<div class="route-arrow">→</div>` +
+          `<div class="route-end">` +
+            `<div class="route-code pop-dest-code"></div>` +
+            `<div class="route-name pop-dest-name"></div>` +
+          `</div>` +
+        `</div>` +
+      `</div>` +
+      `<div class="panel-meta">` +
+        `<div class="metric"><div class="label">Altitude</div>` +
+          `<div class="val pop-alt-wrap"><b class="pop-alt"></b>` +
+          `<span class="pop-alt-trend"></span></div></div>` +
+        `<div class="metric"><div class="label">Speed</div>` +
+          `<div class="val pop-spd-wrap"><span class="pop-spd"></span>` +
+          `<span class="pop-spd-trend"></span></div></div>` +
+        `<div class="metric"><div class="label">Heading</div>` +
+          `<div class="val"><span class="pop-hdg"></span>` +
+          `<span class="pop-compass"></span></div></div>` +
+        `<div class="metric"><div class="label">V.Rate</div>` +
+          `<div class="val pop-vrate"></div></div>` +
+        `<div class="metric"><div class="label">Squawk</div>` +
+          `<div class="val pop-squawk"></div></div>` +
+        `<div class="metric"><div class="label">Distance</div>` +
+          `<div class="val pop-dist"></div></div>` +
+        `<div class="metric"><div class="label">Latitude</div>` +
+          `<div class="val pop-lat"></div></div>` +
+        `<div class="metric"><div class="label">Longitude</div>` +
+          `<div class="val pop-lon"></div></div>` +
+        `<div class="metric"><div class="label">Age</div>` +
+          `<div class="val pop-age"></div></div>` +
+      `</div>` +
+      `<div class="panel-footer"><code class="pop-msgs"></code></div>`;
     updatePopupContent(root, a, now, airports);
     return root;
   }
 
   function updatePopupContent(root, a, now, airports) {
     const q = (sel) => root.querySelector(sel);
+
+    // Flag — emoji is two fixed codepoints, safe to set via innerHTML.
+    const flag = flagEmoji(a.country_iso);
+    const flagEl = q('.pop-flag');
+    flagEl.innerHTML = flag;
+    flagEl.title = a.operator_country || a.country_iso || '';
 
     q('.pop-callsign').textContent = a.callsign || '—';
     q('.pop-icao').textContent = a.icao.toUpperCase();
@@ -267,7 +320,10 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
     } else {
       emEl.textContent = '';
     }
+    q('.pop-ground').hidden = !a.on_ground;
 
+    // Registration line (tar1090-db's registration + aircraft_db's long
+    // type name — usually "G-ABCD · Airbus A319-111").
     const regLine = q('.pop-reg-line');
     if (a.registration || a.type_long) {
       q('.pop-reg').textContent = [a.registration, a.type_long]
@@ -277,10 +333,59 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
       regLine.hidden = true;
     }
 
+    // Manufacturer line — adsbdb's registered manufacturer string, only
+    // when it adds information that isn't already in type_long.
+    const manufLine = q('.pop-manuf-line');
+    const showManuf =
+      a.manufacturer &&
+      (!a.type_long ||
+        !a.type_long.toLowerCase().includes(a.manufacturer.toLowerCase().split(' ')[0]));
+    if (showManuf) {
+      q('.pop-manuf').textContent = a.manufacturer;
+      manufLine.hidden = false;
+    } else {
+      manufLine.hidden = true;
+    }
+
+    // Operator + country (full name; flag lives in the header row).
+    const opLine = q('.pop-op-line');
+    const opParts = [];
+    if (a.operator) opParts.push(a.operator);
+    if (a.operator_country) opParts.push(a.operator_country);
+    if (opParts.length) {
+      q('.pop-op').textContent = opParts.join(' · ');
+      opLine.hidden = false;
+    } else {
+      opLine.hidden = true;
+    }
+
+    // Badges — ICAO type code + ADS-B category. Small pill-style chips
+    // under the identity lines.
+    const typeBadge = q('.pop-type-badge');
+    if (a.type_icao) {
+      typeBadge.textContent = a.type_icao;
+      typeBadge.hidden = false;
+    } else {
+      typeBadge.hidden = true;
+    }
+    const catBadge = q('.pop-cat-badge');
+    const catName = CATEGORY_NAMES[a.category];
+    if (catName) {
+      catBadge.textContent = catName;
+      catBadge.hidden = false;
+    } else {
+      catBadge.hidden = true;
+    }
+
     const routeLine = q('.pop-route-line');
-    const routeStr = routeLabel(a, airports);
-    if (routeStr) {
-      q('.pop-route').innerHTML = routeStr;
+    if (a.origin || a.destination) {
+      const aports = airports || {};
+      const originName = a.origin && aports[a.origin]?.name || '';
+      const destName = a.destination && aports[a.destination]?.name || '';
+      q('.pop-origin-code').textContent = a.origin || '—';
+      q('.pop-dest-code').textContent = a.destination || '—';
+      q('.pop-origin-name').textContent = originName;
+      q('.pop-dest-name').textContent = destName;
       routeLine.hidden = false;
     } else {
       routeLine.hidden = true;
@@ -302,16 +407,20 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
     const tSpd = trendInfo(entry, 'spd');
 
     q('.pop-alt').innerHTML = altLabel;
-    q('.pop-alt-wrap').className = 'pop-alt-wrap ' + tAlt.cls;
+    q('.pop-alt-wrap').className = 'val pop-alt-wrap ' + tAlt.cls;
     q('.pop-alt-trend').innerHTML = tAlt.arrow;
     q('.pop-spd').textContent = uconv('spd', a.speed);
-    q('.pop-spd-wrap').className = 'pop-spd-wrap ' + tSpd.cls;
+    q('.pop-spd-wrap').className = 'val pop-spd-wrap ' + tSpd.cls;
     q('.pop-spd-trend').innerHTML = tSpd.arrow;
     q('.pop-hdg').textContent = fmt(a.track, '°');
     q('.pop-compass').innerHTML = compassIcon(a.track);
     q('.pop-vrate').textContent = uconv('vrt', a.vrate);
     q('.pop-squawk').textContent = a.squawk || '—';
-    q('.pop-msgs').textContent = `${a.msg_count} msgs · ${fmt(ageOf(a, now), 's', 1)} ago`;
+    q('.pop-dist').textContent = uconv('dst', a.distance_km);
+    q('.pop-lat').textContent = a.lat != null ? a.lat.toFixed(4) + '°' : '—';
+    q('.pop-lon').textContent = a.lon != null ? a.lon.toFixed(4) + '°' : '—';
+    q('.pop-age').textContent = fmt(ageOf(a, now), 's', 1) + ' ago';
+    q('.pop-msgs').textContent = `${a.msg_count} messages received`;
   }
 
   // Route string (e.g. "EGLL → KJFK") from snapshot fields. Returns '' when
@@ -543,8 +652,7 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
       if (!entry) {
         const marker = L.marker([a.lat, a.lon], { icon }).addTo(map);
         const trail = L.layerGroup().addTo(map);
-        marker.on('popupopen', () => onSelected(a.icao));
-        marker.on('popupclose', () => onDeselected(a.icao));
+        marker.on('click', () => selectAircraft(a.icao));
         marker.on('mouseover', () => peekListItem(a.icao, true));
         marker.on('mouseout',  () => peekListItem(a.icao, false));
         entry = {
@@ -566,15 +674,8 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
         entry.trail.clearLayers();
         entry.trailFp = null;
       }
-      if (!entry.popupEl) {
-        entry.popupEl = buildPopupContent(a, snap.now, snap.airports);
-        // autoPan=false stops the map from drifting when the aircraft moves
-        // while its popup is open (e.g. after returning from a hidden tab).
-        // We pan explicitly on sidebar-triggered selections so the popup is
-        // still in view when it first opens.
-        entry.marker.bindPopup(entry.popupEl, { autoPan: false, maxWidth: 360 });
-      } else {
-        updatePopupContent(entry.popupEl, a, snap.now, snap.airports);
+      if (a.icao === selectedIcao && detailPanelContent) {
+        updatePopupContent(detailPanelContent, a, snap.now, snap.airports);
       }
 
       entry.data = a;
@@ -586,7 +687,7 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
     // (no animation) so busy skies don't feel jumpy.
     if (followSelected && selectedIcao) {
       const entry = aircraft.get(selectedIcao);
-      if (entry) map.panTo(entry.marker.getLatLng(), { animate: false });
+      if (entry) panToFollowed(entry.marker.getLatLng(), { animate: false });
     }
 
     // Drop aircraft no longer reported
@@ -594,6 +695,7 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
       if (!seen.has(icao)) {
         if (hoveredFromListIcao === icao) { hoveredFromListIcao = null; setHoverHalo(null); }
         if (hoveredFromMapIcao  === icao) hoveredFromMapIcao  = null;
+        if (selectedIcao === icao) closeDetailPanel();
         map.removeLayer(entry.marker);
         map.removeLayer(entry.trail);
         aircraft.delete(icao);
@@ -731,11 +833,15 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
       const tDst = trendInfo(entry, 'dst');
       const callsign = a.callsign ? escapeHtml(a.callsign) : '— — — —';
       const icao = escapeHtml(a.icao);
+      const flag = flagEmoji(a.country_iso);
+      const flagTag = flag
+        ? `<span class="flag" title="${escapeHtml(a.operator_country || a.country_iso)}">${flag}</span> `
+        : '';
       return `
       <div class="${classes}" data-icao="${icao}">
         <span class="age">${fmt(ageOf(a, snap.now), 's', 1)}</span>
         <div class="row1">
-          <span class="cs">${callsign} ${emergencyBadge}</span>
+          <span class="cs">${flagTag}${callsign} ${emergencyBadge}</span>
           <span class="icao">${subtitle || icao.toUpperCase()}</span>
         </div>
         ${route ? `<div class="route-row">${route}</div>` : ''}
@@ -768,31 +874,111 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
     }
   }
 
-  // Side-effects of becoming the selected aircraft (fired by popupopen for
-  // markers, or directly for aircraft with no position).
-  function onSelected(icao) {
+  // ---- detail panel ----
+
+  const detailPanelEl = document.getElementById('detail-panel');
+  const detailContentHost = document.getElementById('detail-content');
+  const appEl = document.getElementById('app');
+  let detailPanelContent = null;
+
+  // Cache of adsbdb aircraft records by ICAO24 — the server already caches
+  // for 30 days, but this client-side dict spares a network round-trip
+  // when the user re-selects an aircraft they've looked at before.
+  const aircraftInfoCache = new Map();
+
+  // Pan the map so `latlng` sits in the middle of the portion of the map
+  // NOT covered by the detail panel. On mobile the panel overlays the
+  // whole screen so this is equivalent to panTo(). On desktop we shift
+  // right by half the panel's occluded width, trading map-centre for
+  // visible-area-centre.
+  function panToFollowed(latlng, opts) {
+    if (detailPanelEl.hidden) {
+      map.panTo(latlng, opts);
+      return;
+    }
+    const panelRect = detailPanelEl.getBoundingClientRect();
+    const mapRect = map.getContainer().getBoundingClientRect();
+    // Amount of the map's left edge hidden by the panel. max(0) protects
+    // against the mobile overlay case where the panel extends past the
+    // map in both directions (still the panel dominates — the whole map
+    // is obscured — so we bail early there).
+    if (panelRect.right >= mapRect.right && panelRect.left <= mapRect.left) {
+      map.panTo(latlng, opts);
+      return;
+    }
+    const obscured = Math.max(0, Math.min(panelRect.right, mapRect.right) - mapRect.left);
+    const offsetX = obscured / 2;
+    const planePt = map.latLngToContainerPoint(latlng);
+    const shifted = map.containerPointToLatLng(L.point(planePt.x - offsetX, planePt.y));
+    map.panTo(shifted, opts);
+  }
+
+  // Open the detail panel for an aircraft. Rebuilds the inner content DOM
+  // from scratch (so the previous aircraft's photo slot is reset) and then
+  // lets snapshot-tick updates mutate in place via updatePopupContent.
+  function openDetailPanel(icao) {
+    const entry = aircraft.get(icao);
+    const a = entry?.data;
+    if (!a) return;
     selectedIcao = icao;
     writeDeepLink(icao);
-    const entry = aircraft.get(icao);
-    if (entry) {
-      const a = entry.data;
-      entry.marker.setIcon(planeIcon(a.track, altColor(a.altitude), true, !!a.emergency, a.type_icao));
-    }
+    detailContentHost.innerHTML = '';
+    detailPanelContent = buildPopupContent(a, lastSnap?.now, lastSnap?.airports);
+    detailContentHost.appendChild(detailPanelContent);
+    detailPanelEl.hidden = false;
+    appEl.classList.add('panel-open');
+    entry.marker.setIcon(
+      planeIcon(a.track, altColor(a.altitude), true, !!a.emergency, a.type_icao),
+    );
     document.querySelectorAll('.ac-item').forEach(el => {
       el.classList.toggle('selected', el.dataset.icao === icao);
     });
     fillAircraftPhoto(icao);
+    // Follow the selected aircraft automatically while its panel is open.
+    // The user can still toggle Follow off manually to regain free panning.
+    followSelected = true;
+    applyFollowState();
   }
 
-  // Cache of adsbdb aircraft records by ICAO24 — keyed lowercase, value is
-  // either the info object or `null` for a confirmed miss. The server
-  // already caches for 30 days, but this client-side dict spares us a
-  // network round-trip when the user re-opens the same popup.
-  const aircraftInfoCache = new Map();
+  function closeDetailPanel() {
+    const icao = selectedIcao;
+    if (!icao) return;
+    selectedIcao = null;
+    writeDeepLink(null);
+    detailPanelEl.hidden = true;
+    appEl.classList.remove('panel-open');
+    detailPanelContent = null;
+    detailContentHost.innerHTML = '';
+    const entry = aircraft.get(icao);
+    if (entry) {
+      const a = entry.data;
+      entry.marker.setIcon(
+        planeIcon(a.track, altColor(a.altitude), false, !!a.emergency, a.type_icao),
+      );
+    }
+    document.querySelectorAll('.ac-item').forEach(el => {
+      if (el.dataset.icao === icao) el.classList.remove('selected');
+    });
+    followSelected = false;
+    applyFollowState();
+  }
 
+  document.getElementById('detail-close').addEventListener('click', closeDetailPanel);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && selectedIcao) closeDetailPanel();
+  });
+  // Clicking empty map background closes the panel. Leaflet only fires the
+  // map 'click' event for background clicks — marker clicks don't propagate
+  // — so this is a clean "click-away" gesture.
+  map.on('click', () => {
+    if (selectedIcao) closeDetailPanel();
+  });
+
+  // Fetch the adsbdb aircraft record and drop its photo into the panel's
+  // .ac-photo slot. The slot renders a shimmering skeleton by default; on
+  // success we swap in an <img>, on miss we add .no-photo to collapse it.
+  // A module-scoped cache makes re-selects instant.
   async function fillAircraftPhoto(icao) {
-    // Look up the slot the current popup rendered. If the popup closed
-    // before the fetch returns, the slot is gone and we quietly drop it.
     const slotSelector = `.ac-photo[data-icao="${icao}"]`;
     const findSlot = () => document.querySelector(slotSelector);
     if (!findSlot()) return;
@@ -811,9 +997,11 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
     }
 
     const slot = findSlot();
-    if (!slot || !info || !info.photo_thumbnail) return;
-    // Render the thumbnail with a link out to the full-size original; the
-    // photo URL goes through escapeHtml since it's upstream data.
+    if (!slot) return;
+    if (!info || !info.photo_thumbnail) {
+      slot.classList.add('no-photo');
+      return;
+    }
     const thumb = escapeHtml(info.photo_thumbnail);
     const full = info.photo_url ? escapeHtml(info.photo_url) : thumb;
     slot.innerHTML =
@@ -821,32 +1009,15 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
       `<img src="${thumb}" alt="" loading="lazy"></a>`;
   }
 
-  // Fires when a popup closes (user clicked X, clicked the marker again,
-  // clicked map background, or moved selection to another plane).
-  function onDeselected(icao) {
-    if (selectedIcao !== icao) return;  // already moved to something else
-    selectedIcao = null;
-    writeDeepLink(null);
-    const entry = aircraft.get(icao);
-    if (entry) {
-      const a = entry.data;
-      entry.marker.setIcon(planeIcon(a.track, altColor(a.altitude), false, !!a.emergency, a.type_icao));
-    }
-    document.querySelectorAll('.ac-item').forEach(el => {
-      if (el.dataset.icao === icao) el.classList.remove('selected');
-    });
-  }
-
-  // Triggered from the sidebar. Opens the popup; popupopen handler then calls
-  // onSelected() so marker and list clicks go through the same code path.
+  // Public entry point for marker clicks + sidebar clicks + deep links.
+  // Pans the map to the aircraft (if it has a position yet) and shows
+  // the detail panel.
   function selectAircraft(icao) {
     const entry = aircraft.get(icao);
-    if (entry) {
-      map.panTo(entry.marker.getLatLng());
-      entry.marker.openPopup();
-    } else {
-      onSelected(icao);
-    }
+    // Open the panel first so panToFollowed sees it and can shift the
+    // target into the visible strip of the map.
+    openDetailPanel(icao);
+    if (entry) panToFollowed(entry.marker.getLatLng());
   }
 
   document.querySelectorAll('.sort-chip').forEach(el => {
@@ -879,10 +1050,11 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
       renderAltLegend();
       if (lastSnap) {
         renderSidebar(lastSnap);
-        // Refresh open popups so their units update immediately.
-        for (const entry of aircraft.values()) {
-          if (entry.popupEl) {
-            updatePopupContent(entry.popupEl, entry.data, lastSnap.now, lastSnap.airports);
+        // Refresh the open detail panel so its units update immediately.
+        if (selectedIcao && detailPanelContent) {
+          const entry = aircraft.get(selectedIcao);
+          if (entry) {
+            updatePopupContent(detailPanelContent, entry.data, lastSnap.now, lastSnap.airports);
           }
         }
       }
@@ -926,7 +1098,7 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
     // Snap the map to the selected aircraft the moment Follow is switched on.
     if (followSelected && selectedIcao) {
       const entry = aircraft.get(selectedIcao);
-      if (entry) map.panTo(entry.marker.getLatLng(), { animate: true });
+      if (entry) panToFollowed(entry.marker.getLatLng(), { animate: true });
     }
   }
   document.getElementById('follow-toggle').addEventListener('click', () => {
@@ -1025,7 +1197,7 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
       // Classic "locate me" crosshair in the accent blue. currentColor
       // lets a :hover rule recolour the icon without duplicating SVG.
       a.innerHTML = (
-        '<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">' +
+        '<svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true">' +
           '<circle cx="10" cy="10" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/>' +
           '<circle cx="10" cy="10" r="2.2" fill="currentColor"/>' +
           '<line x1="10" y1="1" x2="10" y2="4"  stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>' +

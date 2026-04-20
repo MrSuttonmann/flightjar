@@ -260,6 +260,7 @@ class AdsbdbClient:
             "manufacturer": ac.get("manufacturer") or None,
             "operator": ac.get("registered_owner") or None,
             "operator_country": ac.get("registered_owner_country_name") or None,
+            "operator_country_iso": ac.get("registered_owner_country_iso_name") or None,
             "photo_url": ac.get("url_photo") or None,
             "photo_thumbnail": ac.get("url_photo_thumbnail") or None,
         }

@@ -12,7 +12,8 @@
   #app { display: grid; height: 100vh;
          grid-template-columns: 320px 1fr;
          grid-template-rows: 1fr auto;
-         grid-template-areas: "sidebar map" "footer map"; }
+         grid-template-areas: "sidebar map" "footer map";
+         position: relative; }
   #sidebar { grid-area: sidebar; background: var(--panel); border-right: 1px solid var(--border);
              display: flex; flex-direction: column; overflow: hidden; }
   #map { grid-area: map; }
@@ -35,10 +36,14 @@
     border: 1px solid var(--border); border-radius: 3px;
   }
   .home-control {
-    width: 30px; height: 30px; text-align: center; text-decoration: none;
+    /* Mirror Leaflet's .leaflet-bar a sizing — 26×26 by default, bumped
+       to 30×30 on touch devices — so the home button lines up flush with
+       the zoom +/- buttons next to it on both desktop and iPad. */
+    width: 26px; height: 26px; text-align: center; text-decoration: none;
     color: var(--accent); background: #fff; display: flex;
     align-items: center; justify-content: center; cursor: pointer;
   }
+  .leaflet-touch .home-control { width: 30px; height: 30px; }
   .home-control:hover { background: #f4f4f4; color: #1d4ed8; }
   .home-control svg { display: block; }
   .airport-icon { background: transparent !important; border: none !important; }
@@ -198,12 +203,34 @@
   .leaflet-popup-content { font-size: 12px; line-height: 1.5; margin: 8px 12px; }
   .leaflet-popup-content code { font-size: 11px; color: var(--muted); }
   .ac-info { color: var(--muted); font-size: 11px; }
-  .ac-photo { margin: -4px -6px 6px; }
-  .ac-photo:empty { display: none; }
-  .ac-photo img {
-    display: block; width: 100%; height: auto;
-    border-radius: 3px; border: 1px solid var(--border);
+  .flag { font-size: 13px; vertical-align: -1px; cursor: help; }
+  /* Photo slot: reserves a fixed 3:2 aspect ratio so the layout settles
+     the moment the panel opens; a subtle shimmer hints that something is
+     loading, and either the <img> paints in over the top (fade-in below)
+     or JS sets .no-photo to collapse the slot when adsbdb has no
+     thumbnail for this tail. */
+  .ac-photo {
+    aspect-ratio: 3 / 2; width: 100%;
+    border-radius: 4px; border: 1px solid var(--border);
+    overflow: hidden; position: relative;
+    background: linear-gradient(90deg,
+      rgba(255, 255, 255, 0.03),
+      rgba(255, 255, 255, 0.08),
+      rgba(255, 255, 255, 0.03));
+    background-size: 200% 100%;
+    animation: ac-photo-skel 1.4s linear infinite;
   }
+  .ac-photo.no-photo { display: none; }
+  .ac-photo img {
+    display: block; width: 100%; height: 100%;
+    object-fit: cover; background: #0a0c10;
+    animation: ac-photo-fade 0.25s ease;
+  }
+  @keyframes ac-photo-skel {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+  @keyframes ac-photo-fade { from { opacity: 0; } to { opacity: 1; } }
   .airport-code[data-title] { border-bottom: 1px dotted currentColor; cursor: help; }
   #airport-tooltip {
     position: fixed; z-index: 10000;
@@ -223,11 +250,115 @@
                  padding: 1px 4px; border-radius: 2px; white-space: nowrap;
                  font-family: ui-monospace, monospace;
                  border: 1px solid var(--border); }
+  /* Detail panel — replaces the Leaflet popup for aircraft details. On
+     desktop it floats as a rounded card between the sidebar and the map
+     (margin around gives it a "detached" feel, matching the sidebar
+     surface but visibly separate). On mobile it overlays the whole app
+     so photos have room to breathe.
+     The panel content is a dedicated DOM element mutated in place on
+     snapshot ticks, so the photograph at the top doesn't flicker even
+     though text fields update every second. */
+  #detail-panel {
+    /* Floats over the map so opening the panel doesn't resize the map
+       out from under the user. Anchored to #app (position:relative),
+       top-right of the sidebar with a small gap. */
+    position: absolute; top: 10px; bottom: 10px;
+    left: 330px; width: 360px; z-index: 1000;
+    background: var(--panel);
+    border: 1px solid var(--border); border-radius: 8px;
+    overflow-y: auto;
+    font-size: 12px; line-height: 1.5;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+  }
+  #detail-header {
+    display: flex; justify-content: flex-end;
+    padding: 6px 6px 0; position: sticky; top: 0;
+    background: var(--panel); z-index: 2;
+    border-top-left-radius: 8px; border-top-right-radius: 8px;
+  }
+  #detail-content { padding: 2px 14px 14px; }
+  #detail-close {
+    width: 28px; height: 28px; padding: 0;
+    background: transparent; color: var(--muted);
+    border: 1px solid var(--border); border-radius: 4px;
+    font-size: 18px; line-height: 1; cursor: pointer;
+    font-family: inherit;
+  }
+  #detail-close:hover { color: var(--text); background: #1d222b; }
+
+  /* ---- panel content layout ---- */
+  .ac-panel { display: flex; flex-direction: column; gap: 10px; }
+  .ac-panel .ac-photo { margin: 0; }
+  .ac-panel .ac-photo img { border-radius: 4px; }
+
+  .panel-head { display: flex; flex-direction: column; gap: 3px; padding-right: 32px; }
+  .panel-title-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+  .panel-title-row .pop-callsign { font-size: 16px; }
+  .panel-title-row .pop-icao { font-size: 11px; color: var(--muted); }
+  .panel-title-row .pop-flag { font-size: 18px; line-height: 1; cursor: help; }
+  .panel-title-row .pop-flag:empty { display: none; }
+  .panel-subline { font-size: 11px; color: var(--muted); }
+  .panel-badges { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+  /* Collapse the container when every badge inside is hidden — :has is
+     supported on Safari 15.4+ and anything evergreen. */
+  .panel-badges:not(:has(:not([hidden]))) { display: none; }
+  .badge {
+    font-size: 10px; font-family: ui-monospace, monospace;
+    padding: 1px 6px; border-radius: 10px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--border); color: var(--muted);
+    letter-spacing: 0.3px;
+  }
+  .pop-ground {
+    font-size: 9px; padding: 1px 5px; border-radius: 3px;
+    background: #374151; color: #e5e7eb; letter-spacing: 0.5px;
+    font-weight: 600;
+  }
+
+  .panel-mini-label { font-size: 9px; color: var(--muted);
+                      text-transform: uppercase; letter-spacing: 0.6px;
+                      margin-bottom: 3px; }
+
+  .panel-route { background: rgba(255, 255, 255, 0.03);
+                 border: 1px solid var(--border); border-radius: 4px;
+                 padding: 7px 10px; font-size: 13px; }
+  .route-ticket { display: grid; grid-template-columns: 1fr auto 1fr; gap: 6px;
+                  align-items: center; }
+  .route-ticket .route-end { min-width: 0; }
+  .route-ticket .route-end:last-child { text-align: right; }
+  .route-ticket .route-code { font-size: 15px; font-weight: 600;
+                              font-family: ui-monospace, monospace;
+                              color: var(--text); }
+  .route-ticket .route-name { font-size: 10px; color: var(--muted);
+                              white-space: nowrap; overflow: hidden;
+                              text-overflow: ellipsis; }
+  .route-ticket .route-name:empty { display: none; }
+  .route-ticket .route-arrow { color: var(--muted); font-size: 16px;
+                               padding: 0 4px; align-self: start;
+                               padding-top: 2px; }
+
+  .panel-meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .panel-meta .metric { background: rgba(255, 255, 255, 0.03);
+                        border: 1px solid var(--border); border-radius: 4px;
+                        padding: 6px 8px; overflow: hidden; }
+  .panel-meta .metric .label { font-size: 9px; color: var(--muted);
+                               text-transform: uppercase; letter-spacing: 0.6px; }
+  .panel-meta .metric .val { font-size: 13px; margin-top: 1px;
+                             white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+
+  .panel-footer { font-size: 10px; color: var(--muted); text-align: center;
+                  padding-top: 6px; border-top: 1px solid var(--border); }
+
   @media (max-width: 600px) {
     #app {
       grid-template-columns: 1fr;
       grid-template-rows: 40vh 1fr auto;
       grid-template-areas: "sidebar" "map" "footer";
+    }
+    #detail-panel {
+      /* Overlays the whole app on mobile — no room for a side card. */
+      position: fixed; inset: 0; width: auto;
+      margin: 0; border-radius: 0; z-index: 2000;
     }
     #sidebar { border-right: none; border-bottom: 1px solid var(--border); }
     #sidebar-footer { border-right: 0; }

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ageOf, compassIcon, escapeHtml, fmt } from '../../app/static/format.js';
+import { ageOf, compassIcon, escapeHtml, flagEmoji, fmt } from '../../app/static/format.js';
 
 test('fmt returns em-dash for null / undefined / NaN', () => {
   assert.equal(fmt(null), '—');
@@ -54,4 +54,20 @@ test('escapeHtml returns empty for null / undefined', () => {
 test('escapeHtml stringifies non-strings', () => {
   assert.equal(escapeHtml(42), '42');
   assert.equal(escapeHtml(true), 'true');
+});
+
+test('flagEmoji maps ISO alpha-2 codes to regional-indicator pairs', () => {
+  assert.equal(flagEmoji('GB'), '\u{1F1EC}\u{1F1E7}');
+  assert.equal(flagEmoji('us'), '\u{1F1FA}\u{1F1F8}');  // case-insensitive
+  assert.equal(flagEmoji('JP'), '\u{1F1EF}\u{1F1F5}');
+});
+
+test('flagEmoji returns empty for bad input', () => {
+  assert.equal(flagEmoji(null), '');
+  assert.equal(flagEmoji(undefined), '');
+  assert.equal(flagEmoji(''), '');
+  assert.equal(flagEmoji('USA'), '');   // too long
+  assert.equal(flagEmoji('G'), '');     // too short
+  assert.equal(flagEmoji('G1'), '');    // non-letter
+  assert.equal(flagEmoji(42), '');      // non-string
 });
