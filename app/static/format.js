@@ -25,17 +25,22 @@ export function ageOf(a, now) {
   return Math.max(0, now - a.last_seen);
 }
 
-// ISO 3166 alpha-2 country code → flag emoji (e.g. 'GB' → '🇬🇧') by
-// offsetting each letter into the Regional Indicator Symbols block.
-// Returns '' for anything that isn't a 2-letter code so callers can
-// concat the result unconditionally.
-export function flagEmoji(iso) {
+// ISO 3166 alpha-2 country code → HTML `<img>` fragment pointing at
+// flagcdn.com's public SVG for that country. We render an image rather
+// than a flag emoji because Windows ships no glyph font for regional
+// indicator symbols — emoji flags render as letter-pair boxes there.
+// The CDN hit is cheap (each SVG is ~1KB and HTTP-cached by the
+// browser). Returns '' for anything that isn't a two-letter ISO code
+// so callers can concatenate unconditionally.
+export function flagIcon(iso) {
   if (!iso || typeof iso !== 'string' || iso.length !== 2) return '';
   const upper = iso.toUpperCase();
   if (!/^[A-Z]{2}$/.test(upper)) return '';
-  return String.fromCodePoint(
-    127397 + upper.charCodeAt(0),
-    127397 + upper.charCodeAt(1),
+  const lower = upper.toLowerCase();
+  return (
+    `<img class="flag-icon" src="https://flagcdn.com/${lower}.svg" ` +
+    `alt="${upper}" width="16" height="12" ` +
+    `loading="lazy" decoding="async">`
   );
 }
 

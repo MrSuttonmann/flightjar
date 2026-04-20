@@ -217,7 +217,9 @@
   .leaflet-popup-content { font-size: 12px; line-height: 1.5; margin: 8px 12px; }
   .leaflet-popup-content code { font-size: 11px; color: var(--muted); }
   .ac-info { color: var(--muted); font-size: 11px; }
-  .flag { font-size: 13px; vertical-align: -1px; cursor: help; }
+  .flag { cursor: help; display: inline-flex; vertical-align: -2px; }
+  .flag-icon { display: inline-block; border-radius: 1px;
+               box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25); }
   /* Photo slot: reserves a fixed 3:2 aspect ratio so the layout settles
      the moment the panel opens; a subtle shimmer hints that something is
      loading, and either the <img> paints in over the top (fade-in below)
@@ -339,8 +341,10 @@
   .panel-title-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
   .panel-title-row .pop-callsign { font-size: 16px; }
   .panel-title-row .pop-icao { font-size: 11px; color: var(--muted); }
-  .panel-title-row .pop-flag { font-size: 18px; line-height: 1; cursor: help; }
+  .panel-title-row .pop-flag { display: inline-flex; cursor: help;
+                               vertical-align: -2px; }
   .panel-title-row .pop-flag:empty { display: none; }
+  .panel-title-row .pop-flag .flag-icon { width: 22px; height: 16px; }
   .panel-subline { font-size: 11px; color: var(--muted); }
   .panel-badges { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
   /* Collapse the container when every badge inside is hidden — :has is

@@ -1,4 +1,4 @@
-import { ageOf, compassIcon, escapeHtml, flagEmoji, fmt } from './format.js';
+import { ageOf, compassIcon, escapeHtml, flagIcon, fmt } from './format.js';
 import { UNIT_SYSTEMS, getUnitSystem, setUnitSystem, uconv } from './units.js';
 import { ALT_STOPS, altColor } from './altitude.js';
 import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
@@ -391,10 +391,10 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
   function updatePopupContent(root, a, now, airports) {
     const q = (sel) => root.querySelector(sel);
 
-    // Flag — emoji is two fixed codepoints, safe to set via innerHTML.
-    const flag = flagEmoji(a.country_iso);
+    // Flag — img markup from flagcdn.com; src is a fixed template, safe
+    // to set via innerHTML.
     const flagEl = q('.pop-flag');
-    flagEl.innerHTML = flag;
+    flagEl.innerHTML = flagIcon(a.country_iso);
     flagEl.title = a.operator_country || a.country_iso || '';
 
     q('.pop-callsign').textContent = a.callsign || '—';
@@ -946,7 +946,7 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
       const tDst = trendInfo(entry, 'dst');
       const callsign = a.callsign ? escapeHtml(a.callsign) : '— — — —';
       const icao = escapeHtml(a.icao);
-      const flag = flagEmoji(a.country_iso);
+      const flag = flagIcon(a.country_iso);
       const flagTag = flag
         ? `<span class="flag" title="${escapeHtml(a.operator_country || a.country_iso)}">${flag}</span> `
         : '';
