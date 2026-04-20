@@ -279,6 +279,12 @@
   #map { background: #0a0c10; }
   /* dim the OSM tiles a touch so plane icons pop */
   .leaflet-tile-pane { filter: brightness(0.85) contrast(1.05); }
+  /* OSM tiles are much more colourful than Carto Dark or satellite —
+     altitude-coloured trails and plane icons blended into the roads /
+     parks / water. Desaturate the tiles heavily so the overlays pop. */
+  body.basemap-openstreetmap .leaflet-tile-pane {
+    filter: brightness(0.8) saturate(0.35) contrast(1.05);
+  }
   .leaflet-popup-content-wrapper, .leaflet-popup-tip {
     background: var(--panel); color: var(--text); border: 1px solid var(--border);
   }

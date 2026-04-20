@@ -58,6 +58,21 @@ import { createWatchlist } from './watchlist.js';
   const defaultBaseName = savedBase && baseLayers[savedBase] ? savedBase : 'OpenStreetMap';
   baseLayers[defaultBaseName].addTo(map);
 
+  // Tag <body> with the active basemap name (slug form) so per-basemap CSS
+  // rules can tweak the tile filter — OSM is colourful enough that plane
+  // icons and trails blend in otherwise. slugify converts "OpenStreetMap"
+  // to "openstreetmap", "Carto Dark" to "carto-dark", etc.
+  function slugify(name) {
+    return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  }
+  function applyBasemapClass(name) {
+    for (const cls of [...document.body.classList]) {
+      if (cls.startsWith('basemap-')) document.body.classList.remove(cls);
+    }
+    document.body.classList.add('basemap-' + slugify(name));
+  }
+  applyBasemapClass(defaultBaseName);
+
   // Range-ring overlay (centred on receiver; rebuilt when receiver is known).
   const rangeRings = L.layerGroup();
   // Airport markers. Populated from /api/airports for the current map bbox
@@ -123,6 +138,7 @@ import { createWatchlist } from './watchlist.js';
 
   map.on('baselayerchange', (e) => {
     try { localStorage.setItem('flightjar.basemap', e.name); } catch (_) {}
+    applyBasemapClass(e.name);
   });
   map.on('overlayadd', (e) => {
     if (syncingOverlays) return;
