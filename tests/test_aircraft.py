@@ -224,7 +224,9 @@ def test_trail_points_include_altitude():
     trail = snap["aircraft"][0]["trail"]
     assert len(trail) >= 1
     for pt in trail:
-        assert len(pt) == 3  # [lat, lon, alt]
+        # Trail points carry lat/lon/alt/speed — the frontend renders a
+        # speed sparkline alongside the altitude one.
+        assert len(pt) == 4
         assert pt[2] == 37000
 
 

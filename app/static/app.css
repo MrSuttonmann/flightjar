@@ -401,8 +401,15 @@
     border: 1px solid var(--border); border-radius: 4px;
     padding: 6px 8px 4px;
   }
-  .panel-profile .pop-alt-profile {
-    display: block; width: 100%; height: 40px; color: var(--muted);
+  .panel-profile .pop-alt-profile,
+  .panel-profile .pop-spd-profile {
+    display: block; width: 100%; color: var(--muted);
+  }
+  .panel-profile .pop-alt-profile { height: 40px; }
+  .panel-profile .pop-spd-profile {
+    height: 24px; margin-top: 2px;
+    border-top: 1px dashed rgba(255, 255, 255, 0.07);
+    padding-top: 2px;
   }
 
   /* External tracker links — compact row of pill-style buttons, each

@@ -306,7 +306,11 @@ class AircraftRegistry:
         ac.lat = new_lat
         ac.lon = new_lon
         ac.last_position_time = now
-        ac.trail.append((round(new_lat, 5), round(new_lon, 5), ac.altitude, now))
+        # Trail point shape: (lat, lon, altitude, speed, timestamp). Speed
+        # lets the frontend draw a speed sparkline alongside the altitude
+        # one; we snapshot ac.speed at the time of the position fix so
+        # the two traces are always time-aligned.
+        ac.trail.append((round(new_lat, 5), round(new_lon, 5), ac.altitude, ac.speed, now))
 
     # -------- persistence --------
 
@@ -364,8 +368,13 @@ class AircraftRegistry:
                     if f in entry and f != "icao":
                         setattr(ac, f, entry[f])
                 for p in entry.get("trail") or []:
-                    if len(p) >= 4:
-                        ac.trail.append(tuple(p[:4]))
+                    # Accept both old 4-tuple (lat,lon,alt,ts) and new 5-tuple
+                    # (lat,lon,alt,spd,ts) persisted states so a post-upgrade
+                    # restart doesn't drop history.
+                    if len(p) >= 5:
+                        ac.trail.append(tuple(p[:5]))
+                    elif len(p) == 4:
+                        ac.trail.append((p[0], p[1], p[2], None, p[3]))
                 self.aircraft[icao] = ac
                 loaded += 1
             except Exception as e:
@@ -432,7 +441,7 @@ class AircraftRegistry:
                     "signal_peak": ac.signal_peak,
                     "msg_count": ac.msg_count,
                     "distance_km": distance_km,
-                    "trail": [[lat, lon, alt] for lat, lon, alt, _ in ac.trail],
+                    "trail": [[lat, lon, alt, spd] for lat, lon, alt, spd, _ in ac.trail],
                 }
             )
         # Newest first

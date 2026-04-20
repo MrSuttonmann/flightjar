@@ -25,9 +25,9 @@ def _populate(reg: AircraftRegistry, now: float) -> None:
     )
     ac.trail.extend(
         [
-            (52.4, -1.1, 34800, now - 10),
-            (52.45, -1.15, 34900, now - 5),
-            (52.5, -1.2, 35000, now),
+            (52.4, -1.1, 34800, 440, now - 10),
+            (52.45, -1.15, 34900, 445, now - 5),
+            (52.5, -1.2, 35000, 450, now),
         ]
     )
     reg.aircraft["abc123"] = ac
@@ -51,7 +51,7 @@ def test_save_and_load_roundtrip(tmp_path: Path):
     assert ac.squawk == "1234"
     assert ac.msg_count == 42
     assert len(ac.trail) == 3
-    assert list(ac.trail[-1]) == [52.5, -1.2, 35000, now]
+    assert list(ac.trail[-1]) == [52.5, -1.2, 35000, 450, now]
 
 
 def test_load_missing_file_is_zero(tmp_path: Path):

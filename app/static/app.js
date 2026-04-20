@@ -308,8 +308,10 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
           `<div class="val pop-age"></div></div>` +
       `</div>` +
       `<div class="panel-profile">` +
-        `<div class="panel-mini-label">Altitude profile (last 5 min)</div>` +
+        `<div class="panel-mini-label">Altitude / speed profile (last 5 min)</div>` +
         `<svg class="pop-alt-profile" viewBox="0 0 200 40" ` +
+          `preserveAspectRatio="none" aria-hidden="true"></svg>` +
+        `<svg class="pop-spd-profile" viewBox="0 0 200 24" ` +
           `preserveAspectRatio="none" aria-hidden="true"></svg>` +
       `</div>` +
       `<div class="panel-links">` +
@@ -334,40 +336,65 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
     return root;
   }
 
-  // Render a tiny altitude-history polyline from the snapshot's per-aircraft
-  // trail. Segments are coloured via altColor so the chart matches the map
-  // trails at a glance. SVG is sized via viewBox + preserveAspectRatio=none
-  // so the rendered width stretches to the panel and we don't have to hit
-  // getBoundingClientRect every tick.
-  function renderAltProfile(svgEl, trail) {
+  // Render a tiny history polyline into `svgEl` from the snapshot's
+  // per-aircraft trail. Segments are coloured via `strokeFn(value, index)`
+  // so altitude charts can use altColor(alt) and speed charts can use a
+  // flat accent colour. SVGs use viewBox + preserveAspectRatio=none so
+  // the rendered width stretches to the panel without per-tick measuring.
+  function renderTrailProfile(svgEl, trail, opts) {
+    const { pickValue, strokeFn, height, emptyLabel, valueFloor = 0, minSpan = 1 } = opts;
     if (!trail || trail.length < 2) {
       svgEl.innerHTML =
-        `<text x="100" y="22" text-anchor="middle" ` +
-        `font-size="10" fill="currentColor" opacity="0.5">awaiting altitude data</text>`;
+        `<text x="100" y="${height / 2 + 2}" text-anchor="middle" ` +
+        `font-size="10" fill="currentColor" opacity="0.5">${emptyLabel}</text>`;
       return;
     }
-    const W = 200, H = 40, PAD = 2;
-    const alts = trail.map(p => p[2]).filter(a => a != null);
-    if (alts.length < 2) {
+    const W = 200, PAD = 2;
+    const series = trail.map(pickValue);
+    const valid = series.map((v, i) => [v, i]).filter(([v]) => v != null);
+    if (valid.length < 2) {
       svgEl.innerHTML = '';
       return;
     }
-    const minA = 0;
-    const maxA = Math.max(...alts, 1000);
-    const span = Math.max(1, maxA - minA);
-    const xStep = (W - 2 * PAD) / (alts.length - 1);
-    const y = (a) => H - PAD - (a - minA) / span * (H - 2 * PAD);
+    const vals = valid.map(([v]) => v);
+    const minV = valueFloor;
+    const maxV = Math.max(...vals, valueFloor + minSpan);
+    const span = Math.max(minSpan, maxV - minV);
+    const xStep = (W - 2 * PAD) / (trail.length - 1);
+    const y = (v) => height - PAD - (v - minV) / span * (height - 2 * PAD);
     let out = '';
-    for (let i = 1; i < alts.length; i++) {
-      const x0 = PAD + (i - 1) * xStep;
-      const x1 = PAD + i * xStep;
+    for (let i = 1; i < valid.length; i++) {
+      const [v0, idx0] = valid[i - 1];
+      const [v1, idx1] = valid[i];
+      const x0 = PAD + idx0 * xStep;
+      const x1 = PAD + idx1 * xStep;
       out +=
-        `<line x1="${x0.toFixed(1)}" y1="${y(alts[i - 1]).toFixed(1)}" ` +
-        `x2="${x1.toFixed(1)}" y2="${y(alts[i]).toFixed(1)}" ` +
-        `stroke="${altColor(alts[i])}" stroke-width="1.6" ` +
+        `<line x1="${x0.toFixed(1)}" y1="${y(v0).toFixed(1)}" ` +
+        `x2="${x1.toFixed(1)}" y2="${y(v1).toFixed(1)}" ` +
+        `stroke="${strokeFn(v1, i)}" stroke-width="1.6" ` +
         `stroke-linecap="round" vector-effect="non-scaling-stroke"/>`;
     }
     svgEl.innerHTML = out;
+  }
+
+  function renderAltProfile(svgEl, trail) {
+    renderTrailProfile(svgEl, trail, {
+      pickValue: (p) => p[2],
+      strokeFn: (alt) => altColor(alt),
+      height: 40,
+      emptyLabel: 'awaiting altitude data',
+      minSpan: 1000,
+    });
+  }
+
+  function renderSpdProfile(svgEl, trail) {
+    renderTrailProfile(svgEl, trail, {
+      pickValue: (p) => p[3],
+      strokeFn: () => 'var(--accent)',
+      height: 24,
+      emptyLabel: 'awaiting speed data',
+      minSpan: 100,
+    });
   }
 
   // Rough BEAST signal byte → dBFS label. The byte is the peak-sample fraction
@@ -508,8 +535,9 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
     q('.pop-lon').textContent = a.lon != null ? a.lon.toFixed(4) + '°' : '—';
     q('.pop-age').textContent = fmt(ageOf(a, now), 's', 1) + ' ago';
 
-    // Bottom section: altitude profile, external links, reception stats.
+    // Bottom section: altitude + speed profiles, external links, stats.
     renderAltProfile(q('.pop-alt-profile'), a.trail);
+    renderSpdProfile(q('.pop-spd-profile'), a.trail);
 
     const hexUpper = a.icao.toUpperCase();
     const hexLower = a.icao.toLowerCase();
