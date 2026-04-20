@@ -27,6 +27,7 @@ from .config import Config
 from .coverage import PolarCoverage
 from .flight_routes import AdsbdbClient
 from .persistence import load_state, save_state
+from .photos import PlanespottersClient
 
 log = logging.getLogger("beast")
 logging.basicConfig(
@@ -325,6 +326,16 @@ FLIGHT_ROUTE_CACHE_PATH = (
 
 adsbdb = AdsbdbClient(cache_path=FLIGHT_ROUTE_CACHE_PATH, enabled=cfg.flight_routes_enabled)
 
+# Planespotters.net provides higher-quality community photographs with
+# hotlinking permitted via their public API. We use them as the primary
+# photo source and fall back to adsbdb's airport-data.com URL when
+# planespotters has nothing for a given tail.
+PHOTOS_CACHE_PATH = Path(cfg.jsonl_path).parent / "photos.json.gz" if cfg.jsonl_path else None
+planespotters = PlanespottersClient(
+    cache_path=PHOTOS_CACHE_PATH,
+    enabled=cfg.flight_routes_enabled,
+)
+
 COVERAGE_CACHE_PATH = Path(cfg.jsonl_path).parent / "coverage.json" if cfg.jsonl_path else None
 # Polar coverage uses the TRUE receiver coordinates (before RECEIVER_ANON_KM
 # snapping) so the max-range-per-bearing map reflects actual reception.
@@ -612,11 +623,13 @@ async def api_aircraft_info(icao24: str):
     """Lookup per-tail details (registration, type, owner, photo URLs) for
     this Mode-S ICAO24.
 
-    Uses adsbdb.com's `/v0/aircraft/<hex>` endpoint, cached server-side
-    for 30 days (positive) / 24h (negative). Returns a null payload when
-    the feature is disabled or adsbdb has no record. Photo URLs point
-    direct to airport-data.com — the browser fetches them without
-    involving this server, so images are cached by the user-agent.
+    Metadata comes from adsbdb.com's `/v0/aircraft/<hex>` endpoint.
+    Photos prefer planespotters.net (higher quality, photographer
+    credit surfaced) and fall back to adsbdb's airport-data.com URL
+    when planespotters has nothing. Both caches are on disk (30 d
+    positive / 24 h negative). Photo URLs are hotlinked — the browser
+    fetches them direct from the CDN without round-tripping this
+    server.
     """
     icao = icao24.strip().lower()
     if not icao or len(icao) > 6 or not all(c in "0123456789abcdef" for c in icao):
@@ -626,7 +639,26 @@ async def api_aircraft_info(icao24: str):
     data = await adsbdb.lookup_aircraft(icao)
     if data is None:
         return {"icao": icao}
-    return {"icao": icao, **data}
+
+    # Try to upgrade the photo to planespotters when we have a tail to
+    # query by. If planespotters has nothing, keep adsbdb's fields.
+    photo_thumbnail = data.get("photo_thumbnail")
+    photo_url = data.get("photo_url")
+    photo_credit = None
+    reg = data.get("registration")
+    if reg:
+        ps = await planespotters.lookup(reg)
+        if ps:
+            photo_thumbnail = ps.get("thumbnail") or photo_thumbnail
+            photo_url = ps.get("link") or ps.get("large") or photo_url
+            photo_credit = ps.get("photographer")
+    return {
+        "icao": icao,
+        **data,
+        "photo_thumbnail": photo_thumbnail,
+        "photo_url": photo_url,
+        "photo_credit": photo_credit,
+    }
 
 
 @app.get("/api/stats", summary="App-level metrics as JSON")

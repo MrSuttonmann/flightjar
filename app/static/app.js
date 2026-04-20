@@ -1157,9 +1157,15 @@ import { createWatchlist } from './watchlist.js';
     }
     const thumb = escapeHtml(info.photo_thumbnail);
     const full = info.photo_url ? escapeHtml(info.photo_url) : thumb;
+    // Planespotters ToS requires the photographer credit + click-through
+    // link be visible. adsbdb-sourced photos (no credit) just render
+    // the image; both paths open in a new tab.
+    const credit = info.photo_credit
+      ? `<span class="photo-credit">© ${escapeHtml(info.photo_credit)}</span>`
+      : '';
     slot.innerHTML =
       `<a href="${full}" target="_blank" rel="noopener">` +
-      `<img src="${thumb}" alt="" loading="lazy"></a>`;
+      `<img src="${thumb}" alt="" loading="lazy">${credit}</a>`;
   }
 
   // Public entry point for marker clicks + sidebar clicks + deep links.
