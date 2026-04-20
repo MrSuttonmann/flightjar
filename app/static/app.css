@@ -159,12 +159,18 @@
                       display: inline-flex; align-items: center; gap: 4px;
                       font-size: 11px; }
   #sidebar-footer a:hover { color: var(--text); }
-  #sidebar-footer svg { width: 14px; height: 14px; fill: currentColor; }
+  /* Uniform icon sizing across the footer. The GitHub glyph is a solid
+     filled path so it gets fill:currentColor via the `a svg` selector;
+     the Stats / About icons are outlined strokes, so they opt out of
+     the fill. */
+  #sidebar-footer svg { width: 14px; height: 14px; }
+  #sidebar-footer a svg { fill: currentColor; }
   #sidebar-footer img { display: block; height: 28px; width: auto; }
   #about-btn, #stats-btn {
     color: var(--muted); background: transparent; border: 0;
     font-size: 11px; font-family: inherit; cursor: pointer;
     padding: 0;
+    display: inline-flex; align-items: center; gap: 4px;
   }
   #about-btn:hover, #stats-btn:hover { color: var(--text); }
   #about-dialog { max-width: 540px; width: 90vw; border: 1px solid var(--border);
