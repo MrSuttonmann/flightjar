@@ -1235,18 +1235,15 @@ import { createWatchlist } from './watchlist.js';
     try { localStorage.setItem('flightjar.follow', followSelected ? '1' : '0'); } catch (_) {}
     applyFollowState();
   }
-  // Crosshair glyph — subtly different from the Home control so users
-  // can tell "follow selected" from "centre on receiver" at a glance.
+  // Top-down plane silhouette — unambiguously "track an aircraft" and
+  // visually distinct from the Home control's crosshair.
   const FollowControl = makeIconControl({
     className: 'follow-control',
     title: 'Follow selected aircraft',
     pathD:
-      `<circle cx="10" cy="10" r="5"/>` +
-      `<circle cx="10" cy="10" r="1.5" fill="currentColor"/>` +
-      `<line x1="10" y1="1" x2="10" y2="4"/>` +
-      `<line x1="10" y1="16" x2="10" y2="19"/>` +
-      `<line x1="1" y1="10" x2="4" y2="10"/>` +
-      `<line x1="16" y1="10" x2="19" y2="10"/>`,
+      `<path d="M10,2 L11.5,9 L18,11 L18,12.5 L11.5,10.5 L11.5,15 ` +
+      `L13,17 L13,17.5 L7,17.5 L7,17 L8.5,15 L8.5,10.5 L2,12.5 ` +
+      `L2,11 L8.5,9 Z" fill="currentColor" stroke-linejoin="round"/>`,
     onClick: () => setFollow(!followSelected),
   });
   map.addControl(new FollowControl());
