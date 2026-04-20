@@ -6,6 +6,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!-- OpenStreetMap's tile servers block requests with no Referer header. -->
 <meta name="referrer" content="strict-origin-when-cross-origin">
+<!-- Suppress the browser's automatic /favicon.ico request with a blank
+     data URL. Avoids a 404 noise line on every page load. -->
+<link rel="icon" href="data:,">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 <link rel="stylesheet" href="/static/app.css?v=__CSS_V__">
@@ -119,8 +122,11 @@
 
 <button id="sidebar-restore" title="Show sidebar (C)">☰ sidebar</button>
 
+<!-- data-cfasync="false" opts out of Cloudflare Rocket Loader, which
+     otherwise rewrites these to inline scripts and trips our CSP. -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-<script type="module" src="/static/app.js?v=__JS_V__"></script>
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""
+        data-cfasync="false"></script>
+<script type="module" src="/static/app.js?v=__JS_V__" data-cfasync="false"></script>
 </body>
 </html>

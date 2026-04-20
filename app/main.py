@@ -451,7 +451,9 @@ _CSP = (
     "script-src 'self' https://unpkg.com; "
     "style-src 'self' https://unpkg.com 'unsafe-inline'; "
     "img-src 'self' data: blob: https:; "
-    "connect-src 'self' ws: wss:; "
+    # unpkg appears in connect-src too so Leaflet's sourcemap fetch
+    # (/leaflet.js.map) succeeds when devtools is open.
+    "connect-src 'self' ws: wss: https://unpkg.com; "
     "font-src 'self'; "
     "frame-ancestors 'none'; "
     "base-uri 'self'; "
