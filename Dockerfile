@@ -16,8 +16,20 @@ WORKDIR /build
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# The three fetches below pull data that changes upstream (aircraft DB
+# refreshed daily by tar1090-db, OurAirports updated continuously,
+# tar1090 markers.js on every tar1090 release). Docker would otherwise
+# cache them by RUN string and freeze us on whatever snapshot happened
+# to be live the first time a given host built the image. CI sets
+# DATA_CACHEBUST per commit (see .github/workflows/ci.yml) so the
+# fetches always re-run; local builds can override with
+#   docker build --build-arg DATA_CACHEBUST=$(date +%s) .
+# or `--no-cache` if they want a guaranteed-fresh rebuild.
+ARG DATA_CACHEBUST=static
+
 ARG AIRCRAFT_DB_URL=https://raw.githubusercontent.com/wiedehopf/tar1090-db/refs/heads/csv/aircraft.csv.gz
-RUN python -c "import urllib.request; urllib.request.urlretrieve('${AIRCRAFT_DB_URL}', '/build/aircraft_db.csv.gz')"
+RUN echo "data fetch ${DATA_CACHEBUST}" \
+ && python -c "import urllib.request; urllib.request.urlretrieve('${AIRCRAFT_DB_URL}', '/build/aircraft_db.csv.gz')"
 
 ARG AIRPORTS_DB_URL=https://raw.githubusercontent.com/davidmegginson/ourairports-data/main/airports.csv
 RUN python -c "import urllib.request; urllib.request.urlretrieve('${AIRPORTS_DB_URL}', '/build/airports.csv')"
