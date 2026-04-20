@@ -94,7 +94,11 @@ jobs:
           # never serve cached (potentially months-old) aircraft /
           # airport / tar1090-marker data. Everything else (pip install,
           # app code copy) still caches normally between builds.
+          # FLIGHTJAR_VERSION stamps the image with the commit that
+          # produced it; /api/stats exposes it and the About dialog
+          # shows the short form next to the title.
           build-args: |
             DATA_CACHEBUST=${{ github.sha }}
+            FLIGHTJAR_VERSION=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

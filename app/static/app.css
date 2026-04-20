@@ -155,17 +155,16 @@
                     border-right: 1px solid var(--border);
                     display: flex; justify-content: space-between; align-items: center;
                     gap: 8px; background: #131821; }
-  #sidebar-footer a { color: var(--muted); text-decoration: none;
-                      display: inline-flex; align-items: center; gap: 4px;
-                      font-size: 11px; }
-  #sidebar-footer a:hover { color: var(--text); }
-  /* Uniform icon sizing across the footer. The GitHub glyph is a solid
-     filled path so it gets fill:currentColor via the `a svg` selector;
-     the Stats / About icons are outlined strokes, so they opt out of
-     the fill. */
+  /* Footer now shows: bold current-time on the left, Stats + About
+     buttons on the right. GitHub + Buy-Me-A-Coffee moved into the
+     About dialog. */
+  #footer-clock {
+    font-weight: 700; font-size: 12px; color: var(--text);
+    font-variant-numeric: tabular-nums; letter-spacing: 0.5px;
+  }
+  /* Uniform icon sizing for the Stats / About button icons — both are
+     outlined strokes drawn in currentColor. */
   #sidebar-footer svg { width: 14px; height: 14px; }
-  #sidebar-footer a svg { fill: currentColor; }
-  #sidebar-footer img { display: block; height: 28px; width: auto; }
   #about-btn, #stats-btn {
     color: var(--muted); background: transparent; border: 0;
     font-size: 11px; font-family: inherit; cursor: pointer;
@@ -194,6 +193,30 @@
                                line-height: 1; cursor: pointer;
                                padding: 0 4px; margin: -8px -8px 0 0; }
   #about-dialog .about-close:hover { color: var(--text); }
+  /* Version pill next to the title. Populated from /api/stats on open. */
+  .about-version {
+    font-size: 11px; font-family: ui-monospace, monospace;
+    font-weight: 500; color: var(--muted);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: 1px 7px; margin-left: 6px;
+    vertical-align: 2px;
+  }
+  /* Github + Buy-Me-A-Coffee moved out of the footer and into the
+     About dialog header. */
+  #about-dialog .about-links {
+    display: flex; align-items: center; gap: 16px;
+    margin: 10px 0 4px;
+  }
+  #about-dialog .about-links a {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: var(--muted);
+  }
+  #about-dialog .about-links a:hover { color: var(--text); text-decoration: none; }
+  #about-dialog .about-links svg {
+    width: 16px; height: 16px; fill: currentColor;
+  }
+  #about-dialog .about-links img { display: block; height: 28px; width: auto; }
 
   /* Stats dialog — reuses the about-dialog visual shell but replaces
      the bulleted lists with a responsive stat-card grid and a bigger

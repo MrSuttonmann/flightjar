@@ -642,6 +642,9 @@ async def api_stats():
         "beast_connected": bool(stats.beast_connected),
         "receiver": RECEIVER_INFO,
         "site_name": cfg.site_name,
+        # Baked in at docker build time via the FLIGHTJAR_VERSION env
+        # var (defaults to "dev" for local builds).
+        "version": os.environ.get("FLIGHTJAR_VERSION", "dev"),
     }
 
 

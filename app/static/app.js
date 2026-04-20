@@ -1225,9 +1225,39 @@ import { createWatchlist } from './watchlist.js';
   }
   applyLabelsVisibility();
 
+  // ---- Footer clock ----
+  // Bold local-time readout where the GitHub link used to sit; ticks on
+  // a plain 1 s interval rather than piggy-backing on snapshot updates
+  // so it stays smooth even if the WebSocket hiccups.
+  const footerClockEl = document.getElementById('footer-clock');
+  function updateFooterClock() {
+    const d = new Date();
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    const ss = String(d.getSeconds()).padStart(2, '0');
+    footerClockEl.textContent = `${hh}:${mm}:${ss}`;
+  }
+  updateFooterClock();
+  setInterval(updateFooterClock, 1000);
+
   // ---- About dialog ----
   const aboutDialog = document.getElementById('about-dialog');
-  document.getElementById('about-btn').addEventListener('click', () => {
+  const aboutVersionEl = document.getElementById('about-version');
+  async function populateAboutVersion() {
+    if (!aboutVersionEl.hidden) return;  // already populated
+    try {
+      const r = await fetch('/api/stats');
+      if (!r.ok) return;
+      const { version } = await r.json();
+      if (!version) return;
+      // Short-form git SHAs for display; "dev" stays verbatim.
+      const label = /^[0-9a-f]{7,}$/.test(version) ? version.slice(0, 7) : version;
+      aboutVersionEl.textContent = label;
+      aboutVersionEl.hidden = false;
+    } catch (_) { /* leave the badge hidden */ }
+  }
+  document.getElementById('about-btn').addEventListener('click', async () => {
+    await populateAboutVersion();
     if (typeof aboutDialog.showModal === 'function') {
       aboutDialog.showModal();
     } else {

@@ -47,8 +47,13 @@ RUN TAR1090_SHAPES_DEST=/build/app/static/tar1090_shapes.js \
 # script stay behind.
 FROM python:3.12-slim
 
+# CI passes the git sha as FLIGHTJAR_VERSION via --build-arg so the
+# About dialog can show which build is running. Local builds default
+# to "dev"; override with --build-arg FLIGHTJAR_VERSION=whatever.
+ARG FLIGHTJAR_VERSION=dev
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
+    FLIGHTJAR_VERSION=${FLIGHTJAR_VERSION} \
     BEAST_HOST=readsb \
     BEAST_PORT=30005 \
     BEAST_OUTFILE=/data/beast.jsonl \
