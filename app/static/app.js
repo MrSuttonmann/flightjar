@@ -1093,6 +1093,15 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
   map.on('click', () => {
     if (selectedIcao) closeDetailPanel();
   });
+  // Dragging the map manually disables follow. 'dragstart' is user-only —
+  // programmatic panTo() from the follow tick doesn't fire it — so this
+  // cleanly distinguishes "user took control" from "we're auto-panning".
+  map.on('dragstart', () => {
+    if (followSelected) {
+      followSelected = false;
+      applyFollowState();
+    }
+  });
 
   // Fetch the adsbdb aircraft record and drop its photo into the panel's
   // .ac-photo slot. The slot renders a shimmering skeleton by default; on
