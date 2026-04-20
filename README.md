@@ -378,7 +378,12 @@ python scripts/fetch_plane_shapes.py    # writes app/static/tar1090_shapes.js
 # (and similarly for the airport/aircraft DBs if you want them locally)
 ```
 
-GitHub Actions runs all of the above on every push and pull request.
+GitHub Actions runs all of the above on every push and pull request, and
+only builds + publishes the multi-arch Docker image to Docker Hub when
+those checks pass — so `:latest` on Docker Hub always points at a commit
+that has cleared CI. A manual `workflow_dispatch` is also available for
+one-off publishes (e.g. to add a `v1.2.3` tag alongside `:latest`), and
+pushing a `v*` git tag publishes the matching image tag automatically.
 
 ### Configuration is validated at startup
 
