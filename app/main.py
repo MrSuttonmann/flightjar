@@ -421,6 +421,38 @@ app = FastAPI(
     ),
 )
 
+
+# Defence-in-depth headers on every HTTP response. Flightjar is self-
+# hosted so a same-origin policy fits well, but it loads a handful of
+# third-party resources (Leaflet from unpkg, OSM/CARTO/Esri tiles, adsbdb
+# photo thumbnails from airport-data.com, country flags from flagcdn.com)
+# that need to be whitelisted. `style-src 'unsafe-inline'` is kept because
+# Leaflet and our altitude-legend both set element.style.* at runtime;
+# hash-based CSP would be much noisier for little practical benefit.
+_CSP = (
+    "default-src 'self'; "
+    "script-src 'self' https://unpkg.com; "
+    "style-src 'self' https://unpkg.com 'unsafe-inline'; "
+    "img-src 'self' data: blob: https:; "
+    "connect-src 'self' ws: wss:; "
+    "font-src 'self'; "
+    "frame-ancestors 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'"
+)
+
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+    response.headers.setdefault("Content-Security-Policy", _CSP)
+    return response
+
+
 STATIC_DIR = Path(__file__).parent / "static"
 
 
