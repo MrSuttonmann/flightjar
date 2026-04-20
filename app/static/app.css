@@ -236,8 +236,12 @@
   .leaflet-popup-content code { font-size: 11px; color: var(--muted); }
   .ac-info { color: var(--muted); font-size: 11px; }
   .flag { cursor: help; display: inline-flex; vertical-align: -2px; }
-  .flag-icon { display: inline-block; border-radius: 1px;
-               box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25); }
+  .flag-icon {
+    display: inline-block; width: 16px; height: 12px;
+    background-size: cover; background-position: center;
+    background-repeat: no-repeat;
+    border-radius: 1px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
+  }
   /* Photo slot: reserves a fixed 3:2 aspect ratio so the layout settles
      the moment the panel opens; a subtle shimmer hints that something is
      loading, and either the <img> paints in over the top (fade-in below)

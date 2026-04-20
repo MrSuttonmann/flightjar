@@ -37,12 +37,14 @@ export function flagIcon(iso) {
   const upper = iso.toUpperCase();
   if (!/^[A-Z]{2}$/.test(upper)) return '';
   const lower = upper.toLowerCase();
-  // No loading="lazy" / decoding="async": these flags are tiny (~1KB
-  // SVG each) and the defer combined with our once-per-second snapshot
-  // tick made the sidebar imgs flash in and out on every rebuild.
+  // CSS background-image rather than an <img>: the sidebar rebuilds
+  // every row's innerHTML on each snapshot tick, and a fresh <img>
+  // element goes through a fetch / decode cycle even on a cache hit,
+  // producing a visible flash. A span with background-image paints
+  // straight from the browser's image cache as soon as the node mounts.
   return (
-    `<img class="flag-icon" src="https://flagcdn.com/${lower}.svg" ` +
-    `alt="${upper}" width="16" height="12">`
+    `<span class="flag-icon" role="img" aria-label="${upper}" ` +
+    `style="background-image:url(https://flagcdn.com/${lower}.svg)"></span>`
   );
 }
 

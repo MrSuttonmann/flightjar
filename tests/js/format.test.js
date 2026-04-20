@@ -56,14 +56,14 @@ test('escapeHtml stringifies non-strings', () => {
   assert.equal(escapeHtml(true), 'true');
 });
 
-test('flagIcon builds an <img> pointing at flagcdn.com for the given ISO', () => {
+test('flagIcon builds a <span> with a flagcdn.com background-image', () => {
   const gb = flagIcon('GB');
-  assert.match(gb, /<img /);
-  assert.match(gb, /src="https:\/\/flagcdn\.com\/gb\.svg"/);
-  assert.match(gb, /alt="GB"/);
-  // case-insensitive on input, but the URL is always lower-case.
-  assert.match(flagIcon('us'), /src="https:\/\/flagcdn\.com\/us\.svg"/);
-  assert.match(flagIcon('us'), /alt="US"/);
+  assert.match(gb, /<span /);
+  assert.match(gb, /background-image:url\(https:\/\/flagcdn\.com\/gb\.svg\)/);
+  assert.match(gb, /aria-label="GB"/);
+  // Case-insensitive on input, but the URL is always lower-case.
+  assert.match(flagIcon('us'), /background-image:url\(https:\/\/flagcdn\.com\/us\.svg\)/);
+  assert.match(flagIcon('us'), /aria-label="US"/);
 });
 
 test('flagIcon returns empty for bad input', () => {
