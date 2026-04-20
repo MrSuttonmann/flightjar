@@ -280,10 +280,11 @@ def test_dead_reckon_extrapolates_stale_positions():
     assert 0.02 < entry["lon"] - (-1.0) < 0.05
 
 
-def test_dead_reckon_skipped_for_recent_and_very_stale_positions():
-    """Positions younger than MIN_AGE or older than MAX_AGE pass through
-    unchanged — the extrapolation window is bounded both ways."""
-    from app.aircraft import DEAD_RECKON_MAX_AGE, Aircraft
+def test_dead_reckon_skipped_for_fresh_positions():
+    """Positions younger than MIN_AGE pass through unchanged. Beyond
+    that there is no upper bound — extrapolation runs until either a
+    real fix resumes or the aircraft drops from the registry."""
+    from app.aircraft import Aircraft
 
     reg = AircraftRegistry()
     ac = Aircraft(icao="abc123")
@@ -296,14 +297,16 @@ def test_dead_reckon_skipped_for_recent_and_very_stale_positions():
     ac.on_ground = False
     reg.aircraft["abc123"] = ac
 
-    # Fresh: no extrapolation.
+    # Fresh: no extrapolation, position passes through as-is.
     snap_fresh = reg.snapshot(now=100.5)
     assert snap_fresh["aircraft"][0]["position_stale"] is False
     assert snap_fresh["aircraft"][0]["lon"] == -1.0
-    # Past the cap: no more extrapolation — frozen at last known fix.
-    snap_very_stale = reg.snapshot(now=100.0 + DEAD_RECKON_MAX_AGE + 5)
-    assert snap_very_stale["aircraft"][0]["position_stale"] is False
-    assert snap_very_stale["aircraft"][0]["lon"] == -1.0
+    # 50 s on: still extrapolating — the plane shouldn't snap back to
+    # the last real fix just because the gap grew.
+    ac.last_seen = 150.0  # keep the aircraft alive in the registry
+    snap_long = reg.snapshot(now=150.0)
+    assert snap_long["aircraft"][0]["position_stale"] is True
+    assert snap_long["aircraft"][0]["lon"] > -1.0  # still moving east
 
 
 def test_dead_reckon_resume_clears_trail_on_large_correction():

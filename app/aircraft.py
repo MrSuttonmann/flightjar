@@ -24,14 +24,14 @@ POSITION_PAIR_MAX_AGE = 10.0  # seconds; CPR global decode validity window
 TRAIL_MAX_POINTS = 300  # ~5 minutes at typical 1Hz position rate
 AIRCRAFT_TIMEOUT = 60.0  # drop from registry after this many seconds idle
 PERSIST_MAX_AGE = 600.0  # restored aircraft older than this are discarded
-# Dead-reckoning window. When a position is older than
-# DEAD_RECKON_MIN_AGE we extrapolate along the last known track at the
-# last known groundspeed so the plane keeps moving smoothly between
-# reception gaps. Past DEAD_RECKON_MAX_AGE we freeze at the last real
-# fix — straight-line extrapolation over a minute of silence is as
-# likely to mislead as to help.
+# Dead-reckoning lower bound. Positions newer than this pass through
+# unchanged — they're fresh enough to not need extrapolation. There's
+# no upper bound: we keep projecting forward along the last known track
+# at the last known groundspeed until either a real fix comes in or
+# the whole aircraft times out of the registry (AIRCRAFT_TIMEOUT).
+# This avoids the "plane snaps back to the last real position" effect
+# that a bounded window produced.
 DEAD_RECKON_MIN_AGE = 1.5
-DEAD_RECKON_MAX_AGE = 30.0
 # When a real fix resumes after dead-reckoning and it's more than this far
 # from where we'd extrapolated to, treat the extrapolation as misleading:
 # clear the trail so the next coloured segment starts from the new fix
@@ -364,7 +364,7 @@ class AircraftRegistry:
             and ac.track is not None
         ):
             elapsed = now - ac.last_position_time
-            if DEAD_RECKON_MIN_AGE < elapsed <= DEAD_RECKON_MAX_AGE:
+            if elapsed > DEAD_RECKON_MIN_AGE:
                 pred_lat, pred_lon = _dead_reckon(ac.lat, ac.lon, ac.track, ac.speed, elapsed)
                 error_km = _approx_distance_km(pred_lat, pred_lon, new_lat, new_lon)
                 if error_km > DEAD_RECKON_RESUME_RESET_KM:
@@ -492,7 +492,7 @@ class AircraftRegistry:
                 and ac.last_position_time > 0
             ):
                 age = now - ac.last_position_time
-                if DEAD_RECKON_MIN_AGE < age <= DEAD_RECKON_MAX_AGE:
+                if age > DEAD_RECKON_MIN_AGE:
                     disp_lat, disp_lon = _dead_reckon(ac.lat, ac.lon, ac.track, ac.speed, age)
                     position_stale = True
             distance_km = None
