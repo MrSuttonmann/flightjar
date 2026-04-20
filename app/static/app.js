@@ -92,11 +92,51 @@ import { createWatchlist } from './watchlist.js';
       }).addTo(rangeRings).setLatLng([rx.lat + (nm * 1852) / 111000, rx.lon]);
     }
   }
-  const overlays = { 'Range rings': rangeRings };
+  // Proxy layer-groups feed Leaflet's native layers control. They don't
+  // draw anything themselves — adding/removing them from the map just
+  // flips the corresponding toggle via the overlayadd/overlayremove
+  // events wired up below. A small syncingOverlays flag prevents the
+  // setters from re-entering when called in response to an event.
+  const labelsProxy = L.layerGroup();
+  const trailsProxy = L.layerGroup();
+  const airportsProxy = L.layerGroup();
+  const coverageProxy = L.layerGroup();
+  let syncingOverlays = false;
+  function syncOverlay(proxy, on) {
+    syncingOverlays = true;
+    try {
+      if (on && !map.hasLayer(proxy)) map.addLayer(proxy);
+      else if (!on && map.hasLayer(proxy)) map.removeLayer(proxy);
+    } finally {
+      syncingOverlays = false;
+    }
+  }
+
+  const overlays = {
+    'Aircraft labels': labelsProxy,
+    'Altitude trails': trailsProxy,
+    'Airports': airportsProxy,
+    'Polar coverage': coverageProxy,
+    'Range rings': rangeRings,
+  };
   L.control.layers(baseLayers, overlays, { position: 'topright' }).addTo(map);
 
   map.on('baselayerchange', (e) => {
     try { localStorage.setItem('flightjar.basemap', e.name); } catch (_) {}
+  });
+  map.on('overlayadd', (e) => {
+    if (syncingOverlays) return;
+    if (e.layer === labelsProxy) setLabels(true);
+    else if (e.layer === trailsProxy) setTrails(true);
+    else if (e.layer === airportsProxy) setAirports(true);
+    else if (e.layer === coverageProxy) setCoverage(true);
+  });
+  map.on('overlayremove', (e) => {
+    if (syncingOverlays) return;
+    if (e.layer === labelsProxy) setLabels(false);
+    else if (e.layer === trailsProxy) setTrails(false);
+    else if (e.layer === airportsProxy) setAirports(false);
+    else if (e.layer === coverageProxy) setCoverage(false);
   });
 
   const aircraft = new Map(); // icao -> { marker, trail, label, data }
@@ -526,7 +566,7 @@ import { createWatchlist } from './watchlist.js';
 
   function applyLabelsVisibility() {
     for (const entry of aircraft.values()) updateLabelFor(entry);
-    document.getElementById('labels-toggle').classList.toggle('active', showLabels);
+    syncOverlay(labelsProxy, showLabels);
   }
 
   // Singleton floating tooltip for airport codes — lives in tooltip.js
@@ -542,7 +582,7 @@ import { createWatchlist } from './watchlist.js';
         entry.trailFp = null;
       }
     }
-    document.getElementById('trails-toggle').classList.toggle('active', showTrails);
+    syncOverlay(trailsProxy, showTrails);
   }
 
   function setHoverHalo(icao) {
@@ -1117,11 +1157,11 @@ import { createWatchlist } from './watchlist.js';
   });
   renderUnitSwitch();
 
-  document.getElementById('labels-toggle').addEventListener('click', () => {
-    showLabels = !showLabels;
+  function setLabels(value) {
+    showLabels = value;
     try { localStorage.setItem('flightjar.labels', showLabels ? '1' : '0'); } catch (_) {}
     applyLabelsVisibility();
-  });
+  }
   applyLabelsVisibility();
 
   // ---- About dialog ----
@@ -1141,31 +1181,77 @@ import { createWatchlist } from './watchlist.js';
     if (!inside) aboutDialog.close();
   });
 
-  document.getElementById('trails-toggle').addEventListener('click', () => {
-    showTrails = !showTrails;
+  function setTrails(value) {
+    showTrails = value;
     try { localStorage.setItem('flightjar.trails', showTrails ? '1' : '0'); } catch (_) {}
     applyTrailsVisibility();
-  });
+  }
   applyTrailsVisibility();
 
+  // ---- Follow + Compact map controls ----
+  // Both are single-action icon buttons stacked near the layers control
+  // in the top-right, rather than text chips in the sidebar header.
+  function makeIconControl({ className, title, pathD, onClick }) {
+    return L.Control.extend({
+      options: { position: 'topright' },
+      onAdd() {
+        const a = L.DomUtil.create('a', 'leaflet-bar leaflet-control ' + className);
+        a.href = '#'; a.title = title;
+        a.setAttribute('role', 'button');
+        a.setAttribute('aria-label', title);
+        a.innerHTML =
+          `<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" ` +
+            `fill="none" stroke="currentColor" stroke-width="1.8" ` +
+            `stroke-linecap="round" stroke-linejoin="round">${pathD}</svg>`;
+        L.DomEvent
+          .on(a, 'click', (e) => {
+            L.DomEvent.preventDefault(e);
+            L.DomEvent.stopPropagation(e);
+            onClick();
+          })
+          .on(a, 'dblclick', L.DomEvent.stopPropagation);
+        return a;
+      },
+    });
+  }
+
   function applyFollowState() {
-    document.getElementById('follow-toggle').classList.toggle('active', followSelected);
+    document.querySelectorAll('.follow-control').forEach(
+      el => el.classList.toggle('active', followSelected),
+    );
     // Snap the map to the selected aircraft the moment Follow is switched on.
     if (followSelected && selectedIcao) {
       const entry = aircraft.get(selectedIcao);
       if (entry) panToFollowed(entry.marker.getLatLng(), { animate: true });
     }
   }
-  document.getElementById('follow-toggle').addEventListener('click', () => {
-    followSelected = !followSelected;
+  function setFollow(value) {
+    followSelected = value;
     try { localStorage.setItem('flightjar.follow', followSelected ? '1' : '0'); } catch (_) {}
     applyFollowState();
+  }
+  // Crosshair glyph — subtly different from the Home control so users
+  // can tell "follow selected" from "centre on receiver" at a glance.
+  const FollowControl = makeIconControl({
+    className: 'follow-control',
+    title: 'Follow selected aircraft',
+    pathD:
+      `<circle cx="10" cy="10" r="5"/>` +
+      `<circle cx="10" cy="10" r="1.5" fill="currentColor"/>` +
+      `<line x1="10" y1="1" x2="10" y2="4"/>` +
+      `<line x1="10" y1="16" x2="10" y2="19"/>` +
+      `<line x1="1" y1="10" x2="4" y2="10"/>` +
+      `<line x1="16" y1="10" x2="19" y2="10"/>`,
+    onClick: () => setFollow(!followSelected),
   });
+  map.addControl(new FollowControl());
   applyFollowState();
 
   function applyCompactMode() {
     document.body.classList.toggle('compact-mode', compactMode);
-    document.getElementById('compact-toggle').classList.toggle('active', compactMode);
+    document.querySelectorAll('.compact-control').forEach(
+      el => el.classList.toggle('active', compactMode),
+    );
     // The map container's size just changed — Leaflet needs a nudge.
     // pan: false so the map stays anchored to whatever the user was
     // looking at instead of drifting to preserve the old geographic centre.
@@ -1176,7 +1262,16 @@ import { createWatchlist } from './watchlist.js';
     try { localStorage.setItem('flightjar.compact', compactMode ? '1' : '0'); } catch (_) {}
     applyCompactMode();
   }
-  document.getElementById('compact-toggle').addEventListener('click', () => setCompact(!compactMode));
+  // Double-chevron glyph suggesting "collapse sidebar into the map".
+  const CompactControl = makeIconControl({
+    className: 'compact-control',
+    title: 'Hide the sidebar (C)',
+    pathD:
+      `<polyline points="12 4 6 10 12 16"/>` +
+      `<polyline points="17 4 11 10 17 16"/>`,
+    onClick: () => setCompact(!compactMode),
+  });
+  map.addControl(new CompactControl());
   document.getElementById('sidebar-restore').addEventListener('click', () => setCompact(false));
   applyCompactMode();
 
@@ -1217,7 +1312,6 @@ import { createWatchlist } from './watchlist.js';
   map.on('moveend', () => { if (showAirports) scheduleAirportRefresh(); });
 
   function applyAirportsToggle() {
-    document.getElementById('airports-toggle').classList.toggle('active', showAirports);
     if (showAirports) {
       if (!map.hasLayer(airportsLayer)) airportsLayer.addTo(map);
       refreshAirports();
@@ -1225,14 +1319,91 @@ import { createWatchlist } from './watchlist.js';
       map.removeLayer(airportsLayer);
       airportsLayer.clearLayers();
     }
+    syncOverlay(airportsProxy, showAirports);
   }
   function setAirports(value) {
     showAirports = value;
     try { localStorage.setItem('flightjar.airports', showAirports ? '1' : '0'); } catch (_) {}
     applyAirportsToggle();
   }
-  document.getElementById('airports-toggle').addEventListener('click', () => setAirports(!showAirports));
   applyAirportsToggle();
+
+  // ---- polar coverage overlay ----
+  // Draws the receiver's observed max-range polygon, filled from
+  // /api/coverage. The backend keeps max-distance-per-bearing on disk
+  // so this renders instantly from a cold cache (the first load for a
+  // fresh install is a mostly-empty shape that fills in over time).
+  const coverageLayer = L.layerGroup();
+  let showCoverage = localStorage.getItem('flightjar.coverage') === '1';
+  let coveragePoly = null;
+  let coverageFetchInFlight = false;
+
+  // Great-circle destination from (lat,lon) after travelling `distKm` km
+  // on initial bearing `bearingDeg`. Used to draw the coverage polygon
+  // as a set of end-points rather than shipping lat/lon from the server.
+  function destinationPoint(lat, lon, bearingDeg, distKm) {
+    const R = 6371;
+    const phi1 = lat * Math.PI / 180;
+    const lam1 = lon * Math.PI / 180;
+    const theta = bearingDeg * Math.PI / 180;
+    const d = distKm / R;
+    const phi2 = Math.asin(
+      Math.sin(phi1) * Math.cos(d) + Math.cos(phi1) * Math.sin(d) * Math.cos(theta),
+    );
+    const lam2 = lam1 + Math.atan2(
+      Math.sin(theta) * Math.sin(d) * Math.cos(phi1),
+      Math.cos(d) - Math.sin(phi1) * Math.sin(phi2),
+    );
+    return [phi2 * 180 / Math.PI, ((lam2 * 180 / Math.PI) + 540) % 360 - 180];
+  }
+
+  async function refreshCoverage() {
+    if (coverageFetchInFlight) return;
+    coverageFetchInFlight = true;
+    try {
+      const r = await fetch('/api/coverage');
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json();
+      coverageLayer.clearLayers();
+      coveragePoly = null;
+      const rx = data.receiver;
+      if (!rx || rx.lat == null || rx.lon == null) return;
+      if (!data.bearings || data.bearings.length < 3) return;
+      // Sort bearings so the polygon winds cleanly.
+      const sorted = [...data.bearings].sort((a, b) => a.angle - b.angle);
+      const pts = sorted.map(b => destinationPoint(rx.lat, rx.lon, b.angle, b.dist_km));
+      coveragePoly = L.polygon(pts, {
+        color: '#5fa8ff', weight: 1.5, opacity: 0.75,
+        fillColor: '#5fa8ff', fillOpacity: 0.08,
+        interactive: false,
+      });
+      coveragePoly.addTo(coverageLayer);
+    } catch (e) {
+      console.warn('coverage fetch failed', e);
+    } finally {
+      coverageFetchInFlight = false;
+    }
+  }
+
+  function applyCoverageToggle() {
+    if (showCoverage) {
+      if (!map.hasLayer(coverageLayer)) coverageLayer.addTo(map);
+      refreshCoverage();
+    } else {
+      map.removeLayer(coverageLayer);
+      coverageLayer.clearLayers();
+      coveragePoly = null;
+    }
+    syncOverlay(coverageProxy, showCoverage);
+  }
+  function setCoverage(value) {
+    showCoverage = value;
+    try { localStorage.setItem('flightjar.coverage', showCoverage ? '1' : '0'); } catch (_) {}
+    applyCoverageToggle();
+  }
+  applyCoverageToggle();
+  // Refresh the polygon every 60s while visible so newly-seen sectors fill in.
+  setInterval(() => { if (showCoverage) refreshCoverage(); }, 60_000);
 
   // ---- "Home" map control: re-centre on receiver, preserve zoom ----
   function goHome() {
@@ -1328,9 +1499,9 @@ import { createWatchlist } from './watchlist.js';
     }
     if (inField) return;
     if (e.key === 'l' || e.key === 'L') {
-      document.getElementById('labels-toggle').click();
+      setLabels(!showLabels);
     } else if (e.key === 't' || e.key === 'T') {
-      document.getElementById('trails-toggle').click();
+      setTrails(!showTrails);
     } else if (e.key === 'c' || e.key === 'C') {
       setCompact(!compactMode);
     } else if (e.key === 'a' || e.key === 'A') {

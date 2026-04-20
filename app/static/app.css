@@ -29,12 +29,6 @@
                  background: #888; margin-right: 6px; vertical-align: middle; }
   #status.live .dot { background: #4ade80; }
   #status.dead .dot { background: #ef4444; }
-  #view-controls { display: flex; flex-direction: column; gap: 4px;
-                   align-items: flex-start; flex-shrink: 0; }
-  .view-row { display: flex; gap: 4px; flex-wrap: wrap; }
-  #labels-toggle, #trails-toggle, #follow-toggle, #compact-toggle, #airports-toggle {
-    border: 1px solid var(--border); border-radius: 3px;
-  }
   .home-control {
     /* Mirror Leaflet's .leaflet-bar a sizing — 26×26 by default, bumped
        to 30×30 on touch devices — so the home button lines up flush with
@@ -46,6 +40,24 @@
   .leaflet-touch .home-control { width: 30px; height: 30px; }
   .home-control:hover { background: #f4f4f4; color: #1d4ed8; }
   .home-control svg { display: block; }
+  /* Follow + Compact live next to the layers control in the top-right.
+     They share Leaflet's bar sizing rules (see .home-control above) and
+     add an `active` tint when the feature is on. */
+  .follow-control, .compact-control {
+    width: 26px; height: 26px; display: flex;
+    align-items: center; justify-content: center;
+    color: #333; background: #fff; cursor: pointer; text-decoration: none;
+  }
+  .leaflet-touch .follow-control,
+  .leaflet-touch .compact-control { width: 30px; height: 30px; }
+  .follow-control:hover, .compact-control:hover { background: #f4f4f4; }
+  .follow-control svg, .compact-control svg { display: block; }
+  .follow-control.active, .compact-control.active {
+    color: #fff; background: var(--accent);
+  }
+  .follow-control.active:hover, .compact-control.active:hover {
+    background: #1d4ed8;
+  }
   .airport-icon { background: transparent !important; border: none !important; }
   .airport-dot { width: 8px; height: 8px; border-radius: 50%;
                  background: #fbbf24; border: 1.5px solid #0e1116;

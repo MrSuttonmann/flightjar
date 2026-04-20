@@ -149,19 +149,17 @@ for the dev loop.
 - **Units** — the toggle in the header switches the whole UI between
   Metric (km, km/h, m), Imperial (mi, mph, ft), and Nautical (nm, kt, ft).
   Metric altitude flips to km once you cross 1 km.
-- **Labels** — the Labels button toggles the permanent callsign labels
-  next to each plane on the map. Your preference is remembered.
-- **Trails** — the Trails button toggles altitude-coloured trails for
-  every aircraft. Same persistence.
-- **Follow** — auto-enabled while a detail panel is open; auto-disabled
-  when it closes. You can still toggle it manually for a static view
-  while leaving the panel open.
-- **Compact** — hides the sidebar for a full-map view. A small
-  `☰ sidebar` button pinned top-left brings it back; `C` toggles.
-- **Base map** — the layers control (top-right of the map) swaps between
-  OpenStreetMap, Carto Dark, and Esri Satellite tiles. Choice is remembered.
-- **Range rings** — optional overlay at 50 / 100 / 200 NM around the
-  receiver, toggled from the same control.
+- **Map layers** — the layers control (top-right of the map) hosts
+  everything map-side: base tiles (OpenStreetMap, Carto Dark, Esri
+  Satellite) plus the overlays — *Aircraft labels*, *Altitude trails*,
+  *Airports*, *Polar coverage* (your receiver's observed max range per
+  bearing), and *Range rings* at 50/100/200 NM. All preferences
+  persist.
+- **Follow + Compact** — two small icon buttons stacked below the
+  layers control. Follow auto-enables when a detail panel opens and
+  disables when it closes; tap manually to override. Compact hides the
+  sidebar; a small `☰ sidebar` button pinned top-left brings it back,
+  `C` toggles.
 - **Emergency alerts** — aircraft squawking 7500 (hijack), 7600 (radio),
   or 7700 (general) get a red marker outline, a red-tinted sidebar row,
   and a prominent label in the detail panel.

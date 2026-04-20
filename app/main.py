@@ -24,6 +24,7 @@ from .aircraft_db import DEFAULT_REFRESH_URL, AircraftDB
 from .airports_db import AirportsDB
 from .beast import iter_frames
 from .config import Config
+from .coverage import PolarCoverage
 from .flight_routes import AdsbdbClient
 from .persistence import load_state, save_state
 
@@ -235,6 +236,13 @@ def build_snapshot(now: float | None = None) -> dict:
     """
     snap = registry.snapshot(now)
     snap["frames"] = stats.frames
+    # Feed every fresh position through the polar-coverage tracker so the
+    # on-disk map reflects real reception. No-op when the receiver isn't
+    # located.
+    for ac in snap["aircraft"]:
+        if ac.get("lat") is not None and ac.get("lon") is not None:
+            coverage.observe(ac["lat"], ac["lon"])
+    coverage.maybe_persist(interval=60.0)
     if adsbdb.enabled:
         referenced_airports: set[str] = set()
         for ac in snap["aircraft"]:
@@ -316,6 +324,15 @@ FLIGHT_ROUTE_CACHE_PATH = (
 )
 
 adsbdb = AdsbdbClient(cache_path=FLIGHT_ROUTE_CACHE_PATH, enabled=cfg.flight_routes_enabled)
+
+COVERAGE_CACHE_PATH = Path(cfg.jsonl_path).parent / "coverage.json" if cfg.jsonl_path else None
+# Polar coverage uses the TRUE receiver coordinates (before RECEIVER_ANON_KM
+# snapping) so the max-range-per-bearing map reflects actual reception.
+coverage = PolarCoverage(
+    receiver_lat=cfg.lat_ref,
+    receiver_lon=cfg.lon_ref,
+    cache_path=COVERAGE_CACHE_PATH,
+)
 
 
 async def aircraft_db_refresher():
@@ -530,6 +547,36 @@ async def api_airports(
     """
     limit = max(1, min(int(limit), 5000))
     return airports_db.bbox(min_lat, min_lon, max_lat, max_lon, limit)
+
+
+@app.get("/api/coverage", summary="Polar coverage map (max distance per bearing)")
+async def api_coverage():
+    """Return the receiver's observed polar coverage.
+
+    Built up over the runtime from every decoded position; persisted to
+    /data/coverage.json so restarts don't lose it. Response shape:
+
+        {
+          "receiver": {"lat": .., "lon": ..},
+          "bucket_deg": 10.0,
+          "bearings": [
+            {"angle": 5.0,  "dist_km": 42.1},
+            {"angle": 15.0, "dist_km": 48.3},
+            ...
+          ]
+        }
+
+    Bearings with no observations are omitted so the frontend can draw a
+    single polygon through the populated sectors.
+    """
+    return coverage.snapshot()
+
+
+@app.post("/api/coverage/reset", summary="Clear the polar coverage map")
+async def api_coverage_reset():
+    """Reset all bearing buckets to zero — useful after moving antennas."""
+    coverage.reset()
+    return {"ok": True}
 
 
 @app.get("/api/flight/{callsign}", summary="Origin / destination for a callsign")
