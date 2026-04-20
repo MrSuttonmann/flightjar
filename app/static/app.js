@@ -32,11 +32,22 @@ import { createWatchlist } from './watchlist.js';
   const altLegendTicks = L.DomUtil.create('div', 'alt-legend-ticks', altLegend);
   altLegendBar.style.background = 'linear-gradient(to right, ' +
     ALT_STOPS.map(([, [r, g, b]]) => `rgb(${r},${g},${b})`).join(', ') + ')';
-  const LEGEND_TICK_FT = [0, 10000, 20000, 30000, 40000];
+  // Tick values in canonical feet (the unit the colour gradient is built
+  // on). Imperial/nautical want the obvious 0 / 10k / 20k / 30k / 40k ft
+  // labels. Metric picks feet values that convert to round km numbers
+  // so the legend reads "3.0 km / 6.0 km" etc. rather than "3.0 / 6.1
+  // / 9.1 / 12.2 km" (which was the literal 10k-ft-step conversion).
+  const LEGEND_TICKS_FT = {
+    nautical: [0, 10000, 20000, 30000, 40000],
+    imperial: [0, 10000, 20000, 30000, 40000],
+    // 3 / 6 / 9 / 12 km in feet — positions drift by ~1.6 % from
+    // perfect 25 % spacing, close enough visually under flex
+    // space-between.
+    metric: [0, 9843, 19685, 29528, 39370],
+  };
   function renderAltLegend() {
-    altLegendTicks.innerHTML = LEGEND_TICK_FT
-      .map(ft => `<span>${uconv('alt', ft)}</span>`)
-      .join('');
+    const ticks = LEGEND_TICKS_FT[getUnitSystem()] || LEGEND_TICKS_FT.nautical;
+    altLegendTicks.innerHTML = ticks.map(ft => `<span>${uconv('alt', ft)}</span>`).join('');
   }
   renderAltLegend();
   map.getContainer().appendChild(altLegend);
@@ -80,20 +91,31 @@ import { createWatchlist } from './watchlist.js';
   // canvas renderer so thousands of circleMarkers render smoothly.
   const airportsLayer = L.layerGroup();
   const airportsCanvas = L.canvas({ padding: 0.1 });
+  // Ring distances per unit system. Chosen so the three rings span a
+  // similar physical area regardless of which unit the user prefers:
+  // km metric uses bigger round numbers since the unit is smaller.
+  const RANGE_RING_SETS = {
+    nautical: { values: [50, 100, 200], metersPerUnit: 1852,    suffix: ' NM' },
+    imperial: { values: [50, 100, 200], metersPerUnit: 1609.344, suffix: ' mi' },
+    metric:   { values: [100, 200, 400], metersPerUnit: 1000,    suffix: ' km' },
+  };
+
   function buildRangeRings(rx) {
     rangeRings.clearLayers();
     if (!rx || rx.lat == null || rx.lon == null) return;
-    // 50 / 100 / 200 NM. 1 NM = 1852 m. A white halo underneath the coloured
-    // ring keeps the circles visible on both light (OSM) and dark (Carto,
-    // satellite) base layers.
-    for (const nm of [50, 100, 200]) {
+    const set = RANGE_RING_SETS[getUnitSystem()] || RANGE_RING_SETS.nautical;
+    // A white halo underneath the coloured ring keeps the circles
+    // visible on both light (OSM) and dark (Carto, satellite) base
+    // layers.
+    for (const v of set.values) {
+      const radius = v * set.metersPerUnit;
       L.circle([rx.lat, rx.lon], {
-        radius: nm * 1852,
+        radius,
         color: '#ffffff', weight: 3, opacity: 0.55,
         fill: false, interactive: false,
       }).addTo(rangeRings);
       L.circle([rx.lat, rx.lon], {
-        radius: nm * 1852,
+        radius,
         color: '#1d4ed8', weight: 1.25, opacity: 0.85,
         fill: false, dashArray: '4 4', interactive: false,
       }).addTo(rangeRings);
@@ -101,10 +123,10 @@ import { createWatchlist } from './watchlist.js';
         interactive: false,
         icon: L.divIcon({
           className: 'range-label',
-          html: `<span>${nm} NM</span>`,
+          html: `<span>${v}${set.suffix}</span>`,
           iconSize: [0, 0],
         }),
-      }).addTo(rangeRings).setLatLng([rx.lat + (nm * 1852) / 111000, rx.lon]);
+      }).addTo(rangeRings).setLatLng([rx.lat + radius / 111000, rx.lon]);
     }
   }
   // Proxy layer-groups feed Leaflet's native layers control. They don't
@@ -1179,6 +1201,9 @@ import { createWatchlist } from './watchlist.js';
       try { localStorage.setItem('flightjar.units', getUnitSystem()); } catch (_) {}
       renderUnitSwitch();
       renderAltLegend();
+      // Range-ring distances change with the unit system (50/100/200 NM
+      // vs 100/200/400 km etc.) — rebuild with the fresh receiver info.
+      if (lastSnap?.receiver) buildRangeRings(lastSnap.receiver);
       if (lastSnap) {
         renderSidebar(lastSnap);
         // Refresh the open detail panel so its units update immediately.
