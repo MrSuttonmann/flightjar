@@ -37,10 +37,12 @@ export function flagIcon(iso) {
   const upper = iso.toUpperCase();
   if (!/^[A-Z]{2}$/.test(upper)) return '';
   const lower = upper.toLowerCase();
+  // No loading="lazy" / decoding="async": these flags are tiny (~1KB
+  // SVG each) and the defer combined with our once-per-second snapshot
+  // tick made the sidebar imgs flash in and out on every rebuild.
   return (
     `<img class="flag-icon" src="https://flagcdn.com/${lower}.svg" ` +
-    `alt="${upper}" width="16" height="12" ` +
-    `loading="lazy" decoding="async">`
+    `alt="${upper}" width="16" height="12">`
   );
 }
 

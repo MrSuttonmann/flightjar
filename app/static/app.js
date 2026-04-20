@@ -371,10 +371,15 @@ import { createWatchlist } from './watchlist.js';
   function updatePopupContent(root, a, now, airports) {
     const q = (sel) => root.querySelector(sel);
 
-    // Flag — img markup from flagcdn.com; src is a fixed template, safe
-    // to set via innerHTML.
+    // Flag — img markup from flagcdn.com. Only rewrite innerHTML when
+    // the ISO actually changes; otherwise the <img> is torn down and
+    // re-created every snapshot tick, which makes the flag flash.
     const flagEl = q('.pop-flag');
-    flagEl.innerHTML = flagIcon(a.country_iso);
+    const iso = a.country_iso || '';
+    if (flagEl.dataset.iso !== iso) {
+      flagEl.innerHTML = iso ? flagIcon(iso) : '';
+      flagEl.dataset.iso = iso;
+    }
     flagEl.title = a.operator_country || a.country_iso || '';
 
     q('.pop-callsign').textContent = a.callsign || '—';
