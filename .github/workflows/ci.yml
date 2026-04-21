@@ -82,6 +82,11 @@ jobs:
       - name: Stage auto-generated assets
         # Neither the aircraft CSV nor the tar1090 silhouettes are
         # committed; fetch them so the app serves a complete page.
+        # TAR1090_SHAPES_DEST overrides the script's default (/app/...)
+        # to land inside the checked-out repo rather than the Docker
+        # image path.
+        env:
+          TAR1090_SHAPES_DEST: ${{ github.workspace }}/app/static/tar1090_shapes.js
         run: |
           python scripts/fetch_plane_shapes.py
           curl -sSL -o app/aircraft_db.csv.gz \
