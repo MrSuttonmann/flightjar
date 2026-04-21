@@ -6,7 +6,7 @@ field naming — they only validate our dispatch, state, and snapshot shaping.
 
 from unittest.mock import patch
 
-from app.aircraft import AIRCRAFT_TIMEOUT, AircraftRegistry
+from app.aircraft import AIRCRAFT_TIMEOUT, AircraftRegistry, flight_phase
 
 
 def fake_decode(msg, **kw):
@@ -479,6 +479,56 @@ def test_on_position_callback_swallows_exceptions():
         reg.on_position = boom
         # Must not raise.
         assert reg.ingest("AP01aaaa", now=1.0) is True
+
+
+def test_flight_phase_taxi_wins_over_everything():
+    ac = {"on_ground": True, "vrate": 1000, "altitude": 0}
+    assert flight_phase(ac) == "taxi"
+
+
+def test_flight_phase_classifies_climb_and_descent_from_vrate():
+    assert flight_phase({"on_ground": False, "vrate": 1500, "altitude": 5000}) == "climb"
+    assert flight_phase({"on_ground": False, "vrate": -1500, "altitude": 5000}) == "descent"
+
+
+def test_flight_phase_cruise_above_10000_with_level_flight():
+    assert flight_phase({"on_ground": False, "vrate": 0, "altitude": 35000}) == "cruise"
+    # Low vrate still reads as cruise above the cruise-alt floor.
+    assert flight_phase({"on_ground": False, "vrate": 200, "altitude": 35000}) == "cruise"
+
+
+def test_flight_phase_approach_wins_over_climb_when_near_destination():
+    """A plane low and close to a known destination reads as Approach even
+    when briefly climbing (go-around scenario)."""
+    ac = {
+        "on_ground": False,
+        "vrate": 800,  # would otherwise be "climb"
+        "altitude": 3000,
+        "lat": 51.48,
+        "lon": -0.45,
+    }
+    dest = {"lat": 51.4700, "lon": -0.4543}  # ~1 km away
+    assert flight_phase(ac, dest) == "approach"
+
+
+def test_flight_phase_approach_needs_dest_within_50_km():
+    ac = {
+        "on_ground": False,
+        "vrate": -600,
+        "altitude": 3000,
+        "lat": 52.0,
+        "lon": -1.0,
+    }
+    far_dest = {"lat": 40.64, "lon": -73.78}  # thousands of km away
+    # Too far — fall through to descent.
+    assert flight_phase(ac, far_dest) == "descent"
+
+
+def test_flight_phase_returns_none_when_indeterminate():
+    # No altitude, no vrate, airborne — not enough signal to classify.
+    assert flight_phase({"on_ground": False}) is None
+    # Altitude below cruise floor but no vrate and no destination — nothing to say.
+    assert flight_phase({"on_ground": False, "altitude": 5000}) is None
 
 
 def test_dead_reckon_skipped_on_ground():

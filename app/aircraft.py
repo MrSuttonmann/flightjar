@@ -46,6 +46,51 @@ SIGNAL_LOST_MIN_AGE = 10.0
 DEAD_RECKON_RESUME_RESET_KM = 5.0
 EARTH_KM = 6371.0
 
+# Flight-phase classifier thresholds. vrate is in ft/min; altitude in ft.
+# "Approach" wins over climb/descent when the plane is close enough to its
+# destination that a late climb reads as go-around, which is still the
+# approach phase from a controller's perspective.
+PHASE_CLIMB_VRATE = 500
+PHASE_CRUISE_ALT = 10000
+PHASE_APPROACH_DIST_KM = 50.0
+
+
+def flight_phase(ac: dict, dest_info: dict | None = None) -> str | None:
+    """Classify an already-decoded snapshot entry into a flight phase.
+
+    Returns one of 'taxi', 'approach', 'climb', 'descent', 'cruise', or
+    None when there isn't enough signal yet (e.g. a lone surveillance
+    hit with no altitude or vrate). `dest_info` is the matching entry
+    from the airports snapshot (dict with `lat`/`lon`) when the route's
+    destination is known — supplying it unlocks the 'approach' label.
+    """
+    if ac.get("on_ground"):
+        return "taxi"
+    alt = ac.get("altitude")
+    lat, lon = ac.get("lat"), ac.get("lon")
+    if (
+        alt is not None
+        and alt < PHASE_CRUISE_ALT
+        and dest_info is not None
+        and lat is not None
+        and lon is not None
+        and dest_info.get("lat") is not None
+        and dest_info.get("lon") is not None
+        and _approx_distance_km(lat, lon, dest_info["lat"], dest_info["lon"])
+        < PHASE_APPROACH_DIST_KM
+    ):
+        return "approach"
+    vrate = ac.get("vrate")
+    if vrate is not None:
+        if vrate > PHASE_CLIMB_VRATE:
+            return "climb"
+        if vrate < -PHASE_CLIMB_VRATE:
+            return "descent"
+    if alt is not None and alt > PHASE_CRUISE_ALT:
+        return "cruise"
+    return None
+
+
 EMERGENCY_SQUAWKS = {
     "7500": "hijack",
     "7600": "radio",

@@ -19,14 +19,16 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-from .aircraft import AircraftRegistry
+from .aircraft import AircraftRegistry, flight_phase
 from .aircraft_db import DEFAULT_REFRESH_URL, AircraftDB
+from .airlines_db import AirlinesDB
 from .airports_db import AirportsDB
 from .beast import iter_frames
 from .config import Config
 from .coverage import PolarCoverage
 from .flight_routes import AdsbdbClient
 from .heatmap import TrafficHeatmap
+from .metar import MetarClient
 from .persistence import load_state, save_state
 from .photos import PlanespottersClient
 
@@ -148,6 +150,7 @@ class Broadcaster:
 
 aircraft_db = AircraftDB()
 airports_db = AirportsDB()
+airlines_db = AirlinesDB()
 registry = AircraftRegistry(
     lat_ref=cfg.lat_ref,
     lon_ref=cfg.lon_ref,
@@ -285,6 +288,41 @@ def build_snapshot(now: float | None = None) -> dict:
         snap["airports"] = {
             code: info for code in referenced_airports if (info := _airport_info(code)) is not None
         }
+        # METAR enrichment: attach any cached METAR to each airport entry
+        # and kick a batch fetch for anything missing so the next tick
+        # has it. Batching means one HTTP call per snapshot that needs
+        # a refresh, not one per airport.
+        if metar.enabled and snap["airports"]:
+            uncached: list[str] = []
+            for code, info in snap["airports"].items():
+                known, data = metar.lookup_cached(code)
+                if known:
+                    info["metar"] = data
+                else:
+                    uncached.append(code)
+            if uncached:
+                _spawn_background(metar.lookup_many(uncached))
+    # Phase classification + airline enrichment run regardless of adsbdb:
+    # climb/cruise/descent only need altitude+vrate+on_ground, which are
+    # in the base snapshot. 'approach' and airline lookup unlock when
+    # their respective inputs are present.
+    airports_map = snap.get("airports") or {}
+    for ac in snap["aircraft"]:
+        dest_code = ac.get("destination")
+        dest_info = airports_map.get(dest_code) if dest_code else None
+        ac["phase"] = flight_phase(ac, dest_info)
+        airline = airlines_db.lookup_by_callsign(ac.get("callsign"))
+        if airline:
+            ac["operator_iata"] = airline.get("iata")
+            ac["operator_icao"] = airline.get("icao")
+            ac["operator_alliance"] = airline.get("alliance")
+            # Fall back to OpenFlights' name when adsbdb didn't supply one.
+            if not ac.get("operator") and airline.get("name"):
+                ac["operator"] = airline["name"]
+        else:
+            ac["operator_iata"] = None
+            ac["operator_icao"] = None
+            ac["operator_alliance"] = None
     return snap
 
 
@@ -342,6 +380,9 @@ planespotters = PlanespottersClient(
     cache_path=PHOTOS_CACHE_PATH,
     enabled=cfg.flight_routes_enabled,
 )
+
+METAR_CACHE_PATH = Path(cfg.jsonl_path).parent / "metar.json.gz" if cfg.jsonl_path else None
+metar = MetarClient(cache_path=METAR_CACHE_PATH, enabled=cfg.metar_enabled)
 
 COVERAGE_CACHE_PATH = Path(cfg.jsonl_path).parent / "coverage.json" if cfg.jsonl_path else None
 # Polar coverage uses the TRUE receiver coordinates (before RECEIVER_ANON_KM
@@ -423,6 +464,10 @@ async def lifespan(app: FastAPI):
         asyncio.to_thread(airports_db.load_first_available),
         name="airports_db_loader",
     )
+    airlines_task = asyncio.create_task(
+        asyncio.to_thread(airlines_db.load_first_available),
+        name="airlines_db_loader",
+    )
     consumer = asyncio.create_task(beast_consumer(), name="beast_consumer")
     pusher = asyncio.create_task(snapshot_pusher(), name="snapshot_pusher")
     persister = asyncio.create_task(state_persister(), name="state_persister")
@@ -430,13 +475,22 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        for t in (consumer, pusher, db_task, airports_task, persister, refresher):
+        for t in (
+            consumer,
+            pusher,
+            db_task,
+            airports_task,
+            airlines_task,
+            persister,
+            refresher,
+        ):
             t.cancel()
         await asyncio.gather(
             consumer,
             pusher,
             db_task,
             airports_task,
+            airlines_task,
             persister,
             refresher,
             return_exceptions=True,
@@ -449,7 +503,7 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 log.warning("final state save failed: %s", e)
         # Release pooled connections held by the HTTP clients.
-        for closer in (adsbdb.aclose(), planespotters.aclose()):
+        for closer in (adsbdb.aclose(), planespotters.aclose(), metar.aclose()):
             with contextlib.suppress(Exception):
                 await closer
         jsonl.close()

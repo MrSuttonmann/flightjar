@@ -50,6 +50,33 @@ network and get a lightweight map, log file, and simple API on top.
   API; no signup required). Routes render as `EGLL → KJFK` in the
   sidebar and as a full ticket (with airport names) in the detail panel.
   Lookups are cached server-side for 12h (routes) / 30 days (tails).
+- **Flight progress + ETA** — when a flight has a known route, the detail
+  panel shows a great-circle progress bar between origin and destination
+  along with a live ETA at the current groundspeed. Hidden automatically
+  when the aircraft is on the ground or too slow for the number to be
+  meaningful.
+- **At-a-glance flight state** — each aircraft is auto-classified into
+  `taxi` / `climb` / `cruise` / `descent` / `approach` based on its
+  vertical rate, altitude, and (when the route is known) distance to the
+  destination. The label appears as a coloured chip in the sidebar and
+  the detail panel. Heavies and Super-category aircraft (A380, B748 …)
+  also get a warmer accent on the category badge so you can scan by wake
+  class without reading the label.
+- **Signal strength indicator** — each sidebar row carries a small four-bar
+  reception quality indicator driven by the peak signal byte from the
+  BEAST feed, turning green for strong signals and red for faint ones.
+- **Airline IATA + alliance** — the airline row on each sidebar entry
+  carries the IATA code as a small monospace tag, and rows for the three
+  major alliances (Star, oneworld, SkyTeam) get a coloured left-border
+  accent. Backed by the [OpenFlights](https://openflights.org/data.html)
+  airline database baked into the image at build time; no runtime
+  network calls.
+- **METAR weather at origin / destination** — when a flight has a known
+  route, the detail panel surfaces a compact one-line METAR summary
+  (wind, visibility, cloud cover) for each end, with the raw METAR on
+  hover. Pulled live from the free
+  [aviationweather.gov](https://aviationweather.gov/) API and cached
+  server-side for 10 min. Disable with `METAR_WEATHER=0`.
 - **Airports overlay** — a toggle drops ~2,000 nearest airports onto the
   map as small markers (biggest first so wide views still show the
   majors). Sourced from the OurAirports public-domain database baked
@@ -292,6 +319,7 @@ It shows up next to "Flightjar" in the sidebar and in the browser tab title
 | `SNAPSHOT_INTERVAL`   | `1.0`               | How often the map refreshes, in seconds.                       |
 | `AIRCRAFT_DB_REFRESH_HOURS` | `0`           | Auto-refresh interval for the aircraft DB. `0` disables.       |
 | `FLIGHT_ROUTES`       | `1`                 | Enable origin/destination lookups via adsbdb.com. `0` disables.|
+| `METAR_WEATHER`       | `1`                 | Enable METAR lookups via aviationweather.gov. `0` disables.    |
 
 ## The log file
 

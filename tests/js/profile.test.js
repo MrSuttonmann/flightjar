@@ -4,11 +4,14 @@ import assert from 'node:assert/strict';
 import {
   CATEGORY_NAMES,
   LINK_ICON_SVG,
+  formatMetar,
   relativeAge,
   renderAltProfile,
   renderSpdProfile,
   renderTrailProfile,
+  signalBars,
   signalLabel,
+  wakeClass,
 } from '../../app/static/profile.js';
 
 // Minimal SVG-element stub: we only need something renderTrailProfile can
@@ -106,6 +109,116 @@ test('renderSpdProfile skips null speeds in the series', () => {
   ]);
   const lines = svg.innerHTML.match(/<line /g) || [];
   assert.equal(lines.length, 1);
+});
+
+test('wakeClass returns J for Super types', () => {
+  assert.equal(wakeClass('A388', 5), 'J');
+  assert.equal(wakeClass('B748', 4), 'J');
+  // Case-insensitive on the type code.
+  assert.equal(wakeClass('a225', 5), 'J');
+});
+
+test('wakeClass returns H for ADS-B category 4/5 (heavy / high-vortex)', () => {
+  assert.equal(wakeClass('B738', 5), 'H');
+  assert.equal(wakeClass(null, 4), 'H');
+});
+
+test('wakeClass returns L for ADS-B category 1 (light)', () => {
+  assert.equal(wakeClass('C172', 1), 'L');
+});
+
+test('wakeClass returns M for small/large/high-perf/rotorcraft', () => {
+  for (const cat of [2, 3, 6, 7]) {
+    assert.equal(wakeClass('X', cat), 'M');
+  }
+});
+
+test('wakeClass returns null when both inputs are missing', () => {
+  assert.equal(wakeClass(null, null), null);
+  assert.equal(wakeClass(undefined, undefined), null);
+});
+
+test('signalBars returns empty for missing / zero / negative byte', () => {
+  assert.equal(signalBars(null), '');
+  assert.equal(signalBars(undefined), '');
+  assert.equal(signalBars(0), '');
+  assert.equal(signalBars(-5), '');
+});
+
+test('signalBars produces a level between 1 and 4 with matching on-bars', () => {
+  // Quartiles: <64 = 1, <128 = 2, <192 = 3, >=192 = 4.
+  for (const [byte, expected] of [[30, 1], [100, 2], [160, 3], [240, 4]]) {
+    const html = signalBars(byte);
+    assert.match(html, new RegExp(`data-level="${expected}"`));
+    const onBars = (html.match(/class="bar on"/g) || []).length;
+    assert.equal(onBars, expected);
+  }
+});
+
+test('signalBars tooltip carries the dBFS label', () => {
+  const html = signalBars(255);
+  assert.match(html, /title="0\.0 dBFS"/);
+});
+
+test('formatMetar renders code + compact summary with raw in title', () => {
+  const html = formatMetar('EGLL', {
+    raw: 'EGLL 131950Z 25012KT 9999 BKN020 15/10 Q1015',
+    wind_dir: 250, wind_kt: 12, visibility: '10+', cover: 'BKN',
+  });
+  assert.match(html, /EGLL/);
+  assert.match(html, /250°\/12kt/);
+  assert.match(html, /10\+/);
+  assert.match(html, /BKN/);
+  // Raw METAR goes into the title attribute for the tooltip.
+  assert.match(html, /title="EGLL 131950Z/);
+});
+
+test('formatMetar pads wind direction to three digits', () => {
+  const html = formatMetar('KJFK', {
+    raw: 'KJFK ...',
+    wind_dir: 30, wind_kt: 8, visibility: null, cover: null,
+  });
+  assert.match(html, /030°\/8kt/);
+});
+
+test('formatMetar surfaces CALM for zero-zero winds', () => {
+  const html = formatMetar('EGLL', {
+    raw: 'EGLL ...', wind_dir: 0, wind_kt: 0, visibility: null, cover: 'CLR',
+  });
+  assert.match(html, /calm/);
+});
+
+test('formatMetar drops fragments that are missing data', () => {
+  // Only cover is present — the output shouldn't have the wind or vis
+  // separator glyphs hanging about.
+  const html = formatMetar('LFPG', {
+    raw: 'LFPG ...', wind_dir: null, wind_kt: null, visibility: null, cover: 'OVC',
+  });
+  assert.match(html, /LFPG/);
+  assert.match(html, /OVC/);
+  assert.doesNotMatch(html, /°\//);
+});
+
+test('formatMetar treats numeric visibility as metres', () => {
+  const html = formatMetar('EDDF', {
+    raw: 'EDDF ...', wind_dir: null, wind_kt: null, visibility: 8000, cover: null,
+  });
+  assert.match(html, /8000m/);
+});
+
+test('formatMetar escapes quotes in raw METAR for the title attribute', () => {
+  const html = formatMetar('TEST', {
+    raw: 'TEST "weird quotes" hand-edited',
+    wind_dir: null, wind_kt: null, visibility: null, cover: null,
+  });
+  // Raw-quote chars collapse to entities to keep the attribute valid.
+  assert.match(html, /title="TEST &quot;weird quotes&quot;/);
+});
+
+test('formatMetar returns empty string for missing inputs', () => {
+  assert.equal(formatMetar(null, null), '');
+  assert.equal(formatMetar('EGLL', null), '');
+  assert.equal(formatMetar(null, {}), '');
 });
 
 test('renderTrailProfile shows empty-state text when valid values < 2', () => {

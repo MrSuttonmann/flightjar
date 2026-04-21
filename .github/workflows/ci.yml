@@ -93,6 +93,8 @@ jobs:
             https://raw.githubusercontent.com/wiedehopf/tar1090-db/refs/heads/csv/aircraft.csv.gz
           curl -sSL -o app/airports.csv \
             https://raw.githubusercontent.com/davidmegginson/ourairports-data/main/airports.csv
+          curl -sSL -o app/airlines.dat \
+            https://raw.githubusercontent.com/jpatokal/openflights/master/data/airlines.dat
 
       - name: Playwright tests
         run: npm run test:e2e

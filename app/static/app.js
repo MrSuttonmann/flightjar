@@ -5,13 +5,17 @@ import { HIST_LEN, TREND_THRESHOLDS, pushHistory, trendInfo } from './trend.js';
 import {
   CATEGORY_NAMES,
   LINK_ICON_SVG,
+  formatMetar,
   relativeAge,
   renderAltProfile,
   renderSpdProfile,
+  signalBars,
   signalLabel,
+  wakeClass,
 } from './profile.js';
 import { initAirportTooltip } from './tooltip.js';
 import { createWatchlist } from './watchlist.js';
+import { flightProgress } from './geo.js';
 
 (() => {
   const map = L.map('map', { worldCopyJump: true, zoomControl: false })
@@ -339,6 +343,7 @@ import { createWatchlist } from './watchlist.js';
         `<div class="panel-badges">` +
           `<span class="pop-type-badge badge" hidden></span>` +
           `<span class="pop-cat-badge badge" hidden></span>` +
+          `<span class="pop-phase-badge badge" hidden></span>` +
         `</div>` +
       `</div>` +
       `<div class="panel-route pop-route-line" hidden>` +
@@ -353,6 +358,17 @@ import { createWatchlist } from './watchlist.js';
             `<div class="route-code pop-dest-code"></div>` +
             `<div class="route-name pop-dest-name"></div>` +
           `</div>` +
+        `</div>` +
+        `<div class="pop-progress" hidden>` +
+          `<div class="pop-progress-track"><div class="pop-progress-fill"></div></div>` +
+          `<div class="pop-progress-label">` +
+            `<span class="pop-progress-pct"></span>` +
+            `<span class="pop-progress-eta"></span>` +
+          `</div>` +
+        `</div>` +
+        `<div class="pop-wx" hidden>` +
+          `<div class="pop-wx-orig wx-cell" hidden></div>` +
+          `<div class="pop-wx-dest wx-cell" hidden></div>` +
         `</div>` +
       `</div>` +
       `<div class="panel-meta">` +
@@ -460,12 +476,24 @@ import { createWatchlist } from './watchlist.js';
     }
 
     // Operator + country (full name; flag lives in the header row).
+    // IATA tag carries the alliance accent (and tooltip) so the panel's
+    // left edge stays free for other semantic states in future.
     const opLine = q('.pop-op-line');
     const opParts = [];
     if (a.operator) opParts.push(a.operator);
     if (a.operator_country) opParts.push(a.operator_country);
     if (opParts.length) {
-      q('.pop-op').textContent = opParts.join(' · ');
+      const allianceTitle = {
+        star: 'Star Alliance', oneworld: 'oneworld', skyteam: 'SkyTeam',
+      }[a.operator_alliance] || '';
+      const tagCls = a.operator_alliance
+        ? `airline-tag alliance-${a.operator_alliance}`
+        : 'airline-tag';
+      const titleAttr = allianceTitle ? ` title="${allianceTitle}"` : '';
+      const tag = a.operator_iata
+        ? `<span class="${tagCls}"${titleAttr}>${escapeHtml(a.operator_iata)}</span> `
+        : '';
+      q('.pop-op').innerHTML = tag + escapeHtml(opParts.join(' · '));
       opLine.hidden = false;
     } else {
       opLine.hidden = true;
@@ -482,22 +510,83 @@ import { createWatchlist } from './watchlist.js';
     }
     const catBadge = q('.pop-cat-badge');
     const catName = CATEGORY_NAMES[a.category];
+    // Tint the badge by wake-turbulence class so heavies / supers read
+    // at a glance without having to parse the emitter-category label.
+    const wtc = wakeClass(a.type_icao, a.category);
+    catBadge.className =
+      'pop-cat-badge badge' + (wtc ? ` wtc-${wtc.toLowerCase()}` : '');
     if (catName) {
       catBadge.textContent = catName;
       catBadge.hidden = false;
     } else {
       catBadge.hidden = true;
     }
+    // Phase chip — same visual register as the sidebar's chip (uppercase
+    // UI font, coloured pill). Deliberately *not* sharing the .badge
+    // class used by type + category above, since phase is a state
+    // label rather than a code identifier.
+    const phaseBadge = q('.pop-phase-badge');
+    if (a.phase) {
+      phaseBadge.textContent = a.phase;
+      phaseBadge.className = `pop-phase-badge phase-chip phase-${a.phase}`;
+      phaseBadge.hidden = false;
+    } else {
+      phaseBadge.hidden = true;
+    }
 
     const routeLine = q('.pop-route-line');
     if (a.origin || a.destination) {
       const aports = airports || {};
-      const originName = a.origin && aports[a.origin]?.name || '';
-      const destName = a.destination && aports[a.destination]?.name || '';
+      const originEntry = a.origin ? aports[a.origin] : null;
+      const destEntry = a.destination ? aports[a.destination] : null;
       q('.pop-origin-code').textContent = a.origin || '—';
       q('.pop-dest-code').textContent = a.destination || '—';
-      q('.pop-origin-name').textContent = originName;
-      q('.pop-dest-name').textContent = destName;
+      q('.pop-origin-name').textContent = originEntry?.name || '';
+      q('.pop-dest-name').textContent = destEntry?.name || '';
+      // Progress bar + ETA: needs both airports' coords, the plane's
+      // current position, and a plausible groundspeed. Hidden otherwise
+      // (e.g. taxiing, slow, or one endpoint's coords missing).
+      const progress = a.on_ground ? null : flightProgress(
+        originEntry?.lat, originEntry?.lon,
+        destEntry?.lat, destEntry?.lon,
+        a.lat, a.lon, a.speed,
+      );
+      const progressEl = q('.pop-progress');
+      if (progress) {
+        q('.pop-progress-fill').style.width = `${(progress.pct * 100).toFixed(1)}%`;
+        q('.pop-progress-pct').textContent = `${Math.round(progress.pct * 100)}%`;
+        q('.pop-progress-eta').textContent = progress.etaMinutes < 60
+          ? `ETA ${progress.etaMinutes} min`
+          : `ETA ${Math.floor(progress.etaMinutes / 60)}h ${progress.etaMinutes % 60}m`;
+        progressEl.hidden = false;
+      } else {
+        progressEl.hidden = true;
+      }
+      // Weather blocks — cached METAR rides on each airport snapshot
+      // entry. Silent when METAR_WEATHER is off or no airport has a
+      // fresh cache hit yet.
+      const wxWrap = q('.pop-wx');
+      const origWx = originEntry?.metar;
+      const destWx = destEntry?.metar;
+      if (origWx || destWx) {
+        const origCell = q('.pop-wx-orig');
+        const destCell = q('.pop-wx-dest');
+        if (origWx && a.origin) {
+          origCell.innerHTML = formatMetar(a.origin, origWx);
+          origCell.hidden = false;
+        } else {
+          origCell.hidden = true;
+        }
+        if (destWx && a.destination) {
+          destCell.innerHTML = formatMetar(a.destination, destWx);
+          destCell.hidden = false;
+        } else {
+          destCell.hidden = true;
+        }
+        wxWrap.hidden = false;
+      } else {
+        wxWrap.hidden = true;
+      }
       routeLine.hidden = false;
     } else {
       routeLine.hidden = true;
@@ -1004,7 +1093,19 @@ import { createWatchlist } from './watchlist.js';
         : '';
       const subtitle = [a.registration, a.type_icao]
         .filter(Boolean).map(escapeHtml).join(' · ');
-      const airline = a.operator ? escapeHtml(a.operator) : '';
+      const allianceTitle = {
+        star: 'Star Alliance', oneworld: 'oneworld', skyteam: 'SkyTeam',
+      }[a.operator_alliance] || '';
+      const tagCls = a.operator_alliance
+        ? `airline-tag alliance-${a.operator_alliance}`
+        : 'airline-tag';
+      const titleAttr = allianceTitle ? ` title="${allianceTitle}"` : '';
+      const airlineTag = a.operator_iata
+        ? `<span class="${tagCls}"${titleAttr}>${escapeHtml(a.operator_iata)}</span> `
+        : '';
+      const airline = a.operator
+        ? `${airlineTag}${escapeHtml(a.operator)}`
+        : '';
       const route = routeLabel(a, snap.airports);
       const entry = aircraft.get(a.icao);
       const tAlt = trendInfo(entry, 'alt');
@@ -1016,11 +1117,16 @@ import { createWatchlist } from './watchlist.js';
       const flagTag = flag
         ? `<span class="flag" title="${escapeHtml(a.operator_country || a.country_iso)}">${flag}</span> `
         : '';
+      const sigBars = signalBars(a.signal_peak);
+      const phaseChip = a.phase
+        ? `<span class="phase-chip phase-${a.phase}">${a.phase}</span>`
+        : '';
       return `
       <div class="${classes}" data-icao="${icao}">
+        ${phaseChip}
         <div class="row1">
           <span class="cs">${flagTag}${callsign} ${emergencyBadge}</span>
-          <span class="icao">${subtitle || icao.toUpperCase()}</span>
+          <span class="icao">${sigBars}${subtitle || icao.toUpperCase()}</span>
         </div>
         ${airline ? `<div class="airline-row">${airline}</div>` : ''}
         ${route ? `<div class="route-row">${route}</div>` : ''}

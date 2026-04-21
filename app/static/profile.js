@@ -13,6 +13,41 @@ export const CATEGORY_NAMES = {
   5: 'Heavy', 6: 'High-performance', 7: 'Rotorcraft',
 };
 
+// ICAO types classified as Super (WTC "J") by regulators. The ADS-B
+// emitter category doesn't express Super separately, so this tiny
+// override set is the only way to distinguish A380s / B748s / An-225
+// from ordinary Heavies.
+export const WTC_SUPER = new Set(['A388', 'A38F', 'B748', 'B74R', 'A225']);
+
+// Derive wake-turbulence category from an aircraft's type and ADS-B
+// category. Returns one of 'L', 'M', 'H', 'J', or null when we have
+// neither input. Drives the category-badge colour cue in the detail
+// panel — heavier traffic gets a warmer accent so users can
+// scan-filter the wake class without reading the label.
+export function wakeClass(typeIcao, category) {
+  if (typeIcao && WTC_SUPER.has(typeIcao.toUpperCase())) return 'J';
+  if (category === 4 || category === 5) return 'H';
+  if (category === 1) return 'L';
+  if (category === 2 || category === 3 || category === 6 || category === 7) return 'M';
+  return null;
+}
+
+// Return an HTML <span> rendering a 4-step signal-strength indicator
+// from the BEAST signal byte (0-255). Empty string when the byte is
+// missing / zero. `signal_peak` is the per-aircraft max from the
+// backend, so this reads as "how strong was the best fix for this
+// tail" rather than a jittery per-tick value. Bars are CSS-styled.
+export function signalBars(byte) {
+  if (byte == null || byte <= 0) return '';
+  // Even quartiles of the byte range.
+  const level = byte >= 192 ? 4 : byte >= 128 ? 3 : byte >= 64 ? 2 : 1;
+  let bars = '';
+  for (let i = 1; i <= 4; i++) {
+    bars += `<span class="bar${i <= level ? ' on' : ''}"></span>`;
+  }
+  return `<span class="signal-bars" data-level="${level}" title="${signalLabel(byte)}">${bars}</span>`;
+}
+
 // Small "opens-in-new-tab" glyph baked into every external-tracker link.
 // currentColor so each button's link icon inherits its text tone.
 export const LINK_ICON_SVG =
@@ -102,4 +137,31 @@ export function relativeAge(t, now) {
   if (s < 60) return Math.round(s) + 's ago';
   if (s < 3600) return Math.round(s / 60) + 'm ago';
   return (s / 3600).toFixed(1) + 'h ago';
+}
+
+// Compact weather summary from a distilled METAR payload
+// ({ raw, wind_dir, wind_kt, visibility, cover, ... }).
+// Returns HTML: the airport code as a monospace tag, then space-separated
+// fragments ("250°/12kt", "10SM", "BKN"). Fragments that don't have data
+// drop out so a quiet METAR like "EGLL 0000Z CAVOK" reads as "EGLL ·
+// CAVOK" in practice. Hover tooltip carries the raw METAR string.
+export function formatMetar(code, m) {
+  if (!code || !m) return '';
+  const parts = [];
+  if (m.wind_dir != null && m.wind_kt != null) {
+    const dir = m.wind_dir === 0 && m.wind_kt === 0
+      ? 'calm'
+      : `${String(m.wind_dir).padStart(3, '0')}°/${m.wind_kt}kt`;
+    parts.push(dir);
+  }
+  if (m.visibility != null && m.visibility !== '') {
+    // Visibility is a number (metres, non-US) or string ("10+" for US).
+    const vis = typeof m.visibility === 'number' ? `${m.visibility}m` : `${m.visibility}`;
+    parts.push(vis);
+  }
+  if (m.cover) parts.push(m.cover);
+  const tag = `<span class="airline-tag">${code}</span>`;
+  const body = parts.length ? parts.join(' · ') : '—';
+  const title = m.raw ? ` title="${m.raw.replace(/"/g, '&quot;')}"` : '';
+  return `<span class="wx-line"${title}>${tag} ${body}</span>`;
 }

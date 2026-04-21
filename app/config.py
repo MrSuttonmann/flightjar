@@ -83,6 +83,12 @@ class Config:
     # calls entirely (offline / privacy-conscious deployments).
     flight_routes_enabled: bool = True
 
+    # METAR weather at origin/destination airports via aviationweather.gov
+    # (NOAA public-domain, no auth). On by default; set METAR_WEATHER=0
+    # to disable the outbound calls and suppress the weather block in the
+    # UI.
+    metar_enabled: bool = True
+
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "Config":
         import os
@@ -127,4 +133,5 @@ class Config:
             snapshot_interval=interval,
             aircraft_db_refresh_hours=refresh_hours,
             flight_routes_enabled=env_bool(env, "FLIGHT_ROUTES", "1"),
+            metar_enabled=env_bool(env, "METAR_WEATHER", "1"),
         )

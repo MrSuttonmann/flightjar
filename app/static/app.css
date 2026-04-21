@@ -322,7 +322,32 @@
                      letter-spacing: 0.5px; vertical-align: middle; }
   .range-label span { color: #5fa8ff; font-size: 10px; background: rgba(14,17,22,0.7);
                       padding: 0 3px; border-radius: 2px; white-space: nowrap; }
-  .ac-item .row1 { display: flex; justify-content: space-between; align-items: baseline; }
+  .ac-item .row1 { display: flex; justify-content: space-between; align-items: baseline;
+                   padding-right: 56px; }
+  /* Shared phase-chip base used on both the sidebar row and the detail
+     panel badges row. Keeping the typography identical across surfaces
+     (UI font, uppercase, weight 600) so a plane in "descent" reads the
+     same whether you scan the list or open the card. */
+  .phase-chip { display: inline-block;
+                font-size: 9px; padding: 1px 6px; border-radius: 10px;
+                text-transform: uppercase; letter-spacing: 0.5px;
+                font-weight: 600; }
+  /* Sidebar: floats in the vacant top-right where the age badge used
+     to sit so it doesn't push row1 around. */
+  .ac-item .phase-chip { position: absolute; top: 6px; right: 10px; }
+  /* Compact 4-bar signal-strength indicator. Sits to the left of the
+     sidebar subtitle so it's visible without pushing callsign around. */
+  .signal-bars { display: inline-flex; align-items: flex-end; gap: 1px;
+                 margin-right: 5px; height: 9px; vertical-align: -1px; }
+  .signal-bars .bar { display: inline-block; width: 2px;
+                      background: var(--border); border-radius: 1px; }
+  .signal-bars .bar:nth-child(1) { height: 2px; }
+  .signal-bars .bar:nth-child(2) { height: 4px; }
+  .signal-bars .bar:nth-child(3) { height: 6px; }
+  .signal-bars .bar:nth-child(4) { height: 8px; }
+  .signal-bars .bar.on { background: var(--muted); }
+  .signal-bars[data-level="4"] .bar.on { background: #6ee7b7; }
+  .signal-bars[data-level="1"] .bar.on { background: #fca5a5; }
   .ac-item .cs { font-family: ui-monospace, "SF Mono", Menlo, monospace;
                  font-weight: 600; font-size: 13px; }
   .ac-item .icao { font-family: ui-monospace, monospace; font-size: 10px;
@@ -337,6 +362,23 @@
                         font-variant-numeric: tabular-nums; margin-top: 2px;
                         white-space: nowrap; overflow: hidden;
                         text-overflow: ellipsis; }
+  /* Tiny IATA-code pill rendered before an airline name on both the
+     sidebar airline row and the detail panel operator line. Alliance
+     accent lives on the tag itself (not on the row border) so it
+     doesn't fight with the amber/red/blue borders that mean watched /
+     emergency / selected. Hover tooltip names the alliance. */
+  .airline-tag { display: inline-block; font-family: ui-monospace, monospace;
+                 font-size: 10px; font-weight: 600; letter-spacing: 0.4px;
+                 background: rgba(255, 255, 255, 0.08);
+                 color: var(--text);
+                 padding: 0 4px; border-radius: 3px;
+                 vertical-align: 1px; }
+  .airline-tag.alliance-star     { background: rgba(224, 168, 46, 0.22);
+                                   color: #f0c674; }
+  .airline-tag.alliance-oneworld { background: rgba(95, 168, 255, 0.22);
+                                   color: #9ec5ff; }
+  .airline-tag.alliance-skyteam  { background: rgba(225, 91, 97, 0.22);
+                                   color: #f4a3a7; }
   .trend { font-size: 10px; margin-left: 3px; display: inline-block; }
   .compass { display: inline-block; vertical-align: -2px; margin-left: 3px;
              opacity: 0.75; transform-origin: 50% 50%; }
@@ -524,6 +566,23 @@
     border: 1px solid var(--border); color: var(--muted);
     letter-spacing: 0.3px;
   }
+  /* Wake-turbulence tint on the category badge. L = grey (default-ish),
+     M = faint accent, H = amber, J = deep purple. Applied by wakeClass()
+     in static/profile.js. */
+  .badge.wtc-m { background: rgba(93, 168, 255, 0.10); color: #a5c9ff;
+                 border-color: rgba(93, 168, 255, 0.35); }
+  .badge.wtc-h { background: rgba(245, 158, 11, 0.13); color: #fbbf24;
+                 border-color: rgba(245, 158, 11, 0.40); }
+  .badge.wtc-j { background: rgba(167, 139, 250, 0.15); color: #c4b5fd;
+                 border-color: rgba(167, 139, 250, 0.45); }
+  /* Flight-phase colouring. Climb green, descent amber, approach red-ish,
+     cruise neutral, taxi muted. Used on both the detail-panel badge and
+     the sidebar corner chip. */
+  .phase-taxi     { background: rgba(148, 163, 184, 0.14); color: #cbd5e1; }
+  .phase-climb    { background: rgba(110, 231, 183, 0.15); color: #6ee7b7; }
+  .phase-cruise   { background: rgba(93, 168, 255, 0.13);  color: #a5c9ff; }
+  .phase-descent  { background: rgba(251, 191, 36, 0.13);  color: #fbbf24; }
+  .phase-approach { background: rgba(248, 113, 113, 0.17); color: #fca5a5; }
   .pop-ground {
     font-size: 9px; padding: 1px 5px; border-radius: 3px;
     background: #374151; color: #e5e7eb; letter-spacing: 0.5px;
@@ -562,6 +621,31 @@
   .route-ticket .route-arrow { color: var(--muted); font-size: 16px;
                                padding: 0 4px; align-self: start;
                                padding-top: 2px; }
+
+  /* Flight progress bar sits under the route ticket. The track + fill
+     render a percentage of great-circle distance flown; the right-aligned
+     label shows current pct and ETA at the last known groundspeed.
+     Hidden entirely when speed/coords aren't sufficient to be meaningful
+     (on-ground, slow, airport coords missing — see flightProgress() in
+     static/geo.js). */
+  .pop-progress { margin-top: 8px; }
+  .pop-progress-track { position: relative; height: 3px; background: var(--border);
+                        border-radius: 2px; overflow: hidden; }
+  .pop-progress-fill { position: absolute; top: 0; left: 0; height: 100%;
+                       background: var(--accent); border-radius: 2px;
+                       transition: width 0.5s ease; }
+  .pop-progress-label { display: flex; justify-content: space-between;
+                        font-size: 10px; color: var(--muted);
+                        margin-top: 3px; font-variant-numeric: tabular-nums; }
+
+  /* Weather block under the route ticket — one line per end. The raw
+     METAR is in each line's title attribute so hovering a cell reveals
+     the unparsed string. */
+  .pop-wx { display: flex; flex-direction: column; gap: 3px; margin-top: 8px;
+            font-size: 11px; color: var(--muted); }
+  .pop-wx .wx-cell[hidden] { display: none; }
+  .pop-wx .wx-line { display: inline-flex; gap: 5px; align-items: baseline;
+                     font-variant-numeric: tabular-nums; cursor: help; }
 
   .panel-meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
   .panel-meta .metric { background: rgba(255, 255, 255, 0.03);

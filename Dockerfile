@@ -35,6 +35,13 @@ ARG AIRPORTS_DB_URL=https://raw.githubusercontent.com/davidmegginson/ourairports
 RUN echo "data fetch ${DATA_CACHEBUST}" \
  && python -c "import urllib.request; urllib.request.urlretrieve('${AIRPORTS_DB_URL}', '/build/airports.csv')"
 
+# OpenFlights airline database (ODbL). Drives the IATA tag + alliance
+# accent on the sidebar airline row. ~6k rows; we filter to active
+# carriers at load time so defunct airlines don't bleed into the UI.
+ARG AIRLINES_DB_URL=https://raw.githubusercontent.com/jpatokal/openflights/master/data/airlines.dat
+RUN echo "data fetch ${DATA_CACHEBUST}" \
+ && python -c "import urllib.request; urllib.request.urlretrieve('${AIRLINES_DB_URL}', '/build/airlines.dat')"
+
 COPY app /build/app
 COPY scripts/fetch_plane_shapes.py /build/scripts/fetch_plane_shapes.py
 RUN echo "data fetch ${DATA_CACHEBUST}" \
@@ -71,6 +78,7 @@ COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /build/app /app/app
 COPY --from=builder /build/aircraft_db.csv.gz /app/app/aircraft_db.csv.gz
 COPY --from=builder /build/airports.csv /app/app/airports.csv
+COPY --from=builder /build/airlines.dat /app/app/airlines.dat
 
 VOLUME ["/data"]
 EXPOSE 8080
