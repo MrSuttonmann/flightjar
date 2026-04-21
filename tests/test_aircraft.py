@@ -259,6 +259,40 @@ def test_trail_flags_gap_after_signal_silence():
     assert trail[-1][4] is False  # close follow-up, no gap
 
 
+def test_teleport_guard_rejects_implausible_displacement():
+    """Fixes that imply the plane covered more ground than a fast jet
+    could in the elapsed time get dropped. The stored position stays
+    at the previous real fix so the next fix still has a sane
+    reference to compare against."""
+
+    # Two decoders that return very different positions — AP01 always
+    # returns (52.1, -1.1); TELE returns (55.0, 3.0) which is ~350 km
+    # away. That's well above the ~5 km budget for a 1 s gap
+    # (elapsed * 0.5 km/s or a 10 km floor, whichever is larger).
+    def mixed_decode(msg, **kw):
+        if "reference" in kw or "surface_ref" in kw:
+            if msg.startswith("TELE"):
+                return {"latitude": 55.0, "longitude": 3.0}
+            return {"latitude": 52.1, "longitude": -1.1}
+        base = {
+            "df": 17,
+            "crc_valid": True,
+            "icao": "abc123",
+            "typecode": 11,
+            "altitude": 35000,
+            "cpr_format": 0,
+        }
+        return base
+
+    with patch("app.aircraft.pms.decode", side_effect=mixed_decode):
+        reg = AircraftRegistry(lat_ref=52.0, lon_ref=-1.0)
+        reg.ingest("AP01aaaa", now=100.0)
+        reg.ingest("TELEbbbb", now=101.0)  # ~350 km jump in 1 s → dropped
+    ac = reg.aircraft["abc123"]
+    assert ac.lat == 52.1  # stayed on the last accepted fix
+    assert ac.lon == -1.1
+
+
 def test_snapshot_exposes_both_altitude_fields():
     with patch("app.aircraft.pms.decode", side_effect=fake_decode):
         reg = AircraftRegistry(lat_ref=52.0, lon_ref=-1.0)
@@ -345,11 +379,14 @@ def test_dead_reckon_resume_clears_trail_on_large_correction():
     from app.aircraft import Aircraft, AircraftRegistry
 
     # Custom decoder: AP01 bytes resolve to (52.0, -1.0); AP02 bytes to
-    # (52.2, -0.9). Both through the reference-based local decode path.
+    # (52.08, -1.0). The second fix is ~9 km north of the first — within
+    # the teleport guard's 25 s * 0.5 km/s = 12.5 km budget — but more
+    # than DEAD_RECKON_RESUME_RESET_KM (5 km) off the eastward
+    # extrapolation, so the correction trips a trail clear.
     def mixed_decode(msg, **kw):
         if "reference" in kw or "surface_ref" in kw:
             if msg.startswith("AP02"):
-                return {"latitude": 52.2, "longitude": -0.9}
+                return {"latitude": 52.08, "longitude": -1.0}
             return {"latitude": 52.0, "longitude": -1.0}
         base = {
             "df": 17,
@@ -376,14 +413,14 @@ def test_dead_reckon_resume_clears_trail_on_large_correction():
         reg.aircraft["abc123"].speed = 480.0
         reg.aircraft["abc123"].track = 90.0
         assert len(reg.aircraft["abc123"].trail) == 1
-        # 20 s later, the plane actually turned north (AP02 resolves far
-        # from where eastward extrapolation would have placed it).
-        reg.ingest("AP02bbbb", now=120.0)
+        # 25 s later, the plane actually turned north (AP02 resolves
+        # meaningfully off the eastward dead-reckon track).
+        reg.ingest("AP02bbbb", now=125.0)
     ac = reg.aircraft["abc123"]
     # Big correction detected — trail cleared and restarted at the new fix.
     assert len(ac.trail) == 1
-    assert ac.trail[-1][0] == 52.2
-    assert ac.trail[-1][1] == -0.9
+    assert ac.trail[-1][0] == 52.08
+    assert ac.trail[-1][1] == -1.0
 
 
 def test_dead_reckon_skipped_on_ground():

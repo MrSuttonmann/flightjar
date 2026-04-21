@@ -349,14 +349,23 @@ class AircraftRegistry:
         if not (-90 <= new_lat <= 90 and -180 <= new_lon <= 180):
             return
 
-        # Sanity check: reject teleports (>500 nm from previous fix)
-        if ac.lat is not None:
-            dlat = abs(new_lat - ac.lat)
-            dlon = abs(new_lon - ac.lon)
-            if dlat > 8 or dlon > 8:
+        # Teleport guard: a plane can't physically cover more than a few
+        # hundred m/s, so scale the allowed displacement by the time since
+        # the last fix. 500 m/s (~1800 km/h) comfortably covers commercial
+        # maxima plus tailwind and gives CPR decode noise some slack; a
+        # 10 km floor handles zero-elapsed bursts where the "elapsed *
+        # speed" term would be misleadingly tiny.
+        if ac.lat is not None and ac.lon is not None:
+            dist_km = _approx_distance_km(ac.lat, ac.lon, new_lat, new_lon)
+            elapsed_s = (now - ac.last_position_time) if ac.last_position_time > 0 else 0
+            max_plausible_km = max(10.0, elapsed_s * 0.5)
+            if dist_km > max_plausible_km:
                 log.debug(
-                    "rejecting teleport %s: %.3f,%.3f -> %.3f,%.3f",
+                    "rejecting teleport %s: %.1f km in %.1fs (max %.1f): %.3f,%.3f -> %.3f,%.3f",
                     ac.icao,
+                    dist_km,
+                    elapsed_s,
+                    max_plausible_km,
                     ac.lat,
                     ac.lon,
                     new_lat,
