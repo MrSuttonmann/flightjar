@@ -683,12 +683,27 @@ import { createWatchlist } from './watchlist.js';
       for (let i = 1; i < points.length; i++) {
         const p0 = points[i - 1];
         const p1 = points[i];
+        const opacity = 0.65 + 0.3 * (i / points.length);
+        // p1[4] === true means the segment from p0 to p1 spanned a
+        // signal-lost gap on the server — render it as the same
+        // dashed near-black line the live dead-reckoning tip uses,
+        // so history distinguishes observed flight from inferred.
+        if (p1[4]) {
+          L.polyline([[p0[0], p0[1]], [p1[0], p1[1]]], {
+            renderer: trailsCanvas,
+            color: '#0b0e14',
+            weight: 2,
+            opacity,
+            dashArray: '2 4',
+            lineCap: 'round',
+            smoothFactor: 0,
+            interactive: false,
+          }).addTo(entry.trail);
+          continue;
+        }
         // Colour by the later point's altitude (falls back to earlier point).
         const alt = p1[2] != null ? p1[2] : p0[2];
         const color = altColor(alt);
-        // Fade older segments, but keep a high floor so the whole trail
-        // stays legible against busy base tiles.
-        const opacity = 0.65 + 0.3 * (i / points.length);
         L.polyline([[p0[0], p0[1]], [p1[0], p1[1]]], {
           renderer: trailsCanvas,
           color,

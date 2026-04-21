@@ -33,6 +33,12 @@ PERSIST_MAX_AGE = 600.0  # restored aircraft older than this are discarded
 # This avoids the "plane snaps back to the last real position" effect
 # that a bounded window produced.
 DEAD_RECKON_MIN_AGE = 1.5
+# Threshold for marking a trail segment as "signal lost". Lower than the
+# dead-reckoning min-age deliberately: normal ADS-B reception is bursty,
+# with routine 2-5 s gaps between position broadcasts. Only genuine
+# reception drops (≥10 s of silence) should leave the dashed-black
+# marker in the history; otherwise nearly every segment ends up dashed.
+SIGNAL_LOST_MIN_AGE = 10.0
 # When a real fix resumes after dead-reckoning and it's more than this far
 # from where we'd extrapolated to, treat the extrapolation as misleading:
 # clear the trail so the next coloured segment starts from the new fix
@@ -358,42 +364,62 @@ class AircraftRegistry:
                 )
                 return
 
+        # How long we've been without a real position for this aircraft.
+        elapsed_since_pos = (now - ac.last_position_time) if ac.last_position_time > 0 else 0
+        # Trail segment flag: "segment from prev to this one spanned a
+        # signal-lost period". Uses SIGNAL_LOST_MIN_AGE (10 s) so routine
+        # 2-5 s gaps between ADS-B bursts don't end up dashing most of
+        # the trail — only genuine reception drops stay marked.
+        gap_from_prev = (
+            not surface and ac.last_position_time > 0 and elapsed_since_pos > SIGNAL_LOST_MIN_AGE
+        )
+
         # Dead-reckoning correction check: if the plane went silent long
-        # enough that the frontend had been extrapolating, compare the new
-        # fix to where extrapolation would have placed it. A big delta
-        # (turn during the gap, missed altitude change, etc.) means the
-        # straight-line dashed dead-reckoning line was misleading — clear
-        # the trail so the next coloured segment starts from this fix
-        # instead of drawing a long diagonal across the gap.
+        # enough that the frontend had been extrapolating (> MIN_AGE),
+        # compare the new fix to where extrapolation would have placed
+        # it. A big delta (turn during the gap, missed altitude change,
+        # etc.) means the straight-line dashed dead-reckoning line was
+        # misleading — clear the trail so the next coloured segment
+        # starts from this fix rather than drawing a long diagonal
+        # across the gap.
         if (
             not surface
+            and elapsed_since_pos > DEAD_RECKON_MIN_AGE
             and ac.lat is not None
             and ac.lon is not None
-            and ac.last_position_time > 0
             and ac.speed is not None
             and ac.track is not None
         ):
-            elapsed = now - ac.last_position_time
-            if elapsed > DEAD_RECKON_MIN_AGE:
-                pred_lat, pred_lon = _dead_reckon(ac.lat, ac.lon, ac.track, ac.speed, elapsed)
-                error_km = _approx_distance_km(pred_lat, pred_lon, new_lat, new_lon)
-                if error_km > DEAD_RECKON_RESUME_RESET_KM:
-                    log.info(
-                        "dead-reckon miss %s: %.1f km off after %.1fs — clearing trail",
-                        ac.icao,
-                        error_km,
-                        elapsed,
-                    )
-                    ac.trail.clear()
+            pred_lat, pred_lon = _dead_reckon(ac.lat, ac.lon, ac.track, ac.speed, elapsed_since_pos)
+            error_km = _approx_distance_km(pred_lat, pred_lon, new_lat, new_lon)
+            if error_km > DEAD_RECKON_RESUME_RESET_KM:
+                log.info(
+                    "dead-reckon miss %s: %.1f km off after %.1fs — clearing trail",
+                    ac.icao,
+                    error_km,
+                    elapsed_since_pos,
+                )
+                ac.trail.clear()
 
         ac.lat = new_lat
         ac.lon = new_lon
         ac.last_position_time = now
-        # Trail point shape: (lat, lon, altitude, speed, timestamp). Speed
-        # lets the frontend draw a speed sparkline alongside the altitude
-        # one; we snapshot ac.speed at the time of the position fix so
-        # the two traces are always time-aligned.
-        ac.trail.append((round(new_lat, 5), round(new_lon, 5), ac.altitude, ac.speed, now))
+        # Trail point shape: (lat, lon, altitude, speed, timestamp, gap).
+        # `gap` flags that the segment from the previous trail point to
+        # this one spanned a signal-lost period (> DEAD_RECKON_MIN_AGE
+        # between real fixes); the frontend renders those segments as
+        # dashed black rather than altitude-coloured so the history
+        # visibly distinguishes observed flight from inferred flight.
+        ac.trail.append(
+            (
+                round(new_lat, 5),
+                round(new_lon, 5),
+                ac.altitude,
+                ac.speed,
+                now,
+                gap_from_prev,
+            )
+        )
 
     # -------- persistence --------
 
@@ -451,13 +477,18 @@ class AircraftRegistry:
                     if f in entry and f != "icao":
                         setattr(ac, f, entry[f])
                 for p in entry.get("trail") or []:
-                    # Accept both old 4-tuple (lat,lon,alt,ts) and new 5-tuple
-                    # (lat,lon,alt,spd,ts) persisted states so a post-upgrade
-                    # restart doesn't drop history.
-                    if len(p) >= 5:
-                        ac.trail.append(tuple(p[:5]))
+                    # Trail tuples have grown over releases. Accept each
+                    # older shape and pad to the current 6-tuple
+                    # (lat, lon, alt, speed, ts, gap) so a post-upgrade
+                    # restart doesn't drop history. gap defaults to
+                    # False for older points — they're rendered as
+                    # normal altitude-coloured segments.
+                    if len(p) >= 6:
+                        ac.trail.append(tuple(p[:6]))
+                    elif len(p) == 5:
+                        ac.trail.append((p[0], p[1], p[2], p[3], p[4], False))
                     elif len(p) == 4:
-                        ac.trail.append((p[0], p[1], p[2], None, p[3]))
+                        ac.trail.append((p[0], p[1], p[2], None, p[3], False))
                 self.aircraft[icao] = ac
                 loaded += 1
             except Exception as e:
@@ -543,7 +574,9 @@ class AircraftRegistry:
                     "signal_peak": ac.signal_peak,
                     "msg_count": ac.msg_count,
                     "distance_km": distance_km,
-                    "trail": [[lat, lon, alt, spd] for lat, lon, alt, spd, _ in ac.trail],
+                    "trail": [
+                        [lat, lon, alt, spd, bool(gap)] for lat, lon, alt, spd, _ts, gap in ac.trail
+                    ],
                 }
             )
         # Newest first

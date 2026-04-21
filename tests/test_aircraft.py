@@ -224,10 +224,39 @@ def test_trail_points_include_altitude():
     trail = snap["aircraft"][0]["trail"]
     assert len(trail) >= 1
     for pt in trail:
-        # Trail points carry lat/lon/alt/speed — the frontend renders a
-        # speed sparkline alongside the altitude one.
-        assert len(pt) == 4
+        # Trail points carry lat/lon/alt/speed/gap — the frontend
+        # renders a speed sparkline alongside the altitude one, and
+        # uses the gap flag to keep signal-lost segments dashed.
+        assert len(pt) == 5
         assert pt[2] == 37000
+        # Two consecutive fixes 1 s apart — no gap flag expected.
+        assert pt[4] is False
+
+
+def test_trail_flags_gap_after_signal_silence():
+    """A new position fix more than SIGNAL_LOST_MIN_AGE after the
+    previous one flags the just-appended trail point as gap=True so the
+    frontend keeps that segment dashed (signal-lost). Routine 2-5 s
+    bursts between position broadcasts don't trip the flag — otherwise
+    nearly every segment would end up dashed."""
+    with patch("app.aircraft.pms.decode", side_effect=fake_decode):
+        reg = AircraftRegistry(lat_ref=52.0, lon_ref=-1.0)
+        # First fix: no prior history → gap False.
+        reg.ingest("AP01aaaa", now=100.0)
+        # Second fix 3 s later: routine bursty reception, not a
+        # "signal lost" gap — flag stays False.
+        reg.ingest("AP01bbbb", now=103.0)
+        # Third fix 15 s later: genuine reception drop, flag is True.
+        reg.ingest("AP01cccc", now=118.0)
+        # Fourth fix 2 s later: close follow-up, no gap.
+        reg.ingest("AP01dddd", now=120.0)
+    snap = reg.snapshot(now=120.1)
+    trail = snap["aircraft"][0]["trail"]
+    assert len(trail) >= 4
+    assert trail[-4][4] is False  # first point — no prior fix
+    assert trail[-3][4] is False  # routine 3 s burst, no gap flag
+    assert trail[-2][4] is True  # came in after a 15 s silence
+    assert trail[-1][4] is False  # close follow-up, no gap
 
 
 def test_snapshot_exposes_both_altitude_fields():
