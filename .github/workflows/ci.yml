@@ -44,13 +44,59 @@ jobs:
       - name: Node tests (frontend modules)
         run: node --test tests/js/
 
+  e2e:
+    # Playwright smoke suite against the real FastAPI backend in its
+    # no-BEAST harness mode (see playwright.config.js webServer env).
+    # Runs in parallel with `check`; `publish` gates on this one too
+    # so a broken UI also blocks the image push.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install Playwright + Chromium
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Stage auto-generated assets
+        # Neither the aircraft CSV nor the tar1090 silhouettes are
+        # committed; fetch them so the app serves a complete page.
+        run: |
+          python scripts/fetch_plane_shapes.py
+          curl -sSL -o app/aircraft_db.csv.gz \
+            https://raw.githubusercontent.com/wiedehopf/tar1090-db/refs/heads/csv/aircraft.csv.gz
+          curl -sSL -o app/airports.csv \
+            https://raw.githubusercontent.com/davidmegginson/ourairports-data/main/airports.csv
+
+      - name: Playwright tests
+        run: npm run test:e2e
+
+      - name: Upload report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
   publish:
     # Only build + push the Docker image when:
     #   - pushing to main (continuous deployment of :latest + git-<sha>),
     #   - pushing a v* tag (pinned release like v1.2.3),
     #   - or manually triggered (workflow_dispatch, with an optional extra tag).
-    # Pull-request builds stop at `check` — they never touch Docker Hub.
-    needs: check
+    # Pull-request builds stop at check + e2e — they never touch Docker Hub.
+    needs: [check, e2e]
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'push' &&

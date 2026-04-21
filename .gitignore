@@ -18,6 +18,14 @@ venv/
 
 # Node (only used for dev; no runtime deps)
 node_modules/
+package-lock.json
+
+# Playwright artefacts: browser binaries live in ~/.cache, but test
+# traces / screenshots / reports land next to the repo.
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
 
 # Local docker-compose overrides (user-specific ports, coords, SITE_NAME, ...)
 docker-compose.override.yml
