@@ -478,8 +478,7 @@
                      letter-spacing: 0.5px; vertical-align: middle; }
   .range-label span { color: #5fa8ff; font-size: 10px; background: rgba(14,17,22,0.7);
                       padding: 0 3px; border-radius: 2px; white-space: nowrap; }
-  .ac-item .row1 { display: flex; justify-content: space-between; align-items: baseline;
-                   padding-right: 56px; }
+  .ac-item .row1 { display: flex; justify-content: space-between; align-items: baseline; }
   /* Shared phase-chip base used on both the sidebar row and the detail
      panel badges row. Keeping the typography identical across surfaces
      (UI font, uppercase, weight 600) so a plane in "descent" reads the
@@ -487,10 +486,7 @@
   .phase-chip { display: inline-block;
                 font-size: 9px; padding: 1px 6px; border-radius: 10px;
                 text-transform: uppercase; letter-spacing: 0.5px;
-                font-weight: 600; }
-  /* Sidebar: floats in the vacant top-right where the age badge used
-     to sit so it doesn't push row1 around. */
-  .ac-item .phase-chip { position: absolute; top: 6px; right: 10px; }
+                font-weight: 600; vertical-align: 1px; }
   /* Compact 4-bar signal-strength indicator. Sits to the left of the
      sidebar subtitle so it's visible without pushing callsign around. */
   .signal-bars { display: inline-flex; align-items: flex-end; gap: 1px;
@@ -884,6 +880,10 @@
     border: 1px solid rgba(164, 180, 204, 0.35);
     vertical-align: middle; margin-left: 4px;
   }
+  /* The explicit inline-block above beats the browser's default
+     [hidden] { display: none } rule, so we need to reassert it
+     or the detail-panel chip renders even for civilian tails. */
+  .mil-chip[hidden] { display: none; }
   .pop-notable {
     font-size: 10px; padding: 1px 6px; border-radius: 10px;
     background: rgba(167, 139, 250, 0.18); color: #c4b5fd;

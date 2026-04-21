@@ -1366,9 +1366,8 @@ import { isNotable, militaryLabel } from './notable_aircraft.js';
         : '';
       return `
       <div class="${classes}" data-icao="${icao}">
-        ${phaseChip}
         <div class="row1">
-          <span class="cs">${flagTag}${notableTag}${firstOfDayTag}${callsign} ${emergencyBadge} ${milChip}</span>
+          <span class="cs">${flagTag}${notableTag}${firstOfDayTag}${callsign} ${emergencyBadge} ${milChip} ${phaseChip}</span>
           <span class="icao">${sigBars}${subtitle || icao.toUpperCase()}</span>
         </div>
         ${airline ? `<div class="airline-row">${airline}</div>` : ''}
@@ -1474,7 +1473,14 @@ import { isNotable, militaryLabel } from './notable_aircraft.js';
   // lets snapshot-tick updates mutate in place via updatePopupContent.
   function openDetailPanel(icao) {
     const entry = aircraft.get(icao);
-    const a = entry?.data;
+    // Fall back to the current snapshot when we have no client entry.
+    // That's the case for sidebar-visible planes that we skipped
+    // creating a map marker for (no position, or position but no
+    // track) — previously the panel refused to open for them.
+    let a = entry?.data;
+    if (!a && lastSnap) {
+      a = lastSnap.aircraft.find((ac) => ac.icao === icao);
+    }
     if (!a) return;
     selectedIcao = icao;
     writeDeepLink(icao);
@@ -1483,9 +1489,12 @@ import { isNotable, militaryLabel } from './notable_aircraft.js';
     detailContentHost.appendChild(detailPanelContent);
     detailPanelEl.classList.add('open');
     appEl.classList.add('panel-open');
-    entry.marker.setIcon(
-      planeIcon(a.track, altColor(a.altitude), true, !!a.emergency, a.type_icao),
-    );
+    // Marker-state ops only when we have one to mutate.
+    if (entry) {
+      entry.marker.setIcon(
+        planeIcon(a.track, altColor(a.altitude), true, !!a.emergency, a.type_icao),
+      );
+    }
     document.querySelectorAll('.ac-item').forEach(el => {
       el.classList.toggle('selected', el.dataset.icao === icao);
     });
