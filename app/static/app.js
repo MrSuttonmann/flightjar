@@ -618,17 +618,56 @@ import { createWatchlist } from './watchlist.js';
   // since it has no dependencies on anything else here.
   initAirportTooltip();
 
+  // Merge the server's latest sliding-window trail into the entry's
+  // unbounded client-side buffer. Server trails cap at TRAIL_MAX_POINTS
+  // (300 server-side), so its last point will already be in our buffer
+  // most ticks — we find the overlap by lat/lon and append only the new
+  // tail points. If there's no overlap at all (a very long gap, or
+  // first sighting), we take the whole server trail.
+  function mergeClientTrail(entry, incoming) {
+    if (!Array.isArray(incoming) || incoming.length === 0) return;
+    if (entry.clientTrail.length === 0) {
+      entry.clientTrail = incoming.slice();
+      return;
+    }
+    const last = entry.clientTrail[entry.clientTrail.length - 1];
+    for (let i = incoming.length - 1; i >= 0; i--) {
+      if (incoming[i][0] === last[0] && incoming[i][1] === last[1]) {
+        if (i + 1 < incoming.length) {
+          entry.clientTrail.push(...incoming.slice(i + 1));
+        }
+        return;
+      }
+    }
+    // No overlap — server window has rotated past our tail. Append all.
+    entry.clientTrail.push(...incoming);
+  }
+
+  // Trails have three display modes, driven by showTrails + selectedIcao:
+  //   1. Trails off  → no trails rendered anywhere.
+  //   2. Trails on, no selection → every aircraft shows the server's
+  //      rolling 300-point trail (entry.data.trail).
+  //   3. Trails on, a plane selected → only that plane's trail is
+  //      visible, drawn from its full client-side history
+  //      (entry.clientTrail). Other planes' trails clear.
   function applyTrailsVisibility() {
-    for (const entry of aircraft.values()) {
-      if (showTrails) {
-        const a = entry.data;
-        const drTo = a.position_stale && a.lat != null && a.lon != null
-          ? [a.lat, a.lon] : null;
-        rebuildTrail(entry, a.trail, drTo);
-      } else {
+    for (const [icao, entry] of aircraft) {
+      if (!showTrails) {
         entry.trail.clearLayers();
         entry.trailFp = null;
+        continue;
       }
+      if (selectedIcao && selectedIcao !== icao) {
+        // A different plane is in focus — hide this one's trail.
+        entry.trail.clearLayers();
+        entry.trailFp = null;
+        continue;
+      }
+      const a = entry.data;
+      const source = selectedIcao === icao ? entry.clientTrail : a.trail;
+      const drTo = a.position_stale && a.lat != null && a.lon != null
+        ? [a.lat, a.lon] : null;
+      rebuildTrail(entry, source, drTo);
     }
     syncOverlay(trailsProxy, showTrails);
   }
@@ -782,6 +821,12 @@ import { createWatchlist } from './watchlist.js';
         marker.on('mouseout',  () => peekListItem(a.icao, false));
         entry = {
           marker, trail, label: null, data: a, trailFp: null,
+          // Full-session trail accumulated across every snapshot for
+          // this aircraft since we first saw it. Used instead of the
+          // server's sliding 300-point window when this plane is the
+          // selected one (the user wants to see its whole path back to
+          // first contact).
+          clientTrail: [],
           hist: { alt: [], spd: [], dst: [] },
         };
         aircraft.set(a.icao, entry);
@@ -795,14 +840,9 @@ import { createWatchlist } from './watchlist.js';
         hoverHalo.setLatLng([a.lat, a.lon]);
       }
 
-      if (showTrails) {
-        const drTo = a.position_stale && a.lat != null && a.lon != null
-          ? [a.lat, a.lon] : null;
-        rebuildTrail(entry, a.trail, drTo);
-      } else if (entry.trailFp != null) {
-        entry.trail.clearLayers();
-        entry.trailFp = null;
-      }
+      // Merge the incoming sliding-window trail into our unbounded
+      // client-side buffer so the selected-plane view has full history.
+      mergeClientTrail(entry, a.trail);
       if (a.icao === selectedIcao && detailPanelContent) {
         updatePopupContent(detailPanelContent, a, snap.now, snap.airports);
       }
@@ -811,6 +851,12 @@ import { createWatchlist } from './watchlist.js';
       pushHistory(entry, a);
       updateLabelFor(entry);
     }
+
+    // Single pass across all aircraft now that each has its fresh
+    // snapshot data merged — applyTrailsVisibility picks which source
+    // to render from (server window vs full client history) and
+    // respects the current selection + Trails toggle state.
+    applyTrailsVisibility();
 
     // Keep the selected aircraft centred when "Follow" is on. Cheap pan
     // (no animation) so busy skies don't feel jumpy.
@@ -1095,6 +1141,8 @@ import { createWatchlist } from './watchlist.js';
     });
     fillAircraftPhoto(icao);
     applyWatchStateToPanel();
+    // Trails visibility depends on which plane is selected — re-apply.
+    applyTrailsVisibility();
     // Follow the selected aircraft automatically while its panel is open.
     // The user can still toggle Follow off manually to regain free panning.
     followSelected = true;
@@ -1137,6 +1185,8 @@ import { createWatchlist } from './watchlist.js';
     document.querySelectorAll('.ac-item').forEach(el => {
       if (el.dataset.icao === icao) el.classList.remove('selected');
     });
+    // No more focus → flip trails back to "show every plane's window".
+    applyTrailsVisibility();
     followSelected = false;
     applyFollowState();
   }
