@@ -132,14 +132,16 @@ class Broadcaster:
     async def broadcast(self, payload: str):
         if not self.clients:
             return
-        dead = []
-        for ws in list(self.clients):
-            try:
-                await ws.send_text(payload)
-            except Exception:
-                dead.append(ws)
-        for ws in dead:
-            self.clients.discard(ws)
+        # Fan out in parallel so one stuck client can't stall the snapshot
+        # cadence for everyone else.
+        clients = list(self.clients)
+        results = await asyncio.gather(
+            *(ws.send_text(payload) for ws in clients),
+            return_exceptions=True,
+        )
+        for ws, result in zip(clients, results, strict=True):
+            if isinstance(result, BaseException):
+                self.clients.discard(ws)
 
 
 # ---------------- shared state ----------------
@@ -221,7 +223,16 @@ _background_tasks: set[asyncio.Task] = set()
 def _spawn_background(coro) -> None:
     task = asyncio.create_task(coro)
     _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
+
+    def _done(t: asyncio.Task) -> None:
+        _background_tasks.discard(t)
+        if t.cancelled():
+            return
+        exc = t.exception()
+        if exc is not None:
+            log.warning("background task failed: %r", exc)
+
+    task.add_done_callback(_done)
 
 
 def build_snapshot(now: float | None = None) -> dict:
@@ -238,35 +249,28 @@ def build_snapshot(now: float | None = None) -> dict:
     """
     snap = registry.snapshot(now)
     snap["frames"] = stats.frames
-    # Feed every fresh position through the polar-coverage tracker so the
-    # on-disk map reflects real reception. No-op when the receiver isn't
-    # located.
-    for ac in snap["aircraft"]:
-        if ac.get("lat") is not None and ac.get("lon") is not None:
-            coverage.observe(ac["lat"], ac["lon"])
+    # Coverage observations are wired through registry.on_position so they
+    # fire once per real fix (see below). Here we just flush pending writes.
     coverage.maybe_persist(interval=60.0)
     heatmap.maybe_persist(interval=60.0)
     if adsbdb.enabled:
         referenced_airports: set[str] = set()
         for ac in snap["aircraft"]:
             cs = ac.get("callsign")
-            route = adsbdb.lookup_cached_route(cs) if cs else None
-            if route:
-                ac["origin"] = route.get("origin")
-                ac["destination"] = route.get("destination")
-            else:
-                ac["origin"] = None
-                ac["destination"] = None
-                # Fire-and-forget enrichment for next snapshot, but only
-                # when we actually have a callsign to query against.
-                if cs:
-                    _spawn_background(adsbdb.lookup_route(cs))
+            route_known, route = adsbdb.lookup_cached_route(cs) if cs else (False, None)
+            ac["origin"] = route.get("origin") if route else None
+            ac["destination"] = route.get("destination") if route else None
+            # Only fire a background fill when the cache has nothing for us;
+            # cached-negative entries are deliberately skipped so we don't
+            # spawn (and then immediately no-op) a task per aircraft per tick.
+            if cs and not route_known:
+                _spawn_background(adsbdb.lookup_route(cs))
             if ac["origin"]:
                 referenced_airports.add(ac["origin"])
             if ac["destination"]:
                 referenced_airports.add(ac["destination"])
 
-            info = adsbdb.lookup_cached_aircraft(ac["icao"])
+            info_known, info = adsbdb.lookup_cached_aircraft(ac["icao"])
             if info:
                 ac["operator"] = info.get("operator")
                 ac["operator_country"] = info.get("operator_country")
@@ -275,6 +279,7 @@ def build_snapshot(now: float | None = None) -> dict:
                 ac["operator"] = None
                 ac["operator_country"] = None
                 ac["country_iso"] = None
+            if not info_known:
                 _spawn_background(adsbdb.lookup_aircraft(ac["icao"]))
         # One lookup per unique airport — frontend resolves name/lat/lon by code.
         snap["airports"] = {
@@ -352,6 +357,9 @@ heatmap = TrafficHeatmap(cache_path=HEATMAP_CACHE_PATH)
 # Every time the registry creates a fresh Aircraft, bump the heatmap's
 # (weekday, hour) bucket for the first-seen timestamp.
 registry.on_new_aircraft = lambda _icao, ts: heatmap.observe(ts)
+# Every accepted position fix feeds the polar-coverage tracker; max-range-
+# per-bearing updates in real time as soon as new fixes are decoded.
+registry.on_position = coverage.observe
 
 
 async def aircraft_db_refresher():
@@ -440,6 +448,10 @@ async def lifespan(app: FastAPI):
                 save_state(registry, STATE_PATH)
             except Exception as e:
                 log.warning("final state save failed: %s", e)
+        # Release pooled connections held by the HTTP clients.
+        for closer in (adsbdb.aclose(), planespotters.aclose()):
+            with contextlib.suppress(Exception):
+                await closer
         jsonl.close()
 
 
@@ -467,19 +479,12 @@ app = FastAPI(
 # hash-based CSP would be much noisier for little practical benefit.
 _CSP = (
     "default-src 'self'; "
-    # Cloudflare Browser Insights (enabled by default on Cloudflare-
-    # proxied domains) injects static.cloudflareinsights.com/beacon.min.js
-    # plus a small inline init snippet whose SHA-256 Cloudflare publishes.
-    # Allow both so installs behind Cloudflare work without flipping the
-    # feature off; self-hosted users not on Cloudflare are unaffected.
-    "script-src 'self' https://unpkg.com https://static.cloudflareinsights.com "
-    "'sha256-asFSVupCgsPL5mU5ld7+5o3vRJtou88ZCgxUmh4pD74='; "
+    "script-src 'self' https://unpkg.com; "
     "style-src 'self' https://unpkg.com 'unsafe-inline'; "
     "img-src 'self' data: blob: https:; "
     # unpkg appears in connect-src too so Leaflet's sourcemap fetch
-    # (/leaflet.js.map) succeeds when devtools is open; cloudflareinsights
-    # for the beacon's telemetry POSTs.
-    "connect-src 'self' ws: wss: https://unpkg.com https://cloudflareinsights.com; "
+    # (/leaflet.js.map) succeeds when devtools is open.
+    "connect-src 'self' ws: wss: https://unpkg.com; "
     "font-src 'self'; "
     "frame-ancestors 'none'; "
     "base-uri 'self'; "
@@ -573,6 +578,12 @@ async def api_airports(
     and only renders what's in view. `limit` caps the response so very
     wide views still return in bounded time.
     """
+    # Latitudes must be ordered and within [-90, 90]; longitudes must each
+    # be within [-180, 180] but may be inverted to wrap the antimeridian.
+    if not (-90.0 <= min_lat <= max_lat <= 90.0):
+        return JSONResponse({"error": "bad latitude bounds"}, status_code=400)
+    if not (-180.0 <= min_lon <= 180.0 and -180.0 <= max_lon <= 180.0):
+        return JSONResponse({"error": "bad longitude bounds"}, status_code=400)
     limit = max(1, min(int(limit), 5000))
     return airports_db.bbox(min_lat, min_lon, max_lat, max_lon, limit)
 
@@ -752,6 +763,6 @@ async def ws_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        log.debug("ws error: %s", e)
+        log.info("ws error: %s", e)
     finally:
         broadcaster.remove(websocket)

@@ -66,7 +66,20 @@ class PlanespottersClient:
         self._in_flight: set[str] = set()
         self._last_request_at: float = 0.0
         self._cooldown_until: float = 0.0
+        # Lazily-initialised shared HTTP client so repeat lookups reuse the
+        # keep-alive connection instead of re-handshaking per call.
+        self._http: httpx.AsyncClient | None = None
         self._load_cache()
+
+    def _client(self) -> httpx.AsyncClient:
+        if self._http is None:
+            self._http = httpx.AsyncClient(timeout=15)
+        return self._http
+
+    async def aclose(self) -> None:
+        if self._http is not None:
+            await self._http.aclose()
+            self._http = None
 
     @property
     def enabled(self) -> bool:
@@ -155,8 +168,7 @@ class PlanespottersClient:
 
     async def _fetch(self, registration: str) -> dict[str, Any] | None:
         url = PLANESPOTTERS_URL.format(reg=registration)
-        async with httpx.AsyncClient(timeout=15) as c:
-            r = await c.get(url, headers={"accept": "application/json"})
+        r = await self._client().get(url, headers={"accept": "application/json"})
         # 404 isn't documented for this endpoint — a valid request with
         # no matching photos returns 200 with photos=[]. Handle both.
         if r.status_code == 404:

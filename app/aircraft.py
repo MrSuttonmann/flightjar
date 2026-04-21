@@ -162,6 +162,10 @@ class AircraftRegistry:
         # entry. main.py wires this to the traffic heatmap so every new
         # tail sighting bumps the right day/hour bucket.
         self.on_new_aircraft: Callable[[str, float], None] | None = None
+        # Optional (lat, lon) callback fired after every accepted position
+        # fix. main.py wires this to the polar-coverage tracker so max-
+        # range-per-bearing updates as soon as a new fix is committed.
+        self.on_position: Callable[[float, float], None] | None = None
 
     # -------- ingest --------
 
@@ -429,6 +433,12 @@ class AircraftRegistry:
                 gap_from_prev,
             )
         )
+
+        if self.on_position:
+            try:
+                self.on_position(new_lat, new_lon)
+            except Exception as e:
+                log.debug("on_position callback failed: %s", e)
 
     # -------- persistence --------
 

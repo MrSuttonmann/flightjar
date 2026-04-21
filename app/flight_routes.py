@@ -78,7 +78,20 @@ class AdsbdbClient:
         # 429s, back off until this wall-clock time before next attempt.
         self._last_request_at: float = 0.0
         self._cooldown_until: float = 0.0
+        # Lazily-initialised shared HTTP client so repeat lookups reuse the
+        # keep-alive connection instead of doing a TCP+TLS handshake per call.
+        self._http: httpx.AsyncClient | None = None
         self._load_cache()
+
+    def _client(self) -> httpx.AsyncClient:
+        if self._http is None:
+            self._http = httpx.AsyncClient(timeout=15)
+        return self._http
+
+    async def aclose(self) -> None:
+        if self._http is not None:
+            await self._http.aclose()
+            self._http = None
 
     @property
     def enabled(self) -> bool:
@@ -104,10 +117,18 @@ class AdsbdbClient:
 
     # -------- public API: routes (by callsign) --------
 
-    def lookup_cached_route(self, callsign: str) -> dict[str, Any] | None:
-        """Return cached route for this callsign without touching the network."""
+    def lookup_cached_route(self, callsign: str) -> tuple[bool, dict[str, Any] | None]:
+        """Return (known, data) for a cached route without touching the network.
+
+        `known=True` means we have a fresh answer (which may be `None` for a
+        cached-negative) so the caller should *not* fire a background lookup;
+        `known=False` means the cache has nothing and a background fill is
+        warranted.
+        """
         key = self._route_key(callsign)
-        return self._cached(self._routes, key) if key else None
+        if key is None:
+            return False, None
+        return self._cached(self._routes, key)
 
     async def lookup_route(self, callsign: str) -> dict[str, Any] | None:
         """Return {origin, destination, callsign} for this callsign, or None."""
@@ -124,10 +145,13 @@ class AdsbdbClient:
 
     # -------- public API: aircraft (by mode-s hex) --------
 
-    def lookup_cached_aircraft(self, icao: str) -> dict[str, Any] | None:
-        """Return cached aircraft record for this hex without touching the network."""
+    def lookup_cached_aircraft(self, icao: str) -> tuple[bool, dict[str, Any] | None]:
+        """Return (known, data) for a cached aircraft record. See
+        `lookup_cached_route` for the semantics of the `known` flag."""
         key = self._aircraft_key(icao)
-        return self._cached(self._aircraft, key) if key else None
+        if key is None:
+            return False, None
+        return self._cached(self._aircraft, key)
 
     async def lookup_aircraft(self, icao: str) -> dict[str, Any] | None:
         """Return {registration, type, manufacturer, operator, photo_url,
@@ -146,13 +170,17 @@ class AdsbdbClient:
     # -------- shared cache + throttle machinery --------
 
     @staticmethod
-    def _cached(bucket: dict[str, dict[str, Any]], key: str) -> dict[str, Any] | None:
+    def _cached(bucket: dict[str, dict[str, Any]], key: str) -> tuple[bool, dict[str, Any] | None]:
+        """Return (known, data) for a cache lookup.
+
+        `known=False` covers both "never seen" and "entry expired" — in both
+        cases the caller should refresh. `known=True, data=None` is a fresh
+        cached-negative result.
+        """
         entry = bucket.get(key)
-        if not entry:
-            return None
-        if time.time() >= entry["expires_at"]:
-            return None
-        return entry["data"]
+        if not entry or time.time() >= entry["expires_at"]:
+            return False, None
+        return True, entry["data"]
 
     async def _lookup(
         self,
@@ -222,8 +250,7 @@ class AdsbdbClient:
     async def _fetch_route(self, callsign: str) -> dict[str, Any] | None:
         """Ask adsbdb for the flight route for this callsign."""
         url = ADSBDB_CALLSIGN_URL.format(key=callsign)
-        async with httpx.AsyncClient(timeout=15) as c:
-            r = await c.get(url, headers={"accept": "application/json"})
+        r = await self._client().get(url, headers={"accept": "application/json"})
         if r.status_code == 404:
             return None
         r.raise_for_status()
@@ -244,8 +271,7 @@ class AdsbdbClient:
     async def _fetch_aircraft(self, icao: str) -> dict[str, Any] | None:
         """Ask adsbdb for the aircraft record for this mode-s hex."""
         url = ADSBDB_AIRCRAFT_URL.format(key=icao)
-        async with httpx.AsyncClient(timeout=15) as c:
-            r = await c.get(url, headers={"accept": "application/json"})
+        r = await self._client().get(url, headers={"accept": "application/json"})
         if r.status_code == 404:
             return None
         r.raise_for_status()
