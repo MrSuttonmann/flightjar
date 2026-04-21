@@ -1,11 +1,18 @@
 # Flightjar
 
-A small web app that shows the aircraft your ADS-B receiver can see, on a
-live map — with a rolling log of every message to disk for later analysis.
+A self-hosted flight tracker for a local ADS-B receiver: a live map
+with per-type silhouettes and altitude-coloured trails, a detail panel
+carrying each aircraft's photo, route, progress + ETA, METAR at origin
+and destination, flight phase, and alliance, a sortable / searchable
+sidebar, receiver-coverage stats, and a durable JSONL log of every
+message for later analysis.
 
-It reads the BEAST feed from a running readsb, dump1090, or ultrafeeder
-instance — so you can point it at whatever's already decoding ADS-B on your
-network and get a lightweight map, log file, and simple API on top.
+It reads the BEAST feed from a running readsb, dump1090, or
+ultrafeeder — point it at whatever's already decoding ADS-B on your
+network, no extra decoder or signup required. Enrichments (routes,
+photos, weather, airline metadata) come from free public sources,
+are cached on disk, and are individually feature-gated for offline
+or privacy-conscious deployments.
 
 | Overview | Detail panel | Stats dialog | Compact mode |
 | -------- | ------------ | ------------ | ------------ |
