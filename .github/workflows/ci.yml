@@ -62,11 +62,21 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: npm
+
+      # Cache the Playwright browser binaries across runs. npm install
+      # doesn't need its own cache since we deliberately don't commit a
+      # lockfile (single dep, resolves fast; no cross-CI reproducibility
+      # concern). The cache key includes the @playwright/test version
+      # pinned in package.json so a bump invalidates cleanly.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package.json') }}
 
       - name: Install Playwright + Chromium
         run: |
-          npm ci
+          npm install
           npx playwright install --with-deps chromium
 
       - name: Stage auto-generated assets
