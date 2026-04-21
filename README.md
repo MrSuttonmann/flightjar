@@ -91,6 +91,19 @@ up as a fullscreen sheet:
   hover. Pulled live from the free
   [aviationweather.gov](https://aviationweather.gov/) API and cached
   server-side for 10 min. Disable with `METAR_WEATHER=0`.
+- **Watchlist + server-side alerts** — star any aircraft from the detail
+  panel or the watchlist manager in the sidebar footer to get a
+  notification when it reappears on your receiver. Emergency squawks
+  (7500 / 7600 / 7700) are surfaced as a separate always-on alert
+  category. Repeat pings for the same tail are suppressed for 30 min
+  (5 min for emergencies) so a plane flickering on the edge of
+  coverage doesn't spam you.
+- **Configurable notification channels** — add any number of Telegram
+  chats, ntfy topics, and generic JSON webhooks from the **Alerts**
+  dialog. Each channel can opt in to watchlist reappearances,
+  emergency squawks, or both; a Test button fires a one-off message so
+  you can verify a fresh bot token without waiting for a live event.
+  Alerts keep firing when every browser tab is closed.
 - **Airports overlay** — a toggle drops ~2,000 nearest airports onto the
   map as small markers (biggest first so wide views still show the
   majors). Sourced from the OurAirports public-domain database baked
@@ -304,6 +317,36 @@ photos appear gradually as the cache populates.
 To disable outbound lookups entirely (offline or privacy-conscious
 deploys), set `FLIGHT_ROUTES=0`. That also suppresses photo fetches.
 
+## Notifications
+
+Flightjar can push a message whenever a watched aircraft reappears or
+an emergency squawk (7500 / 7600 / 7700) comes on-screen. Open the
+**Alerts** dialog from the sidebar footer to manage channels. You can
+add as many of each type as you like — one Telegram chat for your
+phone and another for a family group, separate webhooks for Home
+Assistant and Slack, etc. Each entry has its own watchlist / emergency
+opt-in, and the Test button sends a one-off "this is wired up" message
+without waiting for a live event.
+
+**Telegram.** Create a bot via [@BotFather](https://t.me/BotFather),
+copy the bot token, then message the bot once from your account and
+read `https://api.telegram.org/bot<TOKEN>/getUpdates` to find your
+numeric chat ID. Paste both into the dialog.
+
+**ntfy.** Pick a topic name (anything you like — treat it as a shared
+secret), install the [ntfy app](https://ntfy.sh/) on your phone, and
+subscribe to the topic. Paste the full topic URL into the dialog.
+Works with `ntfy.sh` or a self-hosted server; the optional token field
+is for private servers.
+
+**Generic webhook.** POSTs a minimal JSON payload
+(`{title, body, level, url, photo_url}`) to whatever URL you paste —
+convenient for Home Assistant automations, Slack/Discord bridges, n8n,
+or your own tooling.
+
+Browser notifications (while a tab is open) still fire alongside; the
+Alerts channels are what keep working once every tab is closed.
+
 ## Running multiple receivers
 
 If you run Flightjar on more than one machine (or want to tell staging apart
@@ -334,6 +377,10 @@ It shows up next to "Flightjar" in the sidebar and in the browser tab title
 | `AIRCRAFT_DB_REFRESH_HOURS` | `0`           | Auto-refresh interval for the aircraft DB. `0` disables.       |
 | `FLIGHT_ROUTES`       | `1`                 | Enable origin/destination lookups via adsbdb.com. `0` disables.|
 | `METAR_WEATHER`       | `1`                 | Enable METAR lookups via aviationweather.gov. `0` disables.    |
+
+Notification channels aren't configured via env vars — they're
+managed in the **Alerts** dialog in the sidebar footer. See the
+Notifications section below.
 
 ## The log file
 

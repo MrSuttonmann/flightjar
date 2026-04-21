@@ -16,6 +16,7 @@ import {
 import { initAirportTooltip } from './tooltip.js';
 import { createWatchlist } from './watchlist.js';
 import { flightProgress } from './geo.js';
+import { initAlertsDialog } from './alerts_dialog.js';
 
 (() => {
   const map = L.map('map', { worldCopyJump: true, zoomControl: false })
@@ -726,6 +727,10 @@ import { flightProgress } from './geo.js';
   // Singleton floating tooltip for airport codes — lives in tooltip.js
   // since it has no dependencies on anything else here.
   initAirportTooltip();
+  // Notification-channel CRUD dialog (Telegram / ntfy / webhook).
+  // Self-contained module — the footer button it wires up
+  // (#alerts-btn) is always in the DOM.
+  initAlertsDialog();
 
   // Merge the server's latest sliding-window trail into the entry's
   // unbounded client-side buffer. Server trails cap at TRAIL_MAX_POINTS
@@ -1697,6 +1702,152 @@ import { flightProgress } from './geo.js';
     const inside = e.clientX >= r.left && e.clientX <= r.right
                 && e.clientY >= r.top && e.clientY <= r.bottom;
     if (!inside) statsDialog.close();
+  });
+
+  // ---- Watchlist dialog ----
+  // Manage starred aircraft outside the detail panel — you can add a
+  // tail by hex code, remove one that's out of range, and toggle the
+  // browser-notification pref without having to wait for the plane
+  // to reappear.
+  const watchlistDialog = document.getElementById('watchlist-dialog');
+  const watchlistEntriesEl = document.getElementById('watchlist-entries');
+  const watchlistEmptyEl = document.getElementById('watchlist-empty');
+  const watchlistCountEl = document.getElementById('watchlist-count');
+  const watchlistNotifyEl = document.getElementById('watchlist-notify');
+  const watchlistAddForm = document.getElementById('watchlist-add-form');
+  const watchlistAddInput = document.getElementById('watchlist-add-input');
+  const watchlistAddErr = document.getElementById('watchlist-add-error');
+
+  async function fetchAcInfoCached(icao) {
+    if (aircraftInfoCache.has(icao)) return aircraftInfoCache.get(icao);
+    try {
+      const r = await fetch(`/api/aircraft/${icao}`);
+      if (!r.ok) return null;
+      const info = await r.json();
+      aircraftInfoCache.set(icao, info);
+      return info;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function watchlistRowHtml(icao, snap, info) {
+    const inRange = !!snap;
+    const reg = (snap?.registration || info?.registration || '').trim();
+    const type = (snap?.type_long || info?.type || info?.type_icao || '').trim();
+    const label = [reg, type].filter(Boolean).join(' · ');
+    const rangeCls = inRange ? 'wl-range wl-range-on' : 'wl-range';
+    const rangeTitle = inRange ? 'In range right now' : 'Not currently in range';
+    return `
+      <li class="watchlist-entry${inRange ? ' in-range' : ''}" data-icao="${escapeHtml(icao)}">
+        <span class="${rangeCls}" title="${rangeTitle}"></span>
+        <code class="wl-icao">${escapeHtml(icao.toUpperCase())}</code>
+        <span class="wl-label">${escapeHtml(label)}</span>
+        <button type="button" class="wl-remove" data-icao="${escapeHtml(icao)}"
+                aria-label="Remove from watchlist" title="Remove">&times;</button>
+      </li>
+    `;
+  }
+
+  function wireWatchlistRowHandlers() {
+    watchlistEntriesEl.querySelectorAll('.wl-remove').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const icao = btn.dataset.icao;
+        if (!icao) return;
+        watchlist.remove(icao);
+        renderWatchlistDialog();
+        if (lastSnap) renderSidebar(lastSnap);
+        applyWatchStateToPanel();
+      });
+    });
+    watchlistEntriesEl.querySelectorAll('.watchlist-entry.in-range').forEach((row) => {
+      row.addEventListener('click', () => {
+        const icao = row.dataset.icao;
+        if (!icao) return;
+        watchlistDialog.close();
+        selectAircraft(icao);
+      });
+    });
+  }
+
+  async function renderWatchlistDialog() {
+    const entries = watchlist.list().sort();
+    watchlistCountEl.textContent = entries.length ? `· ${entries.length}` : '';
+    watchlistEmptyEl.hidden = entries.length > 0;
+    // Reflect current notify pref, and disable the checkbox entirely
+    // when the browser doesn't support notifications at all.
+    if (typeof Notification === 'undefined') {
+      watchlistNotifyEl.disabled = true;
+      watchlistNotifyEl.checked = false;
+    } else {
+      watchlistNotifyEl.disabled = false;
+      watchlistNotifyEl.checked = watchlist.isNotifyEnabled();
+    }
+    if (!entries.length) {
+      watchlistEntriesEl.innerHTML = '';
+      return;
+    }
+    // Quick first-paint from snapshot / cache; async-fill the rest.
+    const snapMap = new Map(
+      (lastSnap?.aircraft || []).map((a) => [a.icao.toLowerCase(), a]),
+    );
+    watchlistEntriesEl.innerHTML = entries
+      .map((icao) => watchlistRowHtml(icao, snapMap.get(icao), aircraftInfoCache.get(icao)))
+      .join('');
+    wireWatchlistRowHandlers();
+    // Fill rows whose metadata we didn't already have — only if the
+    // dialog is still open by the time the fetch settles.
+    for (const icao of entries) {
+      if (snapMap.has(icao) || aircraftInfoCache.has(icao)) continue;
+      fetchAcInfoCached(icao).then((info) => {
+        if (!watchlistDialog.open) return;
+        const row = watchlistEntriesEl.querySelector(
+          `.watchlist-entry[data-icao="${CSS.escape(icao)}"]`,
+        );
+        if (!row) return;
+        row.outerHTML = watchlistRowHtml(icao, null, info);
+        wireWatchlistRowHandlers();
+      });
+    }
+  }
+
+  watchlistAddForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const raw = watchlistAddInput.value.trim().toLowerCase();
+    if (!/^[0-9a-f]{6}$/.test(raw)) {
+      watchlistAddErr.textContent = 'ICAO24 must be exactly 6 hex characters (0–9, a–f).';
+      watchlistAddErr.hidden = false;
+      return;
+    }
+    watchlistAddErr.hidden = true;
+    const added = watchlist.add(raw);
+    watchlistAddInput.value = '';
+    // First add in a session: same "prompt for permission" courtesy as
+    // the detail-panel star button so notifications actually fire.
+    // setNotifyEnabled only prompts when permission is still 'default',
+    // so calling it on every add is idempotent after the first.
+    if (added) await watchlist.setNotifyEnabled(true);
+    await renderWatchlistDialog();
+    if (added && lastSnap) renderSidebar(lastSnap);
+  });
+
+  watchlistNotifyEl.addEventListener('change', async () => {
+    const ok = await watchlist.setNotifyEnabled(watchlistNotifyEl.checked);
+    watchlistNotifyEl.checked = ok;
+  });
+
+  document.getElementById('watchlist-btn').addEventListener('click', async () => {
+    await renderWatchlistDialog();
+    if (typeof watchlistDialog.showModal === 'function') watchlistDialog.showModal();
+    else watchlistDialog.setAttribute('open', '');
+    watchlistAddInput.focus();
+  });
+  watchlistDialog.addEventListener('click', (e) => {
+    const r = watchlistDialog.getBoundingClientRect();
+    const inside = e.clientX >= r.left && e.clientX <= r.right
+                && e.clientY >= r.top && e.clientY <= r.bottom;
+    if (!inside) watchlistDialog.close();
   });
 
   function setTrails(value) {

@@ -122,3 +122,131 @@ def test_airports_allows_antimeridian_wrap():
             params={"min_lat": 50, "min_lon": 170, "max_lat": 52, "max_lon": -170},
         )
     assert r.status_code == 200
+
+
+# -------- /api/watchlist --------
+
+
+def _reset_watchlist():
+    main.watchlist_store.replace([])
+
+
+def test_watchlist_get_round_trips_empty():
+    _reset_watchlist()
+    with _client() as c:
+        r = c.get("/api/watchlist")
+    assert r.status_code == 200
+    assert r.json() == {"icao24s": []}
+
+
+def test_watchlist_post_replaces_and_normalises():
+    _reset_watchlist()
+    try:
+        with _client() as c:
+            r = c.post(
+                "/api/watchlist",
+                json={"icao24s": ["ABC123", " def456 ", "xyz!!!", "00aabb"]},
+            )
+        assert r.status_code == 200
+        # Invalid entries are dropped, valid ones lowercased + sorted.
+        assert r.json() == {"icao24s": ["00aabb", "abc123", "def456"]}
+        # Persisted to the server-side store — the GET endpoint returns the
+        # same list.
+        with _client() as c:
+            r2 = c.get("/api/watchlist")
+        assert r2.json() == {"icao24s": ["00aabb", "abc123", "def456"]}
+    finally:
+        _reset_watchlist()
+
+
+def test_watchlist_post_rejects_bad_body_shape():
+    _reset_watchlist()
+    with _client() as c:
+        # Missing icao24s key.
+        r = c.post("/api/watchlist", json={"ids": ["abc123"]})
+    assert r.status_code == 400
+
+
+def test_watchlist_post_rejects_oversized_payload():
+    _reset_watchlist()
+    payload = {"icao24s": ["abc123"] * 20_000}
+    with _client() as c:
+        r = c.post("/api/watchlist", json=payload)
+    assert r.status_code == 413
+
+
+# -------- /api/notifications --------
+
+
+def _reset_notifications():
+    main.notifications_config.replace({"channels": []})
+
+
+def _sample_channel(**kw):
+    base = {
+        "type": "webhook",
+        "name": "HA",
+        "url": "https://ha.example/hook",
+        "enabled": True,
+        "watchlist_enabled": True,
+        "emergency_enabled": True,
+    }
+    base.update(kw)
+    return base
+
+
+def test_notifications_config_round_trip():
+    _reset_notifications()
+    try:
+        with _client() as c:
+            r1 = c.get("/api/notifications/config")
+        assert r1.status_code == 200
+        assert r1.json() == {"version": 1, "channels": []}
+        with _client() as c:
+            r2 = c.post(
+                "/api/notifications/config",
+                json={"channels": [_sample_channel(name="Primary")]},
+            )
+        assert r2.status_code == 200
+        saved = r2.json()["channels"]
+        assert len(saved) == 1
+        assert saved[0]["id"]  # server assigned one
+        assert saved[0]["url"] == "https://ha.example/hook"
+    finally:
+        _reset_notifications()
+
+
+def test_notifications_config_rejects_non_object_body():
+    # FastAPI's own type-validation rejects non-dicts at 422; either
+    # 400 (our hand-rolled check) or 422 (framework) is an acceptable
+    # "your body is wrong" response.
+    with _client() as c:
+        r = c.post("/api/notifications/config", json=["not", "an", "object"])
+    assert r.status_code in (400, 422)
+
+
+def test_notifications_config_accepts_missing_channels_key():
+    _reset_notifications()
+    # Dict missing `channels` is NOT rejected — replace() just treats
+    # it as an empty list. This keeps the upgrade path smooth when a
+    # future client sends a different shape.
+    with _client() as c:
+        r = c.post("/api/notifications/config", json={"other": "stuff"})
+    assert r.status_code == 200
+    assert r.json()["channels"] == []
+
+
+def test_notifications_config_rejects_oversized_payload():
+    with _client() as c:
+        r = c.post(
+            "/api/notifications/config",
+            json={"channels": [_sample_channel()] * 200},
+        )
+    assert r.status_code == 413
+
+
+def test_notifications_test_unknown_channel_returns_404():
+    _reset_notifications()
+    with _client() as c:
+        r = c.post("/api/notifications/test/nope")
+    assert r.status_code == 404

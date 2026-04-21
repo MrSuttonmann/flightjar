@@ -59,7 +59,8 @@
   <div id="map"></div>
   <div id="sidebar-footer">
     <span id="footer-clock" title="Local time">—</span>
-    <button id="stats-btn" type="button" title="Receiver stats">
+    <div id="sidebar-footer-buttons">
+    <button id="stats-btn" type="button" title="Receiver stats" aria-label="Receiver stats">
       <svg viewBox="0 0 16 16" aria-hidden="true" fill="none"
            stroke="currentColor" stroke-width="1.6"
            stroke-linecap="round" stroke-linejoin="round">
@@ -67,9 +68,26 @@
         <line x1="7" y1="13" x2="7" y2="6"/>
         <line x1="11" y1="13" x2="11" y2="3"/>
       </svg>
-      Stats
+      <span class="footer-btn-label">Stats</span>
     </button>
-    <button id="about-btn" type="button" title="Credits and dependencies">
+    <button id="watchlist-btn" type="button" title="Manage watchlist" aria-label="Manage watchlist">
+      <svg viewBox="0 0 16 16" aria-hidden="true" fill="none"
+           stroke="currentColor" stroke-width="1.4"
+           stroke-linejoin="round">
+        <path d="M8 1.8 l1.85 3.75 4.15.6 -3 2.92 .7 4.13 L8 11.25 l-3.7 1.95 .7-4.13 -3-2.92 4.15-.6z"/>
+      </svg>
+      <span class="footer-btn-label">Watchlist</span>
+    </button>
+    <button id="alerts-btn" type="button" title="Manage notification channels" aria-label="Manage notification channels">
+      <svg viewBox="0 0 16 16" aria-hidden="true" fill="none"
+           stroke="currentColor" stroke-width="1.5"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 2h-11z"/>
+        <path d="M6.5 13.5a1.5 1.5 0 0 0 3 0"/>
+      </svg>
+      <span class="footer-btn-label">Alerts</span>
+    </button>
+    <button id="about-btn" type="button" title="Credits and dependencies" aria-label="Credits and dependencies">
       <svg viewBox="0 0 16 16" aria-hidden="true" fill="none"
            stroke="currentColor" stroke-width="1.5"
            stroke-linecap="round" stroke-linejoin="round">
@@ -77,8 +95,9 @@
         <line x1="8" y1="7" x2="8" y2="11.5"/>
         <circle cx="8" cy="4.75" r="0.6" fill="currentColor" stroke="none"/>
       </svg>
-      About
+      <span class="footer-btn-label">About</span>
     </button>
+    </div>
   </div>
 
 <dialog id="stats-dialog">
@@ -113,6 +132,64 @@
   <div class="stats-grid">
     <div class="stat-card wide"><div class="stat-label">Source</div><div class="stat-val" id="stats-beast-target">—</div></div>
     <div class="stat-card"><div class="stat-label">Connection</div><div class="stat-val" id="stats-beast-connected">—</div></div>
+  </div>
+</dialog>
+
+<dialog id="watchlist-dialog">
+  <form method="dialog" class="about-close-form">
+    <button class="about-close" value="close" aria-label="Close">&times;</button>
+  </form>
+  <h2>Watchlist</h2>
+  <p class="about-body">
+    Starred aircraft are kept in your browser's local storage. When a watched
+    tail reappears on your receiver we can fire a browser notification so you
+    know without having to watch the map.
+  </p>
+
+  <label class="watchlist-notify-row">
+    <input type="checkbox" id="watchlist-notify">
+    <span>Notify on reappearance</span>
+  </label>
+
+  <h3>Add by ICAO24 hex</h3>
+  <form id="watchlist-add-form" class="watchlist-add-form">
+    <input id="watchlist-add-input" type="text" placeholder="e.g. 4ca2d1"
+           maxlength="6" spellcheck="false" autocomplete="off"
+           aria-label="ICAO24 hex code">
+    <button type="submit">Add</button>
+  </form>
+  <div id="watchlist-add-error" class="watchlist-error" hidden></div>
+
+  <h3>Watched aircraft <span id="watchlist-count" class="watchlist-count"></span></h3>
+  <ul id="watchlist-entries" class="watchlist-entries"></ul>
+  <p id="watchlist-empty" class="about-body" hidden>
+    Nothing watched yet. Star a plane from its detail panel, or add one above by its
+    6-character ICAO24 hex code.
+  </p>
+</dialog>
+
+<dialog id="alerts-dialog">
+  <form method="dialog" class="about-close-form">
+    <button class="about-close" value="close" aria-label="Close">&times;</button>
+  </form>
+  <h2>Alerts</h2>
+  <p class="about-body">
+    Server-side notification channels for watchlist reappearances and emergency
+    squawks. Each channel can opt in to either or both categories. Changes save
+    automatically; the Test button sends a one-off "this is wired up" message.
+  </p>
+
+  <div id="alerts-sections"></div>
+
+  <p class="about-body" id="alerts-empty-hint" hidden>
+    No channels yet. Add a Telegram chat, ntfy topic, or generic webhook below to
+    start receiving alerts.
+  </p>
+
+  <div class="alerts-add-row">
+    <button type="button" class="alerts-add" data-type="telegram">+ Telegram chat</button>
+    <button type="button" class="alerts-add" data-type="ntfy">+ ntfy topic</button>
+    <button type="button" class="alerts-add" data-type="webhook">+ Webhook</button>
   </div>
 </dialog>
 

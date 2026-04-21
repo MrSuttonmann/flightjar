@@ -23,14 +23,18 @@ from .aircraft import AircraftRegistry, flight_phase, is_plausible_route
 from .aircraft_db import DEFAULT_REFRESH_URL, AircraftDB
 from .airlines_db import AirlinesDB
 from .airports_db import AirportsDB
+from .alerts import AlertWatcher
 from .beast import iter_frames
 from .config import Config
 from .coverage import PolarCoverage
 from .flight_routes import AdsbdbClient
 from .heatmap import TrafficHeatmap
 from .metar import MetarClient
+from .notifications import NotifierDispatcher
+from .notifications_config import NotificationsConfigStore
 from .persistence import load_state, save_state
 from .photos import PlanespottersClient
+from .watchlist import WatchlistStore
 
 log = logging.getLogger("beast")
 logging.basicConfig(
@@ -367,8 +371,15 @@ async def snapshot_pusher():
             await asyncio.sleep(cfg.snapshot_interval)
             now = time.time()
             registry.cleanup(now)
+            # Always build the snapshot so the alert watcher can fire
+            # notifications even when no browser tab is connected.
+            # Broadcast only runs when there's a client to receive it.
+            snap = build_snapshot(now)
+            # Fire-and-forget so a slow Telegram/ntfy/webhook round-trip
+            # can't stall the 1 Hz broadcast cadence. _spawn_background
+            # logs any uncaught task exceptions via its done-callback.
+            _spawn_background(alerts.observe(snap))
             if broadcaster.clients:
-                snap = build_snapshot(now)
                 payload = json.dumps(snap, separators=(",", ":"))
                 await broadcaster.broadcast(payload)
         except asyncio.CancelledError:
@@ -402,6 +413,23 @@ planespotters = PlanespottersClient(
 
 METAR_CACHE_PATH = Path(cfg.jsonl_path).parent / "metar.json.gz" if cfg.jsonl_path else None
 metar = MetarClient(cache_path=METAR_CACHE_PATH, enabled=cfg.metar_enabled)
+
+# Server-side watchlist + notification fan-out. The browser still owns
+# the watchlist UI (mirrored to /api/watchlist) and now also the
+# notifications channel list (mirrored to /api/notifications/config).
+# Server alerts fire via whatever Telegram / ntfy / webhook entries
+# the user saved, so they still get pinged with no tab open.
+WATCHLIST_PATH = Path(cfg.jsonl_path).parent / "watchlist.json" if cfg.jsonl_path else None
+watchlist_store = WatchlistStore(path=WATCHLIST_PATH)
+
+NOTIFICATIONS_CONFIG_PATH = (
+    Path(cfg.jsonl_path).parent / "notifications.json" if cfg.jsonl_path else None
+)
+notifications_config = NotificationsConfigStore(path=NOTIFICATIONS_CONFIG_PATH)
+notifier = NotifierDispatcher(notifications_config)
+alerts = AlertWatcher(watchlist_store, notifier)
+if notifier.enabled:
+    log.info("notifications wired: %s", ", ".join(notifier.configured_summary()))
 
 COVERAGE_CACHE_PATH = Path(cfg.jsonl_path).parent / "coverage.json" if cfg.jsonl_path else None
 # Polar coverage uses the TRUE receiver coordinates (before RECEIVER_ANON_KM
@@ -522,7 +550,12 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 log.warning("final state save failed: %s", e)
         # Release pooled connections held by the HTTP clients.
-        for closer in (adsbdb.aclose(), planespotters.aclose(), metar.aclose()):
+        for closer in (
+            adsbdb.aclose(),
+            planespotters.aclose(),
+            metar.aclose(),
+            notifier.aclose(),
+        ):
             with contextlib.suppress(Exception):
                 await closer
         jsonl.close()
@@ -706,6 +739,64 @@ async def api_heatmap():
 @app.post("/api/heatmap/reset", summary="Clear the traffic heatmap")
 async def api_heatmap_reset():
     heatmap.reset()
+    return {"ok": True}
+
+
+@app.get("/api/watchlist", summary="Server-side watchlist of ICAO24 codes")
+async def api_watchlist():
+    """Return the current watchlist. The browser uses this on page load
+    to merge its local copy with anything persisted on disk, so starred
+    aircraft survive across devices + browser-storage resets."""
+    return {"icao24s": watchlist_store.get()}
+
+
+@app.post("/api/watchlist", summary="Replace the watchlist")
+async def api_watchlist_replace(body: dict):
+    """Overwrite the watchlist with the supplied list of ICAO24 hex
+    codes. Invalid entries are dropped silently; `icao24s` is required
+    (an empty list wipes the watchlist)."""
+    if not isinstance(body, dict) or not isinstance(body.get("icao24s"), list):
+        return JSONResponse({"error": 'body must be {"icao24s": [...]}'}, status_code=400)
+    # Cap body size to keep a rogue client from blowing memory.
+    if len(body["icao24s"]) > 10_000:
+        return JSONResponse({"error": "too many entries"}, status_code=413)
+    new = watchlist_store.replace(body["icao24s"])
+    return {"icao24s": new}
+
+
+@app.get("/api/notifications/config", summary="Notification channel config")
+async def api_notifications_config():
+    """Return the stored list of notification channels so the UI can
+    populate its settings dialog. Sensitive fields (Telegram bot
+    tokens, ntfy auth tokens) come through in plain text — the dialog
+    masks them client-side."""
+    return notifications_config.get()
+
+
+@app.post("/api/notifications/config", summary="Replace notification channels")
+async def api_notifications_config_replace(body: dict):
+    """Overwrite the channel list from a POST body of shape
+    `{channels: [...]}`. Unknown types / unknown fields are stripped
+    server-side; each channel gets a stable ID (preserved across saves
+    unless the client sends a new one)."""
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "body must be an object"}, status_code=400)
+    if len(body.get("channels") or []) > 100:
+        return JSONResponse({"error": "too many channels"}, status_code=413)
+    return notifications_config.replace(body)
+
+
+@app.post(
+    "/api/notifications/test/{channel_id}",
+    summary="Send a test alert through one channel",
+)
+async def api_notifications_test(channel_id: str):
+    """Fire a one-off test message via `channel_id`. The UI exposes
+    this as a Test button so users can confirm a token / URL works
+    without waiting for a live event."""
+    ok = await notifier.test_channel(channel_id)
+    if not ok:
+        return JSONResponse({"error": "channel not found or not configured"}, status_code=404)
     return {"ok": True}
 
 
