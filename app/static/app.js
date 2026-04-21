@@ -1004,6 +1004,7 @@ import { createWatchlist } from './watchlist.js';
         : '';
       const subtitle = [a.registration, a.type_icao]
         .filter(Boolean).map(escapeHtml).join(' · ');
+      const airline = a.operator ? escapeHtml(a.operator) : '';
       const route = routeLabel(a, snap.airports);
       const entry = aircraft.get(a.icao);
       const tAlt = trendInfo(entry, 'alt');
@@ -1017,11 +1018,11 @@ import { createWatchlist } from './watchlist.js';
         : '';
       return `
       <div class="${classes}" data-icao="${icao}">
-        <span class="age">${fmt(ageOf(a, snap.now), 's', 1)}</span>
         <div class="row1">
           <span class="cs">${flagTag}${callsign} ${emergencyBadge}</span>
           <span class="icao">${subtitle || icao.toUpperCase()}</span>
         </div>
+        ${airline ? `<div class="airline-row">${airline}</div>` : ''}
         ${route ? `<div class="route-row">${route}</div>` : ''}
         <div class="meta">
           <div class="metric"><div class="label">Alt</div><div class="val ${tAlt.cls}">${uconv('alt', a.altitude)}${tAlt.arrow}</div></div>

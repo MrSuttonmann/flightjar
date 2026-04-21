@@ -322,8 +322,7 @@
                      letter-spacing: 0.5px; vertical-align: middle; }
   .range-label span { color: #5fa8ff; font-size: 10px; background: rgba(14,17,22,0.7);
                       padding: 0 3px; border-radius: 2px; white-space: nowrap; }
-  .ac-item .row1 { display: flex; justify-content: space-between; align-items: baseline;
-                   padding-right: 36px; }
+  .ac-item .row1 { display: flex; justify-content: space-between; align-items: baseline; }
   .ac-item .cs { font-family: ui-monospace, "SF Mono", Menlo, monospace;
                  font-weight: 600; font-size: 13px; }
   .ac-item .icao { font-family: ui-monospace, monospace; font-size: 10px;
@@ -333,6 +332,7 @@
   .ac-item .metric .label { font-size: 9px; color: var(--muted);
                             text-transform: uppercase; letter-spacing: 0.5px; }
   .ac-item .metric .val { font-size: 11px; }
+  .ac-item .airline-row,
   .ac-item .route-row { color: var(--muted); font-size: 11px;
                         font-variant-numeric: tabular-nums; margin-top: 2px;
                         white-space: nowrap; overflow: hidden;
@@ -342,8 +342,6 @@
              opacity: 0.75; transform-origin: 50% 50%; }
   .trend-up   { color: #6ee7b7; }
   .trend-down { color: #fca5a5; }
-  .ac-item .age { position: absolute; top: 8px; right: 14px; font-size: 10px;
-                  color: var(--muted); font-variant-numeric: tabular-nums; }
   #map { background: #0a0c10; }
   /* dim the OSM tiles a touch so plane icons pop */
   .leaflet-tile-pane { filter: brightness(0.85) contrast(1.05); }
