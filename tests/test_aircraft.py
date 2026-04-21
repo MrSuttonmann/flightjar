@@ -423,6 +423,64 @@ def test_dead_reckon_resume_clears_trail_on_large_correction():
     assert ac.trail[-1][1] == -1.0
 
 
+def test_on_new_aircraft_callback_fires_once_per_fresh_entry():
+    """main.py wires this to the traffic heatmap — the callback must fire
+    only when a brand-new Aircraft record is created, not on every
+    subsequent message for the same ICAO."""
+    seen: list[tuple[str, float]] = []
+    with patch("app.aircraft.pms.decode", side_effect=fake_decode):
+        reg = AircraftRegistry()
+        reg.on_new_aircraft = lambda icao, ts: seen.append((icao, ts))
+        reg.ingest("ID01aaaa", now=100.0)
+        reg.ingest("ID01bbbb", now=101.0)  # same tail — no second call
+    assert len(seen) == 1
+    assert seen[0][0] == "abc123"
+
+
+def test_on_position_callback_fires_per_accepted_fix():
+    """main.py wires this to the polar-coverage tracker — one call per
+    real position decode (not per tick, not per message without a fix)."""
+    seen: list[tuple[float, float]] = []
+    with patch("app.aircraft.pms.decode", side_effect=fake_decode):
+        reg = AircraftRegistry(lat_ref=52.0, lon_ref=-1.0)
+        reg.on_position = lambda lat, lon: seen.append((lat, lon))
+        reg.ingest("AP01aaaa", now=10.0)
+        reg.ingest("AP01bbbb", now=11.0)
+    assert len(seen) == 2
+    for lat, lon in seen:
+        assert abs(lat - 52.1) < 1e-6
+        assert abs(lon - (-1.1)) < 1e-6
+
+
+def test_on_position_callback_does_not_fire_for_non_positional_messages():
+    """Velocity and surveillance messages don't carry a position fix — the
+    position callback must not fire for them, otherwise coverage stats
+    would get polluted with the last-known position on every unrelated
+    message."""
+    seen: list[tuple[float, float]] = []
+    with patch("app.aircraft.pms.decode", side_effect=fake_decode):
+        reg = AircraftRegistry(lat_ref=52.0, lon_ref=-1.0)
+        reg.on_position = lambda lat, lon: seen.append((lat, lon))
+        reg.ingest("VL01xxxx", now=1.0)  # velocity only
+        reg.ingest("AC01xxxx", now=2.0)  # DF4 altcode
+        reg.ingest("SQ01xxxx", now=3.0)  # DF5 squawk
+    assert seen == []
+
+
+def test_on_position_callback_swallows_exceptions():
+    """A broken coverage callback must not propagate out of ingest() and
+    kill the feed. Log it and move on."""
+
+    def boom(_lat: float, _lon: float) -> None:
+        raise RuntimeError("coverage exploded")
+
+    with patch("app.aircraft.pms.decode", side_effect=fake_decode):
+        reg = AircraftRegistry(lat_ref=52.0, lon_ref=-1.0)
+        reg.on_position = boom
+        # Must not raise.
+        assert reg.ingest("AP01aaaa", now=1.0) is True
+
+
 def test_dead_reckon_skipped_on_ground():
     """Surface positions shouldn't dead-reckon — a taxiing plane isn't
     going to keep travelling at the last decoded groundspeed along a

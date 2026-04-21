@@ -254,6 +254,54 @@ def test_expired_entries_are_dropped_on_reload(tmp_path: Path):
     assert "current" in c._aircraft
 
 
+def test_lookup_cached_route_distinguishes_miss_from_negative(tmp_path: Path):
+    """build_snapshot relies on the `known` flag to skip a background fill
+    when a cached-negative entry is already on file — the old single-None
+    return mixed 'never seen' and 'we asked and got nothing' together."""
+    import asyncio
+
+    c = _client(tmp_path)
+    # Unknown key → known=False, data=None.
+    assert c.lookup_cached_route("MISSING") == (False, None)
+    # Cached-negative → known=True, data=None.
+    with patch.object(c, "_fetch_route", AsyncMock(return_value=None)):
+        asyncio.run(c.lookup_route("UNKNWN"))
+    assert c.lookup_cached_route("UNKNWN") == (True, None)
+    # Cached-positive → known=True, data=dict.
+    payload = {"origin": "EGLL", "destination": "KJFK", "callsign": "BAW1"}
+    with patch.object(c, "_fetch_route", AsyncMock(return_value=payload)):
+        asyncio.run(c.lookup_route("BAW1"))
+    assert c.lookup_cached_route("BAW1") == (True, payload)
+
+
+def test_lookup_cached_aircraft_distinguishes_miss_from_negative(tmp_path: Path):
+    import asyncio
+
+    c = _client(tmp_path)
+    assert c.lookup_cached_aircraft("abcdef") == (False, None)
+    with patch.object(c, "_fetch_aircraft", AsyncMock(return_value=None)):
+        asyncio.run(c.lookup_aircraft("abcdef"))
+    assert c.lookup_cached_aircraft("abcdef") == (True, None)
+
+
+def test_lookup_cached_treats_bad_key_as_miss(tmp_path: Path):
+    c = _client(tmp_path)
+    # Empty / malformed inputs can't hit the cache at all.
+    assert c.lookup_cached_route("") == (False, None)
+    assert c.lookup_cached_aircraft("xyz") == (False, None)  # non-hex
+    assert c.lookup_cached_aircraft("0123456") == (False, None)  # too long
+
+
+def test_aclose_releases_shared_client(tmp_path: Path):
+    import asyncio
+
+    c = _client(tmp_path)
+    _ = c._client()
+    assert c._http is not None
+    asyncio.run(c.aclose())
+    assert c._http is None
+
+
 def test_old_schema_cache_is_ignored(tmp_path: Path):
     """v2 cache files (single 'cache' bucket) should be discarded cleanly."""
     import gzip

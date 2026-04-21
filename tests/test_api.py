@@ -72,3 +72,53 @@ def test_stats_includes_beast_connected_flag():
         r = c.get("/api/stats")
     assert r.status_code == 200
     assert r.json()["beast_connected"] is False
+
+
+def test_airports_accepts_valid_bbox():
+    with _client() as c:
+        r = c.get(
+            "/api/airports",
+            params={"min_lat": 50, "min_lon": -2, "max_lat": 52, "max_lon": 1},
+        )
+    assert r.status_code == 200
+    assert isinstance(r.json(), list)
+
+
+def test_airports_rejects_out_of_range_latitude():
+    with _client() as c:
+        r = c.get(
+            "/api/airports",
+            params={"min_lat": -91, "min_lon": -2, "max_lat": 52, "max_lon": 1},
+        )
+    assert r.status_code == 400
+
+
+def test_airports_rejects_inverted_latitude():
+    # min_lat > max_lat is a caller error — the bbox would be empty anyway.
+    with _client() as c:
+        r = c.get(
+            "/api/airports",
+            params={"min_lat": 52, "min_lon": -2, "max_lat": 50, "max_lon": 1},
+        )
+    assert r.status_code == 400
+
+
+def test_airports_rejects_out_of_range_longitude():
+    with _client() as c:
+        r = c.get(
+            "/api/airports",
+            params={"min_lat": 50, "min_lon": -200, "max_lat": 52, "max_lon": 1},
+        )
+    assert r.status_code == 400
+
+
+def test_airports_allows_antimeridian_wrap():
+    # min_lon > max_lon is valid — it means the bbox crosses the
+    # antimeridian (e.g. Pacific coverage). Must not trigger the
+    # inverted-latitude error by accident.
+    with _client() as c:
+        r = c.get(
+            "/api/airports",
+            params={"min_lat": 50, "min_lon": 170, "max_lat": 52, "max_lon": -170},
+        )
+    assert r.status_code == 200
