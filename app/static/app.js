@@ -290,6 +290,26 @@ import { flightProgress } from './geo.js';
   const GENERIC_ARROW_PATH = 'M0,-10 L7,8 L0,4 L-7,8 Z';
   const GENERIC_ARROW_SIZE = 26;
 
+  // Update a marker's heading in place without replacing the icon's DOM
+  // element. Called from update() for track-only changes so Leaflet's
+  // click detection (mousedown + mouseup must land on the same DOM
+  // node) doesn't drop clicks when snapshots arrive mid-click.
+  // tar1090Icon keeps the rotation on the <svg>'s inline style;
+  // the generic arrow keeps it on an inner <g transform=…>.
+  function rotateMarkerIcon(marker, track) {
+    const el = marker.getElement();
+    if (!el) return;
+    const svg = el.querySelector('svg');
+    if (!svg) return;
+    const rot = track == null ? 0 : track;
+    if (svg.style && svg.style.transform) {
+      svg.style.transform = `rotate(${rot}deg)`;
+      return;
+    }
+    const g = svg.querySelector('g');
+    if (g) g.setAttribute('transform', `rotate(${rot})`);
+  }
+
   function planeIcon(track, color, selected, emergency, typeIcao) {
     // Prefer tar1090's per-type silhouette when we have one for this ICAO
     // type code; fall back to the generic arrow otherwise.
@@ -901,6 +921,9 @@ import { flightProgress } from './geo.js';
       const isSelected = a.icao === selectedIcao;
       const icon = planeIcon(a.track, color, isSelected, !!a.emergency, a.type_icao);
 
+      // Icon fingerprint deliberately excludes `track` — see the
+      // track-only branch below for why.
+      const iconFp = `${color}|${isSelected ? 1 : 0}|${a.emergency ? 1 : 0}|${a.type_icao || ''}`;
       let entry = aircraft.get(a.icao);
       if (!entry) {
         const marker = L.marker([a.lat, a.lon], { icon }).addTo(map);
@@ -910,6 +933,7 @@ import { flightProgress } from './geo.js';
         marker.on('mouseout',  () => peekListItem(a.icao, false));
         entry = {
           marker, trail, label: null, data: a, trailFp: null,
+          iconFp, lastTrack: a.track,
           // Full-session trail accumulated across every snapshot for
           // this aircraft since we first saw it. Used instead of the
           // server's sliding 300-point window when this plane is the
@@ -923,7 +947,21 @@ import { flightProgress } from './geo.js';
         // Back from the dead — strip the lost state before updating.
         if (entry.lost) unmarkEntryLost(entry);
         entry.marker.setLatLng([a.lat, a.lon]);
-        entry.marker.setIcon(icon);
+        // setIcon() replaces the icon's DOM element. Leaflet's click
+        // detection is DOM-bound (mousedown+mouseup must land on the
+        // same node), so rebuilding the icon mid-click drops the
+        // event — which manifested as "sometimes the first click on
+        // a plane does nothing". Only rebuild when a prop that
+        // actually changes the SVG shape/colour has moved; for
+        // track-only updates, rotate the existing element in place.
+        if (entry.iconFp !== iconFp) {
+          entry.marker.setIcon(icon);
+          entry.iconFp = iconFp;
+          entry.lastTrack = a.track;
+        } else if (a.track !== entry.lastTrack) {
+          rotateMarkerIcon(entry.marker, a.track);
+          entry.lastTrack = a.track;
+        }
       }
       if (hoveredFromListIcao === a.icao && hoverHalo) {
         hoverHalo.setLatLng([a.lat, a.lon]);
