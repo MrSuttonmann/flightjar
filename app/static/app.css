@@ -82,6 +82,9 @@
   body.compact-mode #sidebar-toggle svg { transform: scaleX(-1); }
   body.compact-mode #app.panel-open ~ #sidebar-toggle { left: 382px; }
 
+  /* Default-hidden; the mobile media query below flips it to flex. */
+  #sidebar-handle { display: none; }
+
   body.compact-mode #sidebar,
   body.compact-mode #sidebar-footer { display: none; }
   body.compact-mode #app { grid-template-columns: 1fr;
@@ -600,4 +603,35 @@
     #msg-rate { display: none; }
     /* Surface the Filters toggle; the panel below it starts collapsed. */
     #filters-toggle { display: block; }
+    /* The desktop chevron makes no sense when the sidebar sits above
+       the map; use a grab-handle at the sidebar/map boundary instead. */
+    #sidebar-toggle { display: none; }
+    #sidebar-handle {
+      display: flex; align-items: center; justify-content: center;
+      position: fixed; left: 50%;
+      top: 40vh; transform: translate(-50%, -50%);
+      width: 64px; height: 22px; padding: 0;
+      background: var(--panel);
+      border: 1px solid var(--border); border-radius: 11px;
+      cursor: pointer; z-index: 1100;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+      transition: top 0.22s ease, transform 0.22s ease, border-radius 0.22s ease;
+    }
+    /* Compact on mobile = sidebar gone, map fills the viewport. Anchor
+       the handle to the top edge so a downward swipe / tap reveals the
+       sidebar again. The rounded bottom-only corners read as "tab". */
+    body.compact-mode #sidebar-handle {
+      top: 0; transform: translate(-50%, 0);
+      border-radius: 0 0 11px 11px;
+      border-top: 0;
+    }
+    #sidebar-handle svg {
+      display: block; color: var(--muted);
+      transition: transform 0.22s ease, color 0.15s ease;
+    }
+    /* Sidebar visible: chevron points up ("tap to collapse upward"). */
+    /* Compact: flip to point down ("tap to pull the sidebar down"). */
+    body.compact-mode #sidebar-handle svg { transform: scaleY(-1); }
+    #sidebar-handle:hover svg,
+    #sidebar-handle:active svg { color: var(--text); }
   }

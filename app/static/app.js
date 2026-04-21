@@ -1463,6 +1463,10 @@ import { createWatchlist } from './watchlist.js';
   // between positions so it never overlaps the detail panel.
   const sidebarToggleBtn = document.getElementById('sidebar-toggle');
   sidebarToggleBtn.addEventListener('click', () => setCompact(!compactMode));
+  // Mobile has a grab-handle at the sidebar/map boundary instead of the
+  // desktop chevron. Same setCompact() either way.
+  document.getElementById('sidebar-handle')
+    .addEventListener('click', () => setCompact(!compactMode));
   applyCompactMode();
 
   // ---- airports overlay ----
