@@ -331,6 +331,7 @@ import { createWatchlist } from './watchlist.js';
           `<code class="pop-icao"></code>` +
           `<span class="pop-emergency"></span>` +
           `<span class="pop-ground" hidden>ON GROUND</span>` +
+          `<span class="pop-signal-lost" hidden>SIGNAL LOST</span>` +
         `</div>` +
         `<div class="panel-subline pop-reg-line" hidden><span class="pop-reg"></span></div>` +
         `<div class="panel-subline pop-manuf-line" hidden><span class="pop-manuf"></span></div>` +
@@ -431,6 +432,7 @@ import { createWatchlist } from './watchlist.js';
       emEl.textContent = '';
     }
     q('.pop-ground').hidden = !a.on_ground;
+    q('.pop-signal-lost').hidden = !a.lost;
 
     // Registration line (tar1090-db's registration + aircraft_db's long
     // type name — usually "G-ABCD · Airbus A319-111").
@@ -769,6 +771,8 @@ import { createWatchlist } from './watchlist.js';
         };
         aircraft.set(a.icao, entry);
       } else {
+        // Back from the dead — strip the lost state before updating.
+        if (entry.lost) unmarkEntryLost(entry);
         entry.marker.setLatLng([a.lat, a.lon]);
         entry.marker.setIcon(icon);
       }
@@ -800,15 +804,31 @@ import { createWatchlist } from './watchlist.js';
       if (entry) panToFollowed(entry.marker.getLatLng(), { animate: false });
     }
 
-    // Drop aircraft no longer reported
+    // Drop aircraft no longer reported. The currently-selected aircraft
+    // gets special treatment: we retain its entry + marker + trail in a
+    // "signal lost" state so the detail panel stays open with its last
+    // known data. Closing the panel (or the plane coming back in a
+    // later snapshot) is what tears the stale entry down.
     for (const [icao, entry] of aircraft.entries()) {
       if (!seen.has(icao)) {
         if (hoveredFromListIcao === icao) { hoveredFromListIcao = null; setHoverHalo(null); }
-        if (hoveredFromMapIcao  === icao) hoveredFromMapIcao  = null;
-        if (selectedIcao === icao) closeDetailPanel();
+        if (hoveredFromMapIcao === icao) hoveredFromMapIcao = null;
+        if (selectedIcao === icao) {
+          markEntryLost(entry);
+          continue;
+        }
         map.removeLayer(entry.marker);
         map.removeLayer(entry.trail);
         aircraft.delete(icao);
+      }
+    }
+    // Keep the panel's Age/first-seen fields ticking even when no new
+    // data is arriving for the selected aircraft, so the user can see
+    // how long ago the signal was lost.
+    if (selectedIcao && detailPanelContent && !seen.has(selectedIcao)) {
+      const lostEntry = aircraft.get(selectedIcao);
+      if (lostEntry) {
+        updatePopupContent(detailPanelContent, lostEntry.data, snap.now, snap.airports);
       }
     }
 
@@ -1084,16 +1104,50 @@ import { createWatchlist } from './watchlist.js';
     }, 220);
     const entry = aircraft.get(icao);
     if (entry) {
-      const a = entry.data;
-      entry.marker.setIcon(
-        planeIcon(a.track, altColor(a.altitude), false, !!a.emergency, a.type_icao),
-      );
+      if (entry.lost) {
+        // The panel was keeping a timed-out aircraft alive so the user
+        // could read its last-known data. Now that they've closed it,
+        // finish tearing down: marker + trail go, the entry leaves the
+        // Map, sidebar rows stop surfacing it.
+        map.removeLayer(entry.marker);
+        map.removeLayer(entry.trail);
+        aircraft.delete(icao);
+      } else {
+        const a = entry.data;
+        entry.marker.setIcon(
+          planeIcon(a.track, altColor(a.altitude), false, !!a.emergency, a.type_icao),
+        );
+      }
     }
     document.querySelectorAll('.ac-item').forEach(el => {
       if (el.dataset.icao === icao) el.classList.remove('selected');
     });
     followSelected = false;
     applyFollowState();
+  }
+
+  // Freeze the selected aircraft's client-side state when it times out
+  // on the server. The marker fades (.ac-stale), Follow disengages
+  // (nothing live to track), and the panel sprouts a SIGNAL LOST pill.
+  // If the same aircraft reappears in a later snapshot unmarkEntryLost()
+  // puts everything back.
+  function markEntryLost(entry) {
+    if (entry.lost) return;
+    entry.lost = true;
+    entry.data = { ...entry.data, lost: true };
+    const el = entry.marker.getElement();
+    if (el) el.classList.add('ac-stale');
+    if (followSelected) {
+      followSelected = false;
+      applyFollowState();
+    }
+  }
+  function unmarkEntryLost(entry) {
+    if (!entry.lost) return;
+    entry.lost = false;
+    if (entry.data.lost) entry.data = { ...entry.data, lost: false };
+    const el = entry.marker.getElement();
+    if (el) el.classList.remove('ac-stale');
   }
 
   document.getElementById('detail-close').addEventListener('click', closeDetailPanel);

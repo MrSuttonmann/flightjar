@@ -499,6 +499,17 @@
     background: #374151; color: #e5e7eb; letter-spacing: 0.5px;
     font-weight: 600;
   }
+  /* Appears in the panel title row when the server has timed the
+     aircraft out but the panel is still showing its last-known data. */
+  .pop-signal-lost {
+    font-size: 9px; padding: 1px 5px; border-radius: 3px;
+    background: #4a1818; color: #fecaca; letter-spacing: 0.5px;
+    font-weight: 600;
+  }
+  /* Map markers for aircraft whose signal dropped. Desaturated + dimmed
+     so they visibly recede while the panel's still keeping their state
+     around. */
+  .leaflet-marker-icon.ac-stale { filter: grayscale(1) opacity(0.55); }
 
   .panel-mini-label { font-size: 9px; color: var(--muted);
                       text-transform: uppercase; letter-spacing: 0.6px;
