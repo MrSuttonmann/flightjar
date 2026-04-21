@@ -58,29 +58,31 @@
                  background: #fbbf24; border: 1.5px solid #0e1116;
                  box-shadow: 0 0 0 1px #fbbf24; margin: 1px; }
   /* Zoom control lives bottom-left now, so the top-left corner is free. */
-  /* Single sidebar toggle. Sits inside the sidebar top-right by default
-     (so it doesn't steal map real estate), slides to the viewport's
-     top-left when compact-mode hides the sidebar, and shifts further
-     right again when the detail panel is open in compact mode — any
-     other position would sit behind the panel. The chevron flips via
-     CSS scaleX to reflect open / closed state. */
+  /* Desktop sidebar toggle — a vertical pill straddling the sidebar/map
+     boundary, vertically centred. Twin of the mobile #sidebar-handle
+     (horizontal pill on the sidebar/map boundary there). Chevron points
+     left when sidebar is visible and flips via CSS scaleX in compact
+     mode. Slides further right in compact+panel-open so it clears the
+     detail panel's right edge. */
   #sidebar-toggle {
-    position: fixed; top: 10px; left: 288px; z-index: 1100;
-    width: 28px; height: 28px; padding: 0;
+    position: fixed; left: 309px; top: 50%; z-index: 1100;
+    transform: translateY(-50%);
+    width: 22px; height: 64px; padding: 0;
     display: inline-flex; align-items: center; justify-content: center;
     background: var(--panel); color: var(--muted);
-    border: 1px solid var(--border); border-radius: 4px;
+    border: 1px solid var(--border); border-radius: 11px;
     font-family: inherit; cursor: pointer;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
     transition: left 0.22s ease, color 0.15s ease, background 0.15s ease;
   }
   #sidebar-toggle:hover { color: var(--text); background: #1d222b; }
-  /* display:block strips the inline SVG's baseline descender — without
-     it the glyph sits ~2px too low inside the flex-centred button. */
   #sidebar-toggle svg { display: block; transition: transform 0.22s ease; }
-  body.compact-mode #sidebar-toggle { left: 10px; }
+  body.compact-mode #sidebar-toggle {
+    left: -11px;
+    border-left: 0; border-radius: 0 11px 11px 0;
+  }
   body.compact-mode #sidebar-toggle svg { transform: scaleX(-1); }
-  body.compact-mode #app.panel-open ~ #sidebar-toggle { left: 382px; }
+  body.compact-mode #app.panel-open ~ #sidebar-toggle { left: 359px; }
 
   /* Default-hidden; the mobile media query below flips it to flex. */
   #sidebar-handle { display: none; }

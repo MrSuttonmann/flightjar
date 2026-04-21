@@ -179,12 +179,15 @@
 </dialog>
 </div>
 
+<!-- Desktop sidebar toggle: a vertical pill sitting on the sidebar/map
+     boundary, mirroring the horizontal mobile handle (#sidebar-handle).
+     Chevron points left when the sidebar's visible (tap to collapse
+     leftward) and flips via CSS scaleX in compact mode. -->
 <button id="sidebar-toggle" type="button" aria-label="Toggle sidebar">
-  <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"
-       fill="none" stroke="currentColor" stroke-width="1.8"
+  <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"
+       fill="none" stroke="currentColor" stroke-width="2"
        stroke-linecap="round" stroke-linejoin="round">
-    <polyline points="12 4 6 10 12 16"/>
-    <polyline points="17 4 11 10 17 16"/>
+    <polyline points="13 5 7 10 13 15"/>
   </svg>
 </button>
 
