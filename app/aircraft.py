@@ -11,6 +11,7 @@ import logging
 import math
 import time
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -151,6 +152,10 @@ class AircraftRegistry:
         self.receiver_info = receiver_info
         self.site_name = site_name
         self.aircraft_db = aircraft_db
+        # Optional (icao, ts) callback fired whenever _get creates a fresh
+        # entry. main.py wires this to the traffic heatmap so every new
+        # tail sighting bumps the right day/hour bucket.
+        self.on_new_aircraft: Callable[[str, float], None] | None = None
 
     # -------- ingest --------
 
@@ -187,6 +192,11 @@ class AircraftRegistry:
         if ac is None:
             ac = Aircraft(icao=icao, first_seen=time.time())
             self.aircraft[icao] = ac
+            if self.on_new_aircraft:
+                try:
+                    self.on_new_aircraft(icao, ac.first_seen)
+                except Exception as e:
+                    log.debug("on_new_aircraft callback failed: %s", e)
         return ac
 
     def _ingest_adsb(self, r: dict, msg: str, now: float, mlat_ticks: int | None = None) -> bool:

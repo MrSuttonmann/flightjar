@@ -1374,14 +1374,65 @@ import { createWatchlist } from './watchlist.js';
 
   async function refreshServerStats() {
     try {
-      const [s, c] = await Promise.all([
+      const [s, c, h] = await Promise.all([
         fetch('/api/stats').then(r => r.ok ? r.json() : null),
         fetch('/api/coverage').then(r => r.ok ? r.json() : null),
+        fetch('/api/heatmap').then(r => r.ok ? r.json() : null),
       ]);
-      statsServerInfo = { stats: s, coverage: c };
+      statsServerInfo = { stats: s, coverage: c, heatmap: h };
     } catch (e) {
       console.warn('stats fetch failed', e);
     }
+  }
+
+  // SVG heatmap of weekday (rows) × hour-of-day (cols). Cells are
+  // tinted with the accent colour at an alpha proportional to their
+  // share of the busiest cell; zero cells render as a faint baseline
+  // so the grid structure is visible even before the receiver has
+  // racked up much history.
+  function renderTrafficHeatmap(data) {
+    const el = document.getElementById('stats-heatmap');
+    if (!el) return;
+    const grid = data?.grid;
+    const labels = data?.day_labels || ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    if (!Array.isArray(grid) || grid.length !== 7) {
+      el.innerHTML = '<div class="heatmap-empty">awaiting traffic data</div>';
+      return;
+    }
+    const max = Math.max(1, ...grid.flat());
+    const CELL_W = 14, CELL_H = 14, GAP = 2;
+    const LABEL_W = 30, TOP = 14;
+    const W = LABEL_W + 24 * (CELL_W + GAP);
+    const H = TOP + 7 * (CELL_H + GAP);
+    let out =
+      `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" ` +
+      `width="100%" height="auto">`;
+    // Hour labels, every 3rd hour (0, 3, 6, …).
+    for (let h = 0; h < 24; h += 3) {
+      const x = LABEL_W + h * (CELL_W + GAP) + CELL_W / 2;
+      out +=
+        `<text x="${x}" y="10" text-anchor="middle" ` +
+        `font-size="8" fill="currentColor" opacity="0.55">${h}</text>`;
+    }
+    for (let d = 0; d < 7; d++) {
+      const y = TOP + d * (CELL_H + GAP);
+      out +=
+        `<text x="${LABEL_W - 4}" y="${y + CELL_H - 3}" text-anchor="end" ` +
+        `font-size="9" fill="currentColor" opacity="0.55">${labels[d]}</text>`;
+      for (let h = 0; h < 24; h++) {
+        const count = grid[d][h] || 0;
+        const x = LABEL_W + h * (CELL_W + GAP);
+        const intensity = count / max;
+        const alpha = count === 0 ? 0.06 : (0.15 + intensity * 0.85).toFixed(2);
+        out +=
+          `<rect x="${x}" y="${y}" width="${CELL_W}" height="${CELL_H}" ` +
+          `rx="2" ry="2" fill="var(--accent)" fill-opacity="${alpha}">` +
+          `<title>${labels[d]} ${String(h).padStart(2, '0')}:00 — ${count}</title>` +
+          `</rect>`;
+      }
+    }
+    out += '</svg>';
+    el.innerHTML = out;
   }
 
   function renderStats(snap) {
@@ -1405,6 +1456,8 @@ import { createWatchlist } from './watchlist.js';
     // Current rate from the msg-rate element (computed from frame diffs).
     document.getElementById('stats-rate').textContent =
       document.getElementById('msg-rate').textContent || '—';
+
+    renderTrafficHeatmap(statsServerInfo?.heatmap);
 
     // Polar coverage summary.
     const bearings = statsServerInfo?.coverage?.bearings ?? [];

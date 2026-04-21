@@ -26,6 +26,7 @@ from .beast import iter_frames
 from .config import Config
 from .coverage import PolarCoverage
 from .flight_routes import AdsbdbClient
+from .heatmap import TrafficHeatmap
 from .persistence import load_state, save_state
 from .photos import PlanespottersClient
 
@@ -244,6 +245,7 @@ def build_snapshot(now: float | None = None) -> dict:
         if ac.get("lat") is not None and ac.get("lon") is not None:
             coverage.observe(ac["lat"], ac["lon"])
     coverage.maybe_persist(interval=60.0)
+    heatmap.maybe_persist(interval=60.0)
     if adsbdb.enabled:
         referenced_airports: set[str] = set()
         for ac in snap["aircraft"]:
@@ -344,6 +346,12 @@ coverage = PolarCoverage(
     receiver_lon=cfg.lon_ref,
     cache_path=COVERAGE_CACHE_PATH,
 )
+
+HEATMAP_CACHE_PATH = Path(cfg.jsonl_path).parent / "heatmap.json" if cfg.jsonl_path else None
+heatmap = TrafficHeatmap(cache_path=HEATMAP_CACHE_PATH)
+# Every time the registry creates a fresh Aircraft, bump the heatmap's
+# (weekday, hour) bucket for the first-seen timestamp.
+registry.on_new_aircraft = lambda _icao, ts: heatmap.observe(ts)
 
 
 async def aircraft_db_refresher():
@@ -596,6 +604,24 @@ async def api_coverage():
 async def api_coverage_reset():
     """Reset all bearing buckets to zero — useful after moving antennas."""
     coverage.reset()
+    return {"ok": True}
+
+
+@app.get("/api/heatmap", summary="New-aircraft counts by weekday x hour")
+async def api_heatmap():
+    """Return a 7x24 traffic grid plus marginal totals.
+
+    Bumped once per new Aircraft record the registry creates, so a
+    tail that pops in and out of coverage within a session is counted
+    once. Kept on disk in /data/heatmap.json so history survives
+    restarts; POST /api/heatmap/reset wipes it.
+    """
+    return heatmap.snapshot()
+
+
+@app.post("/api/heatmap/reset", summary="Clear the traffic heatmap")
+async def api_heatmap_reset():
+    heatmap.reset()
     return {"ok": True}
 
 

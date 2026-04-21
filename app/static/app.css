@@ -285,6 +285,15 @@
                      border: 1px solid var(--border); border-radius: 4px;
                      padding: 0; color: var(--muted); }
   #stats-sparkline svg { display: block; width: 100%; height: 100%; }
+  #stats-heatmap { display: block; width: 100%;
+                   background: rgba(255, 255, 255, 0.03);
+                   border: 1px solid var(--border); border-radius: 4px;
+                   padding: 6px 8px; color: var(--text); }
+  #stats-heatmap svg { display: block; width: 100%; height: auto; }
+  #stats-heatmap .heatmap-empty {
+    text-align: center; font-size: 11px; color: var(--muted);
+    padding: 20px 0; font-style: italic;
+  }
   .ac-item { position: relative; padding: 8px 14px; border-bottom: 1px solid var(--border);
              cursor: pointer; font-size: 12px; line-height: 1.4; }
   .ac-item:hover, .ac-item.peek { background: #1d222b; }
