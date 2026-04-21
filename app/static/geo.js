@@ -13,6 +13,26 @@ export function haversineKm(lat1, lon1, lat2, lon2) {
   return 2 * EARTH_KM * Math.asin(Math.min(1, Math.sqrt(a)));
 }
 
+// Sum of great-circle distances between consecutive trail points.
+// Accepts trail entries of shape `[lat, lon, ...]` — extra fields are
+// ignored. Gap-flagged segments (spanning a signal-lost period) are
+// included because the endpoints are real fixes and the straight-line
+// between them is the best available estimate of the ground path
+// flown during the silence. Returns 0 for empty / single-point trails.
+export function trailDistanceKm(trail) {
+  if (!Array.isArray(trail) || trail.length < 2) return 0;
+  let total = 0;
+  for (let i = 1; i < trail.length; i++) {
+    const a = trail[i - 1];
+    const b = trail[i];
+    if (!a || !b) continue;
+    const la = a[0], oa = a[1], lb = b[0], ob = b[1];
+    if (la == null || oa == null || lb == null || ob == null) continue;
+    total += haversineKm(la, oa, lb, ob);
+  }
+  return total;
+}
+
 // Returns { pct, etaMinutes, flownKm, remainingKm } for a flight between two
 // airports given the current position and groundspeed. Returns null when any
 // input is missing or the plane is going too slowly to compute a meaningful

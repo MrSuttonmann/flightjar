@@ -734,11 +734,20 @@
   /* Flight-phase colouring. Climb green, descent amber, approach red-ish,
      cruise neutral, taxi muted. Used on both the detail-panel badge and
      the sidebar corner chip. */
-  .phase-taxi     { background: rgba(148, 163, 184, 0.14); color: #cbd5e1; }
-  .phase-climb    { background: rgba(110, 231, 183, 0.15); color: #6ee7b7; }
-  .phase-cruise   { background: rgba(93, 168, 255, 0.13);  color: #a5c9ff; }
-  .phase-descent  { background: rgba(251, 191, 36, 0.13);  color: #fbbf24; }
-  .phase-approach { background: rgba(248, 113, 113, 0.17); color: #fca5a5; }
+  /* Phase tints — applied to both the detail panel (on a .badge
+     pill) and the sidebar (on a .phase-chip). Each rule sets
+     background + text + border so the colour picks through the
+     badge's default border instead of clashing with it. */
+  .phase-taxi     { background: rgba(148, 163, 184, 0.14); color: #cbd5e1;
+                    border-color: rgba(148, 163, 184, 0.35); }
+  .phase-climb    { background: rgba(110, 231, 183, 0.15); color: #6ee7b7;
+                    border-color: rgba(110, 231, 183, 0.35); }
+  .phase-cruise   { background: rgba(93, 168, 255, 0.13);  color: #a5c9ff;
+                    border-color: rgba(93, 168, 255, 0.35); }
+  .phase-descent  { background: rgba(251, 191, 36, 0.13);  color: #fbbf24;
+                    border-color: rgba(251, 191, 36, 0.40); }
+  .phase-approach { background: rgba(248, 113, 113, 0.17); color: #fca5a5;
+                    border-color: rgba(248, 113, 113, 0.40); }
   .pop-ground {
     font-size: 9px; padding: 1px 5px; border-radius: 3px;
     background: #374151; color: #e5e7eb; letter-spacing: 0.5px;
@@ -849,7 +858,7 @@
 
   /* Reception stats strip — same card style as the metric cells. */
   .panel-stats {
-    display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
     padding-top: 8px; border-top: 1px solid var(--border);
   }
   .panel-stats .stat {
@@ -861,6 +870,201 @@
     text-transform: uppercase; letter-spacing: 0.6px;
   }
   .panel-stats .stat-val { font-size: 12px; color: var(--text); }
+
+  /* ========== Easter eggs ========== */
+
+  /* Discrete flags for notable tails + military hex blocks. Same
+     height and font as the emergency label so they sit inline with
+     callsign / flag without pushing the row taller. */
+  .notable-tag { font-size: 13px; vertical-align: -1px; }
+  .mil-chip {
+    display: inline-block; font-size: 9px; font-weight: 700;
+    letter-spacing: 0.6px; padding: 1px 5px; border-radius: 3px;
+    background: rgba(164, 180, 204, 0.18); color: #a4b4cc;
+    border: 1px solid rgba(164, 180, 204, 0.35);
+    vertical-align: middle; margin-left: 4px;
+  }
+  .pop-notable {
+    font-size: 10px; padding: 1px 6px; border-radius: 10px;
+    background: rgba(167, 139, 250, 0.18); color: #c4b5fd;
+    border: 1px solid rgba(167, 139, 250, 0.4);
+    letter-spacing: 0.3px; margin-left: 4px;
+  }
+  .first-of-day-tag { font-size: 13px; vertical-align: -1px; }
+  .pop-first-today {
+    font-size: 10px; padding: 1px 6px; border-radius: 10px;
+    background: rgba(251, 191, 36, 0.18); color: #fbbf24;
+    border: 1px solid rgba(251, 191, 36, 0.40);
+    letter-spacing: 0.3px; margin-left: 4px;
+  }
+
+  /* Wright Brothers Day note inside the About dialog on Dec 17. */
+  .egg-wright-note {
+    font-size: 12px; color: var(--muted);
+    background: rgba(93, 168, 255, 0.08);
+    border-left: 3px solid var(--accent);
+    padding: 6px 10px; border-radius: 3px;
+    margin: 0 0 10px;
+  }
+
+  /* Christmas Eve snowfall — sparse falling-flake layer over the map.
+     pointer-events:none so it never intercepts clicks or scrolls. */
+  .egg-snow {
+    position: absolute; inset: 0; overflow: hidden;
+    pointer-events: none; z-index: 450;
+  }
+  .egg-snowflake {
+    position: absolute; top: -10px; font-size: 14px;
+    color: rgba(255, 255, 255, 0.65);
+    animation: egg-snow-fall linear infinite;
+    will-change: transform, opacity;
+  }
+  @keyframes egg-snow-fall {
+    0%   { transform: translateY(-10px) rotate(0deg);   opacity: 0; }
+    10%  { opacity: 0.9; }
+    100% { transform: translateY(105vh) rotate(220deg); opacity: 0; }
+  }
+
+  /* Toast host — floating stack of auto-dismissing notifications.
+     Positioned below Leaflet's top-right layer control so toasts
+     don't sit under the 'folded map' icon. Very high z-index to
+     sit above every other surface (tooltips, dialogs, overlays).
+     The host itself is click-through (pointer-events:none); each
+     toast re-enables events so click-to-dismiss still works. */
+  #toast-host { position: fixed; top: 56px; right: 14px; z-index: 10001;
+                display: flex; flex-direction: column; gap: 10px;
+                pointer-events: none; max-width: 360px; }
+
+  /* Each toast is a row: icon badge | message body | absolute-
+     positioned progress bar underneath. Glass background
+     (backdrop-filter) with a subtle white highlight border and a
+     level-coloured soft glow in the shadow. */
+  .toast {
+    pointer-events: auto; cursor: pointer;
+    position: relative; overflow: hidden;
+    display: grid; grid-template-columns: auto 1fr;
+    gap: 10px; align-items: center;
+    padding: 10px 14px; min-width: 240px;
+    border-radius: 10px;
+    background: rgba(22, 26, 34, 0.82);
+    -webkit-backdrop-filter: blur(14px) saturate(1.2);
+    backdrop-filter: blur(14px) saturate(1.2);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    color: var(--text); font-size: 13px; line-height: 1.4;
+    font-weight: 500;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.55),
+                0 0 16px rgba(93, 168, 255, 0.14);
+    opacity: 0; transform: translateY(-8px);
+    transition: opacity 0.22s ease,
+                transform 0.28s cubic-bezier(0.2, 0.9, 0.3, 1);
+  }
+  .toast.visible { opacity: 1; transform: translateY(0); }
+  .toast.leaving { opacity: 0; transform: translateY(-6px) scale(0.98); }
+
+  /* Round-badge icon glyph. Level classes below re-tint its bg +
+     colour to match the message level. */
+  .toast-icon {
+    width: 24px; height: 24px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 700; line-height: 1;
+    background: rgba(93, 168, 255, 0.22);
+    color: #5fa8ff;
+    flex-shrink: 0;
+  }
+  .toast-body { min-width: 0; }
+
+  /* Auto-dismiss progress bar — CSS animation driven by the
+     --toast-duration custom property set from toast.js. */
+  .toast-progress {
+    position: absolute; left: 0; bottom: 0;
+    height: 2px; width: 100%;
+    transform-origin: left center;
+    background: var(--accent); opacity: 0.6;
+    animation: toast-progress var(--toast-duration, 4000ms) linear forwards;
+  }
+  @keyframes toast-progress {
+    from { transform: scaleX(1); }
+    to   { transform: scaleX(0); }
+  }
+
+  /* Level tints — shared shape between the badge and the progress
+     bar so the colour reads at both ends of the toast. */
+  .toast-info    .toast-icon { background: rgba(93, 168, 255, 0.22); color: #9ec5ff; }
+  .toast-info    .toast-progress { background: #5fa8ff; }
+  .toast-success .toast-icon { background: rgba(110, 231, 183, 0.24); color: #6ee7b7; }
+  .toast-success .toast-progress { background: #6ee7b7; }
+  .toast-success { box-shadow: 0 12px 30px rgba(0, 0, 0, 0.55),
+                               0 0 18px rgba(110, 231, 183, 0.18); }
+  .toast-warn    .toast-icon { background: rgba(251, 191, 36, 0.25); color: #fbbf24; }
+  .toast-warn    .toast-progress { background: #fbbf24; }
+  .toast-warn { color: #fde68a;
+                box-shadow: 0 12px 30px rgba(0, 0, 0, 0.55),
+                            0 0 20px rgba(251, 191, 36, 0.22); }
+  .toast-egg     .toast-icon { background: linear-gradient(135deg,
+                                 rgba(167, 139, 250, 0.35),
+                                 rgba(93, 168, 255, 0.35));
+                               color: #e9d5ff; }
+  .toast-egg     .toast-progress { background: linear-gradient(90deg, #c4b5fd, #5fa8ff); }
+  .toast-egg { box-shadow: 0 12px 30px rgba(0, 0, 0, 0.55),
+                           0 0 24px rgba(167, 139, 250, 0.25); }
+
+  /* Konami party mode — brief hue-rotate on the most visible coloured
+     surfaces. Clears after a few seconds; the JS side owns the timer. */
+  body.egg-party .alt-legend-bar,
+  body.egg-party .leaflet-overlay-pane canvas {
+    animation: egg-party-hue 1.2s linear infinite;
+  }
+  @keyframes egg-party-hue {
+    0%   { filter: hue-rotate(0deg); }
+    100% { filter: hue-rotate(360deg); }
+  }
+
+  /* Barrel roll — applied to #map for ~1s. translateZ(0) is there to
+     promote it to its own compositor layer so the rotation is cheap. */
+  #map.egg-barrel-roll {
+    animation: egg-barrel-roll 1s ease-in-out;
+    transform-origin: 50% 50%;
+  }
+  @keyframes egg-barrel-roll {
+    from { transform: rotate(0deg) translateZ(0); }
+    to   { transform: rotate(360deg) translateZ(0); }
+  }
+
+  /* Session-stats card — floats centred, semi-modal (click outside or
+     Escape to dismiss; eggs.js owns the lifecycle). */
+  .egg-session-card {
+    position: fixed; top: 50%; left: 50%;
+    transform: translate(-50%, -50%); z-index: 2500;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 6px; padding: 14px 18px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.55);
+    min-width: 260px; font-size: 13px;
+    animation: egg-card-in 0.22s ease;
+  }
+  @keyframes egg-card-in {
+    from { opacity: 0; transform: translate(-50%, -46%); }
+    to   { opacity: 1; transform: translate(-50%, -50%); }
+  }
+  .egg-session-head {
+    display: flex; justify-content: space-between; align-items: center;
+    font-weight: 600; color: var(--text); margin-bottom: 8px;
+    padding-bottom: 6px; border-bottom: 1px solid var(--border);
+  }
+  .egg-session-close {
+    background: transparent; border: 0; color: var(--muted);
+    font-size: 20px; line-height: 1; cursor: pointer;
+    padding: 0 4px;
+  }
+  .egg-session-close:hover { color: var(--text); }
+  .egg-session-body { margin: 0; display: grid;
+                      grid-template-columns: 1fr 1fr; gap: 10px 16px; }
+  .egg-session-body > div { display: flex; flex-direction: column; }
+  .egg-session-body dt { font-size: 9px; color: var(--muted);
+                         text-transform: uppercase; letter-spacing: 0.6px;
+                         margin: 0; }
+  .egg-session-body dd { margin: 2px 0 0;
+                         font-size: 15px; font-weight: 600;
+                         font-variant-numeric: tabular-nums; }
 
   @media (max-width: 600px) {
     #app {

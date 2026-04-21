@@ -15,8 +15,11 @@ import {
 } from './profile.js';
 import { initAirportTooltip } from './tooltip.js';
 import { createWatchlist } from './watchlist.js';
-import { flightProgress } from './geo.js';
+import { flightProgress, trailDistanceKm } from './geo.js';
 import { initAlertsDialog } from './alerts_dialog.js';
+import { initEggs } from './eggs.js';
+import { showToast } from './toast.js';
+import { isNotable, militaryLabel } from './notable_aircraft.js';
 
 (() => {
   const map = L.map('map', { worldCopyJump: true, zoomControl: false })
@@ -192,6 +195,70 @@ import { initAlertsDialog } from './alerts_dialog.js';
   let firstUpdate = true;
   let lastSnap = null;
   let lastSnapAt = 0;  // Date.now() of the most recent snapshot, for the heartbeat.
+
+  // Session-scoped counters for the egg-unlocked logo-click stats
+  // card. sessionSeenSet is a union of every icao we've ever seen
+  // (never cleared on eviction), sessionStartFrames is the initial
+  // snap.frames value so we can show messages-since-page-load, and
+  // sessionMaxRangeKm tracks the greatest `distance_km` we observed
+  // this session. All three are updated in `update(snap)` below.
+  const sessionSeenSet = new Set();
+  let sessionStartFrames = null;
+  let sessionMaxRangeKm = 0;
+  // Greatest `trailDistanceKm(entry.clientTrail)` observed this
+  // session. Updated per-tick per-aircraft so we capture the final
+  // length even if a plane later leaves coverage and is evicted from
+  // the `aircraft` map.
+  let sessionLongestTrailKm = 0;
+  // Notable-aircraft toasts fire once per session per icao so
+  // re-entries through coverage don't re-fire.
+  const notableAnnounced = new Set();
+  // Rate limit on range-record toasts — coverage records come in bursts
+  // at startup and we only want a handful on screen, not dozens.
+  const RANGE_RECORD_THROTTLE_MS = 60_000;
+  let lastRangeRecordToastAt = 0;
+  // Per-aircraft cooldown for go-around toasts so a plane that really
+  // does miss its approach and go around once doesn't re-fire across
+  // subsequent snapshots.
+  const GO_AROUND_COOLDOWN_MS = 5 * 60_000;
+  const goAroundFiredAt = new Map();
+  // "First sighting of the day" — the sidebar + detail panel tag this
+  // tail with a 🌅 badge until midnight local time rolls over. Persisted
+  // to localStorage so it survives page reloads.
+  const FIRST_OF_DAY_KEY = 'flightjar.firstOfDay';
+  function todaysLocalDate() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+  function readFirstOfDay() {
+    try {
+      const raw = localStorage.getItem(FIRST_OF_DAY_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.date === todaysLocalDate()) return parsed.icao || null;
+    } catch (_) { /* corrupt storage — ignore */ }
+    return null;
+  }
+  function claimFirstOfDay(icao) {
+    try {
+      localStorage.setItem(
+        FIRST_OF_DAY_KEY,
+        JSON.stringify({ date: todaysLocalDate(), icao }),
+      );
+    } catch (_) { /* storage disabled */ }
+  }
+  let firstOfDayIcao = readFirstOfDay();
+  function getSessionStats() {
+    const frames = lastSnap && sessionStartFrames != null
+      ? Math.max(0, lastSnap.frames - sessionStartFrames)
+      : 0;
+    return {
+      planesSeen: sessionSeenSet.size,
+      messages: frames,
+      maxRangeKm: sessionMaxRangeKm,
+      longestTrailKm: sessionLongestTrailKm,
+    };
+  }
   let receiverLayer = null;  // L.LayerGroup containing marker + optional anon circle
   let hoveredFromListIcao = null;  // icao currently hovered in the sidebar
   let hoveredFromMapIcao  = null;  // icao whose marker is currently hovered
@@ -357,6 +424,9 @@ import { initAlertsDialog } from './alerts_dialog.js';
           `<span class="pop-emergency"></span>` +
           `<span class="pop-ground" hidden>ON GROUND</span>` +
           `<span class="pop-signal-lost" hidden>SIGNAL LOST</span>` +
+          `<span class="pop-notable" hidden></span>` +
+          `<span class="pop-mil mil-chip" hidden>MIL</span>` +
+          `<span class="pop-first-today" hidden title="First contact today">🌅 First today</span>` +
         `</div>` +
         `<div class="panel-subline pop-reg-line" hidden><span class="pop-reg"></span></div>` +
         `<div class="panel-subline pop-manuf-line" hidden><span class="pop-manuf"></span></div>` +
@@ -412,8 +482,8 @@ import { initAlertsDialog } from './alerts_dialog.js';
           `<div class="val pop-lat"></div></div>` +
         `<div class="metric"><div class="label">Longitude</div>` +
           `<div class="val pop-lon"></div></div>` +
-        `<div class="metric"><div class="label">Age</div>` +
-          `<div class="val pop-age"></div></div>` +
+        `<div class="metric"><div class="label">Flown</div>` +
+          `<div class="val pop-path"></div></div>` +
       `</div>` +
       `<div class="panel-profile">` +
         `<div class="panel-mini-label">Altitude / speed profile (last 5 min)</div>` +
@@ -439,6 +509,8 @@ import { initAlertsDialog } from './alerts_dialog.js';
           `<span class="stat-val pop-signal"></span></div>` +
         `<div class="stat"><span class="stat-label">First seen</span>` +
           `<span class="stat-val pop-first-seen"></span></div>` +
+        `<div class="stat"><span class="stat-label">Last message</span>` +
+          `<span class="stat-val pop-age"></span></div>` +
       `</div>`;
     updatePopupContent(root, a, now, airports);
     return root;
@@ -470,6 +542,25 @@ import { initAlertsDialog } from './alerts_dialog.js';
     }
     q('.pop-ground').hidden = !a.on_ground;
     q('.pop-signal-lost').hidden = !a.lost;
+    // Notable / military chips — driven by the static tables in
+    // notable_aircraft.js. Both hidden when their lookup misses.
+    const notableChip = q('.pop-notable');
+    const notableHit = isNotable(a.icao, a.callsign);
+    if (notableHit) {
+      notableChip.textContent = `${notableHit.emoji} ${notableHit.name}`;
+      notableChip.hidden = false;
+    } else {
+      notableChip.hidden = true;
+    }
+    const milChip = q('.pop-mil');
+    const milHit = militaryLabel(a.icao);
+    if (milHit) {
+      milChip.title = milHit;
+      milChip.hidden = false;
+    } else {
+      milChip.hidden = true;
+    }
+    q('.pop-first-today').hidden = !(firstOfDayIcao && a.icao === firstOfDayIcao);
 
     // Registration line (tar1090-db's registration + aircraft_db's long
     // type name — usually "G-ABCD · Airbus A319-111").
@@ -542,14 +633,15 @@ import { initAlertsDialog } from './alerts_dialog.js';
     } else {
       catBadge.hidden = true;
     }
-    // Phase chip — same visual register as the sidebar's chip (uppercase
-    // UI font, coloured pill). Deliberately *not* sharing the .badge
-    // class used by type + category above, since phase is a state
-    // label rather than a code identifier.
+    // Phase pill — in the detail panel it sits beside the type +
+    // category badges, so it shares their .badge typography for
+    // consistent pill height and baseline. The .phase-* colour
+    // classes tint background + border on top. Text is title-cased
+    // to match 'Heavy', not shouted like the sidebar's corner chip.
     const phaseBadge = q('.pop-phase-badge');
     if (a.phase) {
-      phaseBadge.textContent = a.phase;
-      phaseBadge.className = `pop-phase-badge phase-chip phase-${a.phase}`;
+      phaseBadge.textContent = a.phase[0].toUpperCase() + a.phase.slice(1);
+      phaseBadge.className = `pop-phase-badge badge phase-${a.phase}`;
       phaseBadge.hidden = false;
     } else {
       phaseBadge.hidden = true;
@@ -641,7 +733,12 @@ import { initAlertsDialog } from './alerts_dialog.js';
     q('.pop-dist').textContent = uconv('dst', a.distance_km);
     q('.pop-lat').textContent = a.lat != null ? a.lat.toFixed(4) + '°' : '—';
     q('.pop-lon').textContent = a.lon != null ? a.lon.toFixed(4) + '°' : '—';
-    q('.pop-age').textContent = fmt(ageOf(a, now), 's', 1) + ' ago';
+    // Distance covered uses the client-accumulated trail for the
+    // selected aircraft (since first sighting this session) — falls
+    // back to the snapshot's rolling window if no entry exists yet.
+    const pathTrail = entry?.clientTrail?.length ? entry.clientTrail : (a.trail || []);
+    q('.pop-path').textContent = uconv('dst', trailDistanceKm(pathTrail));
+    q('.pop-age').textContent = fmt(ageOf(a, now), 's', 0) + ' ago';
 
     // Bottom section: altitude + speed profiles, external links, stats.
     renderAltProfile(q('.pop-alt-profile'), a.trail);
@@ -669,7 +766,11 @@ import { initAlertsDialog } from './alerts_dialog.js';
 
     q('.pop-msgs').textContent = a.msg_count.toLocaleString();
     q('.pop-signal').textContent = signalLabel(a.signal_peak);
-    q('.pop-first-seen').textContent = relativeAge(a.first_seen, now);
+    // Prefer the client-pinned earliest first_seen (see update()) so
+    // the value doesn't rewind when the server evicts + recreates the
+    // registry entry after a coverage gap.
+    const firstSeen = entry?.sessionFirstSeen || a.first_seen;
+    q('.pop-first-seen').textContent = relativeAge(firstSeen, now);
   }
 
   // Route string (e.g. "EGLL → KJFK") from snapshot fields. Returns '' when
@@ -731,6 +832,9 @@ import { initAlertsDialog } from './alerts_dialog.js';
   // Self-contained module — the footer button it wires up
   // (#alerts-btn) is always in the DOM.
   initAlertsDialog();
+  // Playful easter eggs (Konami, logo-click-7, barrel roll). Session
+  // stats come from trackers below and feed the logo-click card.
+  initEggs({ getSessionStats });
 
   // Merge the server's latest sliding-window trail into the entry's
   // unbounded client-side buffer. Server trails cap at TRAIL_MAX_POINTS
@@ -915,12 +1019,51 @@ import { initAlertsDialog } from './alerts_dialog.js';
   function update(snap) {
     lastSnap = snap;
     lastSnapAt = Date.now();
+    if (sessionStartFrames == null && typeof snap.frames === 'number') {
+      sessionStartFrames = snap.frames;
+    }
     renderReceiver(snap.receiver);
     const seen = new Set();
 
+    // Drain server-emitted one-shot events (coverage range records,
+    // etc.). Done per-snapshot so we pick up anything the server
+    // queued since the last WS push. Rate-limits inside each case so
+    // a burst doesn't avalanche the toast stack.
+    if (Array.isArray(snap.events) && snap.events.length) {
+      for (const ev of snap.events) {
+        if (ev && ev.type === 'range_record') {
+          const now = Date.now();
+          if (now - lastRangeRecordToastAt < RANGE_RECORD_THROTTLE_MS) continue;
+          lastRangeRecordToastAt = now;
+          const angle = String(Math.round(ev.angle ?? 0)).padStart(3, '0');
+          showToast(
+            `New range record: ${Math.round(ev.dist_km)} km at ${angle}°`,
+            { level: 'egg' },
+          );
+        }
+      }
+    }
+
     for (const a of snap.aircraft) {
       seen.add(a.icao);
-      if (a.lat == null || a.lon == null) continue;
+      sessionSeenSet.add(a.icao);
+      if (typeof a.distance_km === 'number' && a.distance_km > sessionMaxRangeKm) {
+        sessionMaxRangeKm = a.distance_km;
+      }
+      // Fire a one-off toast the first time a notable tail (static
+      // hex list or VIP callsign prefix) enters coverage this session.
+      if (!notableAnnounced.has(a.icao)) {
+        const notable = isNotable(a.icao, a.callsign);
+        if (notable) {
+          notableAnnounced.add(a.icao);
+          showToast(`${notable.emoji} ${notable.name} in coverage`, { level: 'egg' });
+        }
+      }
+      // Skip the map marker until we have both a position and a track.
+      // A trackless plane would render a silhouette pointing due north
+      // by default (the icon's rotate(0deg)), which is misleading —
+      // wait for a velocity message so the orientation is real.
+      if (a.lat == null || a.lon == null || a.track == null) continue;
 
       const color = altColor(a.altitude);
       const isSelected = a.icao === selectedIcao;
@@ -946,11 +1089,48 @@ import { initAlertsDialog } from './alerts_dialog.js';
           // first contact).
           clientTrail: [],
           hist: { alt: [], spd: [], dst: [] },
+          // Earliest first_seen we've ever seen for this ICAO on the
+          // page. The server's own first_seen resets when the registry
+          // evicts after 60s of silence, which would make the detail
+          // panel's "First seen" disagree with the trail the user is
+          // looking at. We pin the earliest value and never let it
+          // move forward.
+          sessionFirstSeen: a.first_seen || (snap.now || Date.now() / 1000),
+          // Previous phase string, for the go-around transition check.
+          prevPhase: a.phase || null,
         };
         aircraft.set(a.icao, entry);
+        // First trackable contact of the day: claim the slot if it's
+        // still empty. Trackless first-sightings would never be
+        // visually confirmable, so we wait for a positioned fix.
+        if (!firstOfDayIcao && a.track != null) {
+          firstOfDayIcao = a.icao;
+          claimFirstOfDay(a.icao);
+        }
       } else {
         // Back from the dead — strip the lost state before updating.
         if (entry.lost) unmarkEntryLost(entry);
+        // Track the earliest first_seen we've ever seen for this ICAO
+        // so the stat outlives server-side evictions.
+        if (a.first_seen && a.first_seen < entry.sessionFirstSeen) {
+          entry.sessionFirstSeen = a.first_seen;
+        }
+        // Go-around heuristic: phase flipped from approach -> climb.
+        // Cheap to check, cheap to be wrong (worst case is one
+        // false-positive toast every 5 min per aircraft).
+        if (
+          entry.prevPhase === 'approach' && a.phase === 'climb'
+          && !a.on_ground
+        ) {
+          const nowMs = Date.now();
+          const last = goAroundFiredAt.get(a.icao) || 0;
+          if (nowMs - last > GO_AROUND_COOLDOWN_MS) {
+            goAroundFiredAt.set(a.icao, nowMs);
+            const label = a.callsign || a.registration || a.icao.toUpperCase();
+            showToast(`⚠ Possible go-around: ${label}`, { level: 'warn' });
+          }
+        }
+        entry.prevPhase = a.phase || entry.prevPhase;
         entry.marker.setLatLng([a.lat, a.lon]);
         // setIcon() replaces the icon's DOM element. Leaflet's click
         // detection is DOM-bound (mousedown+mouseup must land on the
@@ -974,7 +1154,15 @@ import { initAlertsDialog } from './alerts_dialog.js';
 
       // Merge the incoming sliding-window trail into our unbounded
       // client-side buffer so the selected-plane view has full history.
+      const prevTrailLen = entry.clientTrail.length;
       mergeClientTrail(entry, a.trail);
+      // Update the session longest-trail tracker only when points
+      // actually got appended. Haversine summation is cheap but
+      // skipping the no-op ticks still trims a few per-second calls.
+      if (entry.clientTrail.length !== prevTrailLen) {
+        const d = trailDistanceKm(entry.clientTrail);
+        if (d > sessionLongestTrailKm) sessionLongestTrailKm = d;
+      }
       if (a.icao === selectedIcao && detailPanelContent) {
         updatePopupContent(detailPanelContent, a, snap.now, snap.airports);
       }
@@ -1164,11 +1352,23 @@ import { initAlertsDialog } from './alerts_dialog.js';
       const phaseChip = a.phase
         ? `<span class="phase-chip phase-${a.phase}">${a.phase}</span>`
         : '';
+      // Discreet flags for notable / military tails.
+      const notable = isNotable(a.icao, a.callsign);
+      const notableTag = notable
+        ? `<span class="notable-tag" title="${escapeHtml(notable.name)}">${notable.emoji}</span> `
+        : '';
+      const milLabel = militaryLabel(a.icao);
+      const milChip = milLabel
+        ? `<span class="mil-chip" title="${escapeHtml(milLabel)}">MIL</span>`
+        : '';
+      const firstOfDayTag = (firstOfDayIcao && a.icao === firstOfDayIcao)
+        ? `<span class="first-of-day-tag" title="First contact today">🌅</span> `
+        : '';
       return `
       <div class="${classes}" data-icao="${icao}">
         ${phaseChip}
         <div class="row1">
-          <span class="cs">${flagTag}${callsign} ${emergencyBadge}</span>
+          <span class="cs">${flagTag}${notableTag}${firstOfDayTag}${callsign} ${emergencyBadge} ${milChip}</span>
           <span class="icao">${sigBars}${subtitle || icao.toUpperCase()}</span>
         </div>
         ${airline ? `<div class="airline-row">${airline}</div>` : ''}
@@ -1531,8 +1731,30 @@ import { initAlertsDialog } from './alerts_dialog.js';
       aboutVersionEl.hidden = false;
     } catch (_) { /* leave the badge hidden */ }
   }
+  // Wright Brothers Day — slips a one-line historical note into the
+  // About dialog on Dec 17 only. 1903 was the first powered flight.
+  function maybePrependWrightBrothersNote() {
+    const d = new Date();
+    if (d.getMonth() !== 11 || d.getDate() !== 17) return;
+    if (aboutDialog.querySelector('.egg-wright-note')) return;
+    const years = d.getFullYear() - 1903;
+    const note = document.createElement('p');
+    note.className = 'egg-wright-note';
+    note.textContent =
+      `Today marks ${years} years since the Wright brothers' ` +
+      `first powered flight at Kitty Hawk. 🛩️`;
+    // Insert just after the <h2> so it reads before the body copy.
+    const h2 = aboutDialog.querySelector('h2');
+    if (h2 && h2.nextSibling) {
+      aboutDialog.insertBefore(note, h2.nextSibling);
+    } else {
+      aboutDialog.appendChild(note);
+    }
+  }
+
   document.getElementById('about-btn').addEventListener('click', async () => {
     await populateAboutVersion();
+    maybePrependWrightBrothersNote();
     if (typeof aboutDialog.showModal === 'function') {
       aboutDialog.showModal();
     } else {
@@ -1691,11 +1913,35 @@ import { initAlertsDialog } from './alerts_dialog.js';
     }
   }
 
+  // Poll /api/stats + /api/coverage + /api/heatmap while the stats
+  // dialog is open so uptime, frame counter, WS clients, coverage
+  // summary, BEAST status, and the traffic heatmap all live-update
+  // alongside the snapshot-driven fields. 3 s is slow enough not to
+  // hammer the endpoints and fast enough that the uptime field ticks
+  // naturally.
+  const STATS_REFRESH_INTERVAL_MS = 3000;
+  let statsRefreshTimer = null;
+
+  function stopStatsRefresh() {
+    if (statsRefreshTimer != null) {
+      clearInterval(statsRefreshTimer);
+      statsRefreshTimer = null;
+    }
+  }
+
+  statsDialog.addEventListener('close', stopStatsRefresh);
+
   document.getElementById('stats-btn').addEventListener('click', async () => {
     await refreshServerStats();
     renderStats(lastSnap);
     if (typeof statsDialog.showModal === 'function') statsDialog.showModal();
     else statsDialog.setAttribute('open', '');
+    stopStatsRefresh();
+    statsRefreshTimer = setInterval(async () => {
+      if (!statsDialog.open) { stopStatsRefresh(); return; }
+      await refreshServerStats();
+      renderStats(lastSnap);
+    }, STATS_REFRESH_INTERVAL_MS);
   });
   statsDialog.addEventListener('click', (e) => {
     const r = statsDialog.getBoundingClientRect();

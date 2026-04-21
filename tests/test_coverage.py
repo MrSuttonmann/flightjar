@@ -56,6 +56,36 @@ def test_reset_clears_all_buckets(tmp_path: Path):
     assert data["maxdist"] == [0.0] * BUCKETS
 
 
+def test_on_new_max_fires_only_when_bucket_grows(tmp_path: Path):
+    c = PolarCoverage(receiver_lat=52.0, receiver_lon=-1.0, cache_path=tmp_path / "cov.json")
+    events: list[tuple[float, float]] = []
+    c.on_new_max = lambda angle, dist: events.append((angle, dist))
+    # First observation sets a bucket max — fires.
+    c.observe(53.0, -1.0)  # ~111 km north
+    assert len(events) == 1
+    angle0, dist0 = events[0]
+    assert 0.0 <= angle0 < 10.0
+    assert 105 < dist0 < 115
+    # A closer fix in the same bucket doesn't grow the max — no event.
+    c.observe(52.5, -1.0)
+    assert len(events) == 1
+    # A further fix in the same bucket fires again.
+    c.observe(54.0, -1.0)
+    assert len(events) == 2
+
+
+def test_on_new_max_swallows_callback_errors(tmp_path: Path):
+    c = PolarCoverage(receiver_lat=52.0, receiver_lon=-1.0, cache_path=tmp_path / "cov.json")
+
+    def boom(_angle: float, _dist: float) -> None:
+        raise RuntimeError("nope")
+
+    c.on_new_max = boom
+    # Must not propagate — the max should still be set.
+    c.observe(53.0, -1.0)
+    assert c.maxdist[0] > 0
+
+
 def test_bad_cache_file_is_ignored(tmp_path: Path):
     path = tmp_path / "cov.json"
     path.write_text("not json")

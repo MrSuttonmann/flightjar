@@ -15,6 +15,7 @@ if they move antennas.
 import logging
 import math
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 log = logging.getLogger("beast.coverage")
@@ -61,6 +62,10 @@ class PolarCoverage:
         self.maxdist: list[float] = [0.0] * BUCKETS
         self._dirty = False
         self._last_persist = 0.0
+        # Optional (bearing_deg, dist_km) callback fired when a bucket
+        # gets a new max. main.py wires this up to push a "new range
+        # record" event into the snapshot so the frontend can toast it.
+        self.on_new_max: Callable[[float, float], None] | None = None
         self._load()
 
     def set_receiver(self, lat: float | None, lon: float | None) -> None:
@@ -79,6 +84,15 @@ class PolarCoverage:
         if dist > self.maxdist[bucket]:
             self.maxdist[bucket] = dist
             self._dirty = True
+            if self.on_new_max is not None:
+                try:
+                    # Emit the centre bearing of the bucket (not the
+                    # exact bearing of the fix) so repeated records in
+                    # the same bucket speak with one voice.
+                    angle = bucket * BUCKET_DEG + BUCKET_DEG / 2
+                    self.on_new_max(angle, dist)
+                except Exception as e:
+                    log.debug("coverage on_new_max callback failed: %s", e)
 
     def reset(self) -> None:
         self.maxdist = [0.0] * BUCKETS

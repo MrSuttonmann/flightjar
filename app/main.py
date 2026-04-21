@@ -346,6 +346,12 @@ def build_snapshot(now: float | None = None) -> dict:
             ac["operator_iata"] = None
             ac["operator_icao"] = None
             ac["operator_alliance"] = None
+    # Drain and emit any one-shot easter-egg events queued since the
+    # last tick (see `_record_range_event`). Queue is shared across WS
+    # clients — whoever collects it next wins the toast.
+    if _pending_egg_events:
+        snap["events"] = _pending_egg_events[:]
+        _pending_egg_events.clear()
     return snap
 
 
@@ -448,6 +454,26 @@ registry.on_new_aircraft = lambda _icao, ts: heatmap.observe(ts)
 # Every accepted position fix feeds the polar-coverage tracker; max-range-
 # per-bearing updates in real time as soon as new fixes are decoded.
 registry.on_position = coverage.observe
+
+# Short ring of one-shot events that need to surface on the live UI
+# without living on any aircraft (e.g. "new polar-coverage record").
+# `build_snapshot` drains into `snap["events"]` every tick, so events
+# queued between ticks fan out once and vanish. Bounded so a
+# disconnected client can't make the list grow unbounded.
+_EGG_EVENT_CAP = 20
+_pending_egg_events: list[dict[str, object]] = []
+
+
+def _record_range_event(angle: float, dist_km: float) -> None:
+    _pending_egg_events.append(
+        {"type": "range_record", "angle": round(angle, 1), "dist_km": round(dist_km, 1)}
+    )
+    if len(_pending_egg_events) > _EGG_EVENT_CAP:
+        # Drop oldest first — newer records are more interesting.
+        del _pending_egg_events[: len(_pending_egg_events) - _EGG_EVENT_CAP]
+
+
+coverage.on_new_max = _record_range_event
 
 
 async def aircraft_db_refresher():
