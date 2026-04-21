@@ -93,9 +93,16 @@
   }
   #sidebar-toggle:hover { color: var(--text); background: #1d222b; }
   #sidebar-toggle svg { display: block; transition: transform 0.22s ease; }
+  /* Flush with the viewport edge so the whole pill sits on top of the
+     map — earlier this was `left: -11px`, which buried half the pill
+     (and half the chevron) behind the screen edge and made it hard to
+     spot the affordance. Brighter chevron + stronger shadow help it
+     read against busy map tiles. */
   body.compact-mode #sidebar-toggle {
-    left: -11px;
+    left: 0;
     border-left: 0; border-radius: 0 11px 11px 0;
+    color: var(--text);
+    box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.5);
   }
   body.compact-mode #sidebar-toggle svg { transform: scaleX(-1); }
   body.compact-mode #app.panel-open ~ #sidebar-toggle { left: 359px; }
