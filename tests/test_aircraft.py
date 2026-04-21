@@ -6,7 +6,7 @@ field naming — they only validate our dispatch, state, and snapshot shaping.
 
 from unittest.mock import patch
 
-from app.aircraft import AIRCRAFT_TIMEOUT, AircraftRegistry, flight_phase
+from app.aircraft import AIRCRAFT_TIMEOUT, AircraftRegistry, flight_phase, is_plausible_route
 
 
 def fake_decode(msg, **kw):
@@ -529,6 +529,77 @@ def test_flight_phase_returns_none_when_indeterminate():
     assert flight_phase({"on_ground": False}) is None
     # Altitude below cruise floor but no vrate and no destination — nothing to say.
     assert flight_phase({"on_ground": False, "altitude": 5000}) is None
+
+
+# -------- route plausibility --------
+
+
+# Useful fixture coordinates.
+_BRU = {"lat": 50.90, "lon": 4.48}
+_FRA = {"lat": 50.03, "lon": 8.57}
+_LHR = {"lat": 51.47, "lon": -0.45}
+_JFK = {"lat": 40.64, "lon": -73.78}
+
+
+def test_plausible_route_accepts_midflight_on_course():
+    # Plane halfway between BRU and FRA, heading east toward FRA.
+    ac = {"lat": 50.5, "lon": 6.5, "track": 110, "on_ground": False}
+    assert is_plausible_route(ac, _BRU, _FRA) is True
+
+
+def test_plausible_route_rejects_bearing_pointing_away():
+    """BRU→FRA callsign applied to an aircraft flying WNW (e.g. out
+    over the Atlantic) — the plane's track is the opposite of the
+    bearing to FRA, so the route is a stale lookup."""
+    ac = {"lat": 51.0, "lon": 4.0, "track": 280, "on_ground": False}
+    assert is_plausible_route(ac, _BRU, _FRA) is False
+
+
+def test_plausible_route_rejects_aircraft_way_off_corridor():
+    """Plane over Iceland with a BRU→FRA label — both endpoints
+    are hundreds of km away, so the corridor gate trips."""
+    ac = {"lat": 64.0, "lon": -22.0, "track": 90, "on_ground": False}
+    assert is_plausible_route(ac, _BRU, _FRA) is False
+
+
+def test_plausible_route_accepts_approach_any_heading():
+    # Within 50 km of destination any track is fine (holds, missed
+    # approach, runway change). Plane is 10 km NW of FRA but heading
+    # SW — still plausible because we're essentially at the airport.
+    ac = {"lat": 50.10, "lon": 8.47, "track": 220, "on_ground": False}
+    assert is_plausible_route(ac, _BRU, _FRA) is True
+
+
+def test_plausible_route_accepts_takeoff_from_origin():
+    # Plane 20 km north of BRU turning onto course — small initial
+    # divergence from the bearing-to-destination is normal on
+    # departure and shouldn't be flagged.
+    ac = {"lat": 51.10, "lon": 4.50, "track": 140, "on_ground": False}
+    assert is_plausible_route(ac, _BRU, _FRA) is True
+
+
+def test_plausible_route_permissive_when_inputs_missing():
+    # No airport coords supplied — can't check, trust the route.
+    assert is_plausible_route({"lat": 50, "lon": 4, "track": 90}, None, _FRA) is True
+    assert is_plausible_route({"lat": 50, "lon": 4, "track": 90}, _BRU, None) is True
+    # Airport record has no lat/lon.
+    assert is_plausible_route({"lat": 50, "lon": 4}, {"name": "x"}, _FRA) is True
+    # Aircraft has no fix yet (fresh contact) — don't prejudge.
+    assert is_plausible_route({"track": 90, "on_ground": False}, _BRU, _FRA) is True
+
+
+def test_plausible_route_ignores_track_when_on_ground():
+    # Taxiing planes can be pointing any direction — skip the bearing
+    # check when on_ground is True.
+    ac = {"lat": 50.90, "lon": 4.48, "track": 200, "on_ground": True}
+    assert is_plausible_route(ac, _BRU, _FRA) is True
+
+
+def test_plausible_route_long_haul_midcourse_over_atlantic():
+    # LHR→JFK plane halfway across the Atlantic, tracking roughly
+    # west. Total leg ~5500 km; the corridor sum gate must not fire.
+    ac = {"lat": 51.0, "lon": -35.0, "track": 280, "on_ground": False}
+    assert is_plausible_route(ac, _LHR, _JFK) is True
 
 
 def test_dead_reckon_skipped_on_ground():

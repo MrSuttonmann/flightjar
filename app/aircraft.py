@@ -54,6 +54,85 @@ PHASE_CLIMB_VRATE = 500
 PHASE_CRUISE_ALT = 10000
 PHASE_APPROACH_DIST_KM = 50.0
 
+# Route-plausibility gates. adsbdb keys routes by callsign, which airlines
+# reuse on different sectors over the course of a day — so a stale entry
+# can paint (say) BRU→FRA onto a plane actually flying LHR→JFK. We
+# cross-check against the aircraft's real position and heading.
+#
+# ROUTE_BEARING_MAX_DELTA_DEG: a plane more than this many degrees off
+# the bearing-to-destination (and not near the airport) is almost
+# certainly on the wrong route. 135° lets departures, SIDs, and normal
+# course corrections pass.
+#
+# ROUTE_NEAR_DEST_KM: inside this bucket we accept any track (holds,
+# missed approach, taxi procedures).
+#
+# ROUTE_CORRIDOR_MULT / ROUTE_CORRIDOR_ABS_KM: geometric gate.
+# `origin->aircraft + aircraft->destination` on a legit great-circle
+# flight is close to the direct origin->destination distance. If the
+# aircraft's two-leg sum is larger than `max(mult * direct, direct +
+# abs)`, it's nowhere near the route corridor.
+ROUTE_BEARING_MAX_DELTA_DEG = 135.0
+ROUTE_NEAR_DEST_KM = 50.0
+ROUTE_CORRIDOR_MULT = 2.0
+ROUTE_CORRIDOR_ABS_KM = 300.0
+
+
+def _bearing_deg(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Initial bearing from (lat1, lon1) to (lat2, lon2) in degrees
+    (0 = N, 90 = E). Used only for plausibility checks; precision
+    beyond a degree or two doesn't matter."""
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    dlon = math.radians(lon2 - lon1)
+    y = math.sin(dlon) * math.cos(phi2)
+    x = math.cos(phi1) * math.sin(phi2) - math.sin(phi1) * math.cos(phi2) * math.cos(dlon)
+    return (math.degrees(math.atan2(y, x)) + 360.0) % 360.0
+
+
+def is_plausible_route(
+    ac: dict, origin_info: dict | None = None, dest_info: dict | None = None
+) -> bool:
+    """Cross-check an adsbdb route against the aircraft's telemetry.
+
+    Returns False when the route is almost certainly wrong (plane is
+    well outside the corridor, or pointing away from the destination);
+    callers should drop origin/destination rather than display data
+    that contradicts what the map is showing. Returns True whenever
+    there isn't enough signal to judge — no airport coords, no fix,
+    etc. — so a brand-new contact with a valid route doesn't get
+    thrown away.
+    """
+    if not origin_info or not dest_info:
+        return True
+    o_lat, o_lon = origin_info.get("lat"), origin_info.get("lon")
+    d_lat, d_lon = dest_info.get("lat"), dest_info.get("lon")
+    if o_lat is None or o_lon is None or d_lat is None or d_lon is None:
+        return True
+    lat, lon = ac.get("lat"), ac.get("lon")
+    if lat is None or lon is None:
+        return True
+
+    total = _approx_distance_km(o_lat, o_lon, d_lat, d_lon)
+    if total <= 0:
+        return True  # degenerate dataset entry; nothing to verify
+    from_origin = _approx_distance_km(o_lat, o_lon, lat, lon)
+    to_dest = _approx_distance_km(lat, lon, d_lat, d_lon)
+    # Great-circle identity: legitimately en-route sums ≈ total plus a
+    # small lateral deviation. A sum much larger than the direct leg
+    # means the plane is nowhere near the corridor.
+    max_sum = max(ROUTE_CORRIDOR_MULT * total, total + ROUTE_CORRIDOR_ABS_KM)
+    if from_origin + to_dest > max_sum:
+        return False
+
+    track = ac.get("track")
+    if track is not None and not ac.get("on_ground") and to_dest > ROUTE_NEAR_DEST_KM:
+        bearing = _bearing_deg(lat, lon, d_lat, d_lon)
+        delta = abs(((track - bearing) + 180) % 360 - 180)
+        if delta > ROUTE_BEARING_MAX_DELTA_DEG:
+            return False
+    return True
+
 
 def flight_phase(ac: dict, dest_info: dict | None = None) -> str | None:
     """Classify an already-decoded snapshot entry into a flight phase.

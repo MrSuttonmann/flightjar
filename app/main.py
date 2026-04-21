@@ -19,7 +19,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-from .aircraft import AircraftRegistry, flight_phase
+from .aircraft import AircraftRegistry, flight_phase, is_plausible_route
 from .aircraft_db import DEFAULT_REFRESH_URL, AircraftDB
 from .airlines_db import AirlinesDB
 from .airports_db import AirportsDB
@@ -306,10 +306,29 @@ def build_snapshot(now: float | None = None) -> dict:
     # climb/cruise/descent only need altitude+vrate+on_ground, which are
     # in the base snapshot. 'approach' and airline lookup unlock when
     # their respective inputs are present.
+    #
+    # Route plausibility runs first so phase classification doesn't use
+    # a destination that the physics says can't be right (adsbdb's
+    # callsign-keyed routes can be stale across reused callsigns).
     airports_map = snap.get("airports") or {}
     for ac in snap["aircraft"]:
+        origin_code = ac.get("origin")
         dest_code = ac.get("destination")
+        origin_info = airports_map.get(origin_code) if origin_code else None
         dest_info = airports_map.get(dest_code) if dest_code else None
+        if origin_info and dest_info and not is_plausible_route(ac, origin_info, dest_info):
+            log.debug(
+                "dropping implausible route %s→%s for %s (track=%s pos=%s,%s)",
+                origin_code,
+                dest_code,
+                ac["icao"],
+                ac.get("track"),
+                ac.get("lat"),
+                ac.get("lon"),
+            )
+            ac["origin"] = None
+            ac["destination"] = None
+            dest_info = None
         ac["phase"] = flight_phase(ac, dest_info)
         airline = airlines_db.lookup_by_callsign(ac.get("callsign"))
         if airline:
