@@ -207,6 +207,14 @@ class Aircraft:
     odd_t: float = 0.0
 
     trail: deque = field(default_factory=lambda: deque(maxlen=TRAIL_MAX_POINTS))
+    # Monotonic revision counter bumped on any trail mutation. Lets
+    # snapshot() cache the serialised trail list and skip rebuilding it
+    # every tick for aircraft that haven't moved — the per-tick rebuild
+    # was previously one tuple-unpack + bool() per trail point for every
+    # aircraft, pure busywork when nothing had changed.
+    trail_rev: int = 0
+    _trail_snap_rev: int = -1
+    _trail_snap: list | None = None
     msg_count: int = 0
     # Peak BEAST signal byte (0-255) seen for this aircraft. dump1090/readsb
     # pack the per-message signal level into a single byte; we keep the max
@@ -537,6 +545,7 @@ class AircraftRegistry:
                     elapsed_since_pos,
                 )
                 ac.trail.clear()
+                ac.trail_rev += 1
 
         ac.lat = new_lat
         ac.lon = new_lon
@@ -557,6 +566,7 @@ class AircraftRegistry:
                 gap_from_prev,
             )
         )
+        ac.trail_rev += 1
 
         if self.on_position:
             try:
@@ -692,6 +702,15 @@ class AircraftRegistry:
             if disp_lat is not None:
                 positioned += 1
             info = self.aircraft_db.lookup(ac.icao) if self.aircraft_db else None
+            # Reuse the previously-serialised trail list whenever the
+            # aircraft hasn't appended (or cleared) since the last
+            # snapshot. Prevents rebuilding the same ~150-item list of
+            # lists every tick for aircraft flying in a straight line.
+            if ac._trail_snap_rev != ac.trail_rev:
+                ac._trail_snap = [
+                    [lat, lon, alt, spd, bool(gap)] for lat, lon, alt, spd, _ts, gap in ac.trail
+                ]
+                ac._trail_snap_rev = ac.trail_rev
             out.append(
                 {
                     "icao": ac.icao,
@@ -717,9 +736,7 @@ class AircraftRegistry:
                     "signal_peak": ac.signal_peak,
                     "msg_count": ac.msg_count,
                     "distance_km": distance_km,
-                    "trail": [
-                        [lat, lon, alt, spd, bool(gap)] for lat, lon, alt, spd, _ts, gap in ac.trail
-                    ],
+                    "trail": ac._trail_snap,
                 }
             )
         # Newest first
