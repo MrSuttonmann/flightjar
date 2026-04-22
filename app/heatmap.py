@@ -7,9 +7,15 @@ Aircraft record — so re-sightings of the same tail across many days
 each count once, and the result reads as "how many new planes did we
 pick up in this hour slot".
 
-State is a flat 7x24 grid persisted to /data/heatmap.json; the file is
-small enough (≤168 ints + framing) to rewrite cheaply. Load on startup
-keeps history across restarts.
+Each (weekday, hour) slot resets when it comes around again — i.e. the
+grid reads "last Monday's 09:00 count", not "summed across every Monday
+09:00 we've ever seen". Without that, heavy slots would keep drifting
+up relative to quiet ones and the opacity-normalised visualisation
+would collapse toward a flat plate.
+
+State is a flat 7x24 grid (plus a parallel 7x24 "last day number" grid
+used to detect the weekly rollover) persisted to /data/heatmap.json.
+Load on startup keeps the most recent week's picture across restarts.
 """
 
 from __future__ import annotations
@@ -31,18 +37,37 @@ class TrafficHeatmap:
     def __init__(self, cache_path: Path | None = None) -> None:
         self.cache_path = cache_path
         self.grid: list[list[int]] = [[0] * HOURS for _ in range(DAYS)]
+        # Day-number (unix seconds // 86400) of the most recent observation
+        # in each cell. Used only to detect when a cell comes back around
+        # to a new week and needs zeroing before the new count accumulates.
+        # 0 means "never observed" — any real observation is > 0, so the
+        # first-ever hit in a cell doesn't trigger a spurious reset.
+        self.last_day: list[list[int]] = [[0] * HOURS for _ in range(DAYS)]
         self._dirty = False
         self._last_persist = 0.0
         self._load()
 
     def observe(self, ts: float) -> None:
-        """Bump the (weekday, hour-of-day) bucket for this unix timestamp."""
+        """Bump the (weekday, hour-of-day) bucket for this unix timestamp.
+
+        If the cell hasn't been touched today, reset it first — this keeps
+        each slot showing only the most recent week's worth of activity in
+        that slot, not the all-time sum.
+        """
         dt = datetime.fromtimestamp(ts, UTC)
         weekday = dt.weekday()
         hour = dt.hour
-        if 0 <= weekday < DAYS and 0 <= hour < HOURS:
-            self.grid[weekday][hour] += 1
-            self._dirty = True
+        if not (0 <= weekday < DAYS and 0 <= hour < HOURS):
+            return
+        day = int(ts // 86400)
+        # Same day → just accumulate. Different day → new cycle for this
+        # slot (can only be the same weekday+hour a week apart, so any day
+        # delta means we've rolled over), wipe the old count first.
+        if self.last_day[weekday][hour] and self.last_day[weekday][hour] != day:
+            self.grid[weekday][hour] = 0
+        self.grid[weekday][hour] += 1
+        self.last_day[weekday][hour] = day
+        self._dirty = True
 
     def snapshot(self) -> dict:
         hours = [sum(self.grid[d][h] for d in range(DAYS)) for h in range(HOURS)]
@@ -57,6 +82,7 @@ class TrafficHeatmap:
 
     def reset(self) -> None:
         self.grid = [[0] * HOURS for _ in range(DAYS)]
+        self.last_day = [[0] * HOURS for _ in range(DAYS)]
         self._dirty = True
         self._persist(force=True)
 
@@ -79,6 +105,27 @@ class TrafficHeatmap:
                 loaded.append([int(c or 0) for c in row[:HOURS]] + [0] * max(0, HOURS - len(row)))
             self.grid = loaded
             log.info("loaded traffic heatmap (%d events)", sum(sum(r) for r in self.grid))
+        # last_day may be absent on legacy caches — default to "touched
+        # today" for every populated cell so the current picture survives
+        # the next observation without a surprise wipe. Each cell will
+        # still reset at its natural weekly rollover going forward.
+        last_day = data.get("last_day")
+        if isinstance(last_day, list) and len(last_day) == DAYS:
+            loaded_ld: list[list[int]] = []
+            for row in last_day:
+                if not isinstance(row, list):
+                    loaded_ld = []
+                    break
+                loaded_ld.append(
+                    [int(c or 0) for c in row[:HOURS]] + [0] * max(0, HOURS - len(row))
+                )
+            if loaded_ld:
+                self.last_day = loaded_ld
+        else:
+            today = int(time.time() // 86400)
+            self.last_day = [
+                [today if self.grid[d][h] > 0 else 0 for h in range(HOURS)] for d in range(DAYS)
+            ]
 
     def _persist(self, force: bool = False) -> None:
         if self.cache_path is None:
@@ -89,7 +136,10 @@ class TrafficHeatmap:
             self.cache_path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.cache_path.with_suffix(self.cache_path.suffix + ".tmp")
             tmp.write_text(
-                json.dumps({"grid": self.grid}, separators=(",", ":")),
+                json.dumps(
+                    {"grid": self.grid, "last_day": self.last_day},
+                    separators=(",", ":"),
+                ),
                 encoding="utf-8",
             )
             tmp.replace(self.cache_path)

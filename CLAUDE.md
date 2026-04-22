@@ -87,6 +87,8 @@ event loop, so there are no locks or cross-process IPC to reason about.
 - `GET /api/airports` — bounded bbox of OurAirports entries for the airports
   overlay. Validates lat/lon bounds; 400 on out-of-range inputs.
 - `GET /api/coverage` / `POST /api/coverage/reset` — polar coverage polygon.
+- `GET /api/polar_heatmap` / `POST /api/polar_heatmap/reset` — bearing × distance
+  reception-density grid (shown in the Receiver stats dialog).
 - `GET /api/heatmap` / `POST /api/heatmap/reset` — weekday × hour traffic grid.
 - `GET /api/watchlist` / `POST /api/watchlist` — server-side watchlist mirrored
   from the browser so alerts can fire with no tab open.
@@ -187,6 +189,13 @@ for the latter).
   aviationweather.gov (NOAA public-domain). One request per tick covering
   every airport in the current snapshot's route set. `/data/metar.json.gz`
   (10m / 5m TTLs). Feature-gated by `METAR_WEATHER` (default on).
+- **`app/vfrmap_cycle.py`** — `VfrmapCycle`, scrapes vfrmap.com's
+  homepage once on startup and every 6 h to discover the current FAA
+  28-day chart cycle (the date embedded in the IFR tile URLs).
+  Persisted to `/data/vfrmap_cycle.json` so restarts don't need
+  network. Discovery failures preserve the last-known-good cycle. The
+  `VFRMAP_CHART_DATE` env var pins the cycle and short-circuits
+  discovery (air-gapped deployments, bug reproduction).
 - **`app/airlines_db.py`** — `AirlinesDB`, static OpenFlights dataset baked
   at Docker build time (`app/airlines.dat`; runtime override at
   `/data/airlines.dat`). Looked up by the 3-char ICAO airline code (the
@@ -271,7 +280,8 @@ Handled in `app/main.py` (via `app/config.py`) and the Dockerfile:
 `SITE_NAME`, `BEAST_OUTFILE` (empty = disable file), `BEAST_ROTATE`
 (`none|hourly|daily`), `BEAST_ROTATE_KEEP`, `BEAST_STDOUT`, `BEAST_NO_DECODE`,
 `SNAPSHOT_INTERVAL`, `AIRCRAFT_DB_REFRESH_HOURS`, `FLIGHT_ROUTES`,
-`METAR_WEATHER`. The README has the full reference table.
+`METAR_WEATHER`, `OPENAIP_API_KEY`, `VFRMAP_CHART_DATE`. The README has
+the full reference table.
 
 Notification channels are **not** env-driven — they're user-managed via the
 Alerts dialog and persisted to `/data/notifications.json`. Anything
@@ -287,6 +297,9 @@ redirect path — it has a lower throughput ceiling on CI and build boxes):
   `app/aircraft_db.csv.gz`. Runtime override at `/data/aircraft_db.csv.gz`.
 - **Airports DB** — `davidmegginson/ourairports-data` (public domain), baked
   in at build time to `app/airports.csv`. Runtime override at `/data/airports.csv`.
+- **Navaids DB** — same repo (`navaids.csv`, public domain), baked in to
+  `app/navaids.csv`. Runtime override at `/data/navaids.csv`. Drives the
+  Navaids map overlay (VOR / DME / NDB family).
 - **Airlines DB** — `jpatokal/openflights/master/data/airlines.dat` (ODbL),
   baked in to `app/airlines.dat`. Runtime override at `/data/airlines.dat`.
 - **tar1090 markers** — `wiedehopf/tar1090/master/html/markers.js`, transformed
@@ -304,11 +317,13 @@ Everything the app owns in the volume:
 | `photos.json.gz` | `PlanespottersClient` | Cached photo URLs + credits (v1). |
 | `metar.json.gz` | `MetarClient` | Cached METARs (v1). |
 | `coverage.json` | `PolarCoverage` | Max range per 10° bearing bucket. |
-| `heatmap.json` | `TrafficHeatmap` | 7×24 weekday/hour fresh-aircraft grid. |
+| `polar_heatmap.json` | `PolarHeatmap` | 36×12 bearing × 25km-band position-fix density, 7-day rolling window (per-day sub-grids). |
+| `heatmap.json` | `TrafficHeatmap` | 7×24 weekday/hour fresh-aircraft grid; each slot resets when the same weekday/hour rolls around a week later. |
 | `watchlist.json` | `WatchlistStore` | Server-side watchlist of ICAO24 hex codes. |
 | `notifications.json` | `NotificationsConfigStore` | UI-managed alert channels. |
+| `vfrmap_cycle.json` | `VfrmapCycle` | Auto-discovered FAA chart cycle date for the VFRMap IFR overlays. Refreshed every 6 h. |
 | `aircraft_db.csv.gz` | optional | Runtime override for the baked-in DB. |
-| `airports.csv` / `airlines.dat` | optional | Runtime overrides for those DBs. |
+| `airports.csv` / `navaids.csv` / `airlines.dat` | optional | Runtime overrides for those DBs. |
 
 ### Networking note
 

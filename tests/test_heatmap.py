@@ -22,6 +22,35 @@ def test_observe_increments_weekday_hour_bucket(tmp_path: Path):
     assert sum(sum(row) for row in h.grid) == 2
 
 
+def test_slot_resets_when_week_rolls_over(tmp_path: Path):
+    """Each (weekday, hour) slot should only count its most recent
+    occurrence's worth of activity — observations a week apart in the
+    same slot must not accumulate."""
+    h = TrafficHeatmap(cache_path=tmp_path / "heatmap.json")
+    # Two observations on Mon 2024-01-01 at 12:xx land in the same
+    # same-day hit → accumulate.
+    h.observe(_ts(2024, 1, 1, 12))
+    h.observe(_ts(2024, 1, 1, 12))
+    assert h.grid[0][12] == 2
+    # A week later (Mon 2024-01-08, same hour) — the slot rolls over
+    # and the new week resets the cell before incrementing.
+    h.observe(_ts(2024, 1, 8, 12))
+    assert h.grid[0][12] == 1
+    # Another hit within the same day → accumulates again.
+    h.observe(_ts(2024, 1, 8, 12))
+    assert h.grid[0][12] == 2
+
+
+def test_other_slots_unaffected_by_rollover(tmp_path: Path):
+    """Rolling over the Monday 12:00 slot mustn't touch any other cell."""
+    h = TrafficHeatmap(cache_path=tmp_path / "heatmap.json")
+    h.observe(_ts(2024, 1, 1, 12))  # Mon 12
+    h.observe(_ts(2024, 1, 3, 14))  # Wed 14 — different slot
+    h.observe(_ts(2024, 1, 8, 12))  # Mon 12 a week later → Mon 12 resets
+    assert h.grid[0][12] == 1
+    assert h.grid[2][14] == 1  # Wed 14 left alone
+
+
 def test_snapshot_totals_match_grid_sum(tmp_path: Path):
     h = TrafficHeatmap(cache_path=tmp_path / "heatmap.json")
     h.observe(_ts(2024, 1, 1, 9))  # Mon 09
@@ -55,6 +84,28 @@ def test_persistence_roundtrips(tmp_path: Path):
     h1._persist(force=True)
     h2 = TrafficHeatmap(cache_path=path)
     assert h2.grid == h1.grid
+    # last_day must roundtrip too — otherwise the first observation after
+    # a restart would wrongly reset the cell.
+    assert h2.last_day == h1.last_day
+
+
+def test_legacy_cache_without_last_day_preserves_counts(tmp_path: Path):
+    """A cache written by the pre-rollover code only had a `grid` key.
+    The loader should keep those counts visible and stamp populated cells
+    with today's day number so the first new observation in that same
+    slot today accumulates rather than triggering a spurious reset."""
+    import time as time_mod
+
+    path = tmp_path / "heatmap.json"
+    legacy = [[0] * HOURS for _ in range(DAYS)]
+    legacy[0][12] = 5  # Mon 12 had 5 hits historically
+    legacy[3][7] = 0  # empty slot stays at last_day=0
+    path.write_text(json.dumps({"grid": legacy}))
+    h = TrafficHeatmap(cache_path=path)
+    today = int(time_mod.time() // 86400)
+    assert h.grid[0][12] == 5
+    assert h.last_day[0][12] == today  # populated cell → stamped as today
+    assert h.last_day[3][7] == 0  # empty cell → stays at zero
 
 
 def test_bad_cache_file_is_ignored(tmp_path: Path):

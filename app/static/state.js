@@ -50,9 +50,11 @@ export const state = {
   trailsCanvas: null,
   airportsCanvas: null,
   airportsLayer: null,
+  navaidsLayer: null,
   labelsProxy: null,
   trailsProxy: null,
   airportsProxy: null,
+  navaidsProxy: null,
   coverageProxy: null,
   receiverLayer: null,
   hoverHalo: null,
@@ -74,7 +76,13 @@ export const state = {
   followSelected: localStorage.getItem('flightjar.follow') === '1',
   compactMode: localStorage.getItem('flightjar.compact') === '1',
   showAirports: localStorage.getItem('flightjar.airports') === '1',
+  showNavaids: localStorage.getItem('flightjar.navaids') === '1',
   showCoverage: localStorage.getItem('flightjar.coverage') === '1',
+  // Tile overlays (OpenAIP + VFRMap) — persistence is keyed on the layer
+  // directly; these flags just seed the layers-control starting state.
+  showOpenaip: localStorage.getItem('flightjar.openaip') === '1',
+  showIfrLow: localStorage.getItem('flightjar.ifr_low') === '1',
+  showIfrHigh: localStorage.getItem('flightjar.ifr_high') === '1',
 
   // Sidebar state.
   searchFilter: '',

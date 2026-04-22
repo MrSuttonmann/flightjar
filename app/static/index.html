@@ -136,6 +136,10 @@
     <div class="stat-card"><div class="stat-label">Sectors seen</div><div class="stat-val" id="stats-sectors">—</div></div>
   </div>
 
+  <h3>Reception density (last 7 days)</h3>
+  <div id="stats-polar-heatmap"
+       title="Position fixes per bearing and distance over the last 7 days — bright cells are directions/ranges with most traffic"></div>
+
   <h3>BEAST feed</h3>
   <div class="stats-grid">
     <div class="stat-card wide"><div class="stat-label">Source</div><div class="stat-val" id="stats-beast-target">—</div></div>
@@ -245,7 +249,8 @@
     <li><a href="https://github.com/wiedehopf/tar1090" target="_blank" rel="noopener">tar1090</a>
         — per-type aircraft silhouettes (<code>markers.js</code>). GPL-2.0+.</li>
     <li><a href="https://ourairports.com/" target="_blank" rel="noopener">OurAirports</a>
-        — global airport database + coordinates. Public domain.</li>
+        — global airport + navaid database (coords, types, frequencies).
+        Public domain.</li>
     <li><a href="https://www.openstreetmap.org/" target="_blank" rel="noopener">OpenStreetMap</a>
         contributors — base map tiles. ODbL.</li>
     <li><a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>
@@ -268,6 +273,14 @@
     <li><a href="https://aviationweather.gov/" target="_blank" rel="noopener">aviationweather.gov</a>
         — NOAA-published METARs shown alongside origin / destination airports
         on the detail panel. Public domain.</li>
+    <li><a href="https://www.openaip.net/" target="_blank" rel="noopener">OpenAIP</a>
+        — worldwide aeronautical chart tiles (airspaces, navaids,
+        obstacles) for the optional Aeronautical overlay. CC BY-NC-SA,
+        requires a personal API key.</li>
+    <li><a href="https://vfrmap.com/" target="_blank" rel="noopener">VFRMap.com</a>
+        — FAA IFR Low / IFR High enroute tiles for the optional US-only
+        chart overlays. Charts are US Federal Government public domain;
+        tile hosting by VFRMap.com.</li>
   </ul>
 </dialog>
 </div>

@@ -11,6 +11,17 @@ def _client() -> TestClient:
     return TestClient(main.app, raise_server_exceptions=True)
 
 
+def _no_lifespan_client() -> TestClient:
+    """TestClient used WITHOUT `with`, so the lifespan never runs.
+
+    Tests that assert on values the lifespan's background tasks mutate
+    (e.g. `stats.beast_connected`) can't use the with-block variant —
+    beast_consumer's inevitable connection failure against an absent
+    test-time BEAST source would race in and clobber the pre-set state.
+    """
+    return TestClient(main.app, raise_server_exceptions=True)
+
+
 def test_healthz_reports_disconnected_when_beast_is_down():
     main.stats.beast_connected = False
     with _client() as c:
@@ -22,8 +33,8 @@ def test_healthz_reports_disconnected_when_beast_is_down():
 def test_healthz_reports_ok_when_connected():
     main.stats.beast_connected = True
     try:
-        with _client() as c:
-            r = c.get("/healthz")
+        c = _no_lifespan_client()
+        r = c.get("/healthz")
         assert r.status_code == 200
         assert r.json() == {"status": "ok"}
     finally:
@@ -34,8 +45,8 @@ def test_metrics_has_prometheus_exposition_format():
     main.stats.beast_connected = True
     main.stats.frames = 42
     try:
-        with _client() as c:
-            r = c.get("/metrics")
+        c = _no_lifespan_client()
+        r = c.get("/metrics")
         assert r.status_code == 200
         assert "text/plain" in r.headers["content-type"]
         body = r.text

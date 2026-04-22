@@ -30,10 +30,13 @@ from .coverage import PolarCoverage
 from .flight_routes import AdsbdbClient
 from .heatmap import TrafficHeatmap
 from .metar import MetarClient
+from .navaids_db import NavaidsDB
 from .notifications import NotifierDispatcher
 from .notifications_config import NotificationsConfigStore
 from .persistence import load_state, save_state
 from .photos import PlanespottersClient
+from .polar_heatmap import PolarHeatmap
+from .vfrmap_cycle import VfrmapCycle
 from .watchlist import WatchlistStore
 
 log = logging.getLogger("beast")
@@ -154,6 +157,7 @@ class Broadcaster:
 
 aircraft_db = AircraftDB()
 airports_db = AirportsDB()
+navaids_db = NavaidsDB()
 airlines_db = AirlinesDB()
 registry = AircraftRegistry(
     lat_ref=cfg.lat_ref,
@@ -260,6 +264,7 @@ def build_snapshot(now: float | None = None) -> dict:
     # fire once per real fix (see below). Here we just flush pending writes.
     coverage.maybe_persist(interval=60.0)
     heatmap.maybe_persist(interval=60.0)
+    polar_heatmap.maybe_persist(interval=60.0)
     if adsbdb.enabled:
         referenced_airports: set[str] = set()
         for ac in snap["aircraft"]:
@@ -456,9 +461,40 @@ heatmap = TrafficHeatmap(cache_path=HEATMAP_CACHE_PATH)
 # Every time the registry creates a fresh Aircraft, bump the heatmap's
 # (weekday, hour) bucket for the first-seen timestamp.
 registry.on_new_aircraft = lambda _icao, ts: heatmap.observe(ts)
-# Every accepted position fix feeds the polar-coverage tracker; max-range-
-# per-bearing updates in real time as soon as new fixes are decoded.
-registry.on_position = coverage.observe
+
+POLAR_HEATMAP_CACHE_PATH = (
+    Path(cfg.jsonl_path).parent / "polar_heatmap.json" if cfg.jsonl_path else None
+)
+polar_heatmap = PolarHeatmap(
+    receiver_lat=cfg.lat_ref,
+    receiver_lon=cfg.lon_ref,
+    cache_path=POLAR_HEATMAP_CACHE_PATH,
+)
+
+# VFRMap chart cycle — scraped from vfrmap.com at startup, cached to disk,
+# refreshed in the background so the IFR Low / IFR High tile URLs stay
+# pinned to the current 28-day FAA cycle without operator input. The
+# env-var override is the escape hatch for air-gapped deployments and
+# for reproducing bugs against a specific historical cycle.
+VFRMAP_CYCLE_CACHE_PATH = (
+    Path(cfg.jsonl_path).parent / "vfrmap_cycle.json" if cfg.jsonl_path else None
+)
+vfrmap_cycle = VfrmapCycle(
+    cache_path=VFRMAP_CYCLE_CACHE_PATH,
+    override=cfg.vfrmap_chart_date,
+)
+vfrmap_cycle.load_cache()
+
+
+# Every accepted position fix feeds both the polar-coverage tracker (max
+# range per bearing) and the polar heatmap (count per bearing x distance
+# cell). Both are cheap in-process aggregations.
+def _on_position(lat: float, lon: float) -> None:
+    coverage.observe(lat, lon)
+    polar_heatmap.observe(lat, lon)
+
+
+registry.on_position = _on_position
 
 # Short ring of one-shot events that need to surface on the live UI
 # without living on any aircraft (e.g. "new polar-coverage record").
@@ -542,6 +578,10 @@ async def lifespan(app: FastAPI):
         asyncio.to_thread(airports_db.load_first_available),
         name="airports_db_loader",
     )
+    navaids_task = asyncio.create_task(
+        asyncio.to_thread(navaids_db.load_first_available),
+        name="navaids_db_loader",
+    )
     airlines_task = asyncio.create_task(
         asyncio.to_thread(airlines_db.load_first_available),
         name="airlines_db_loader",
@@ -550,6 +590,10 @@ async def lifespan(app: FastAPI):
     pusher = asyncio.create_task(snapshot_pusher(), name="snapshot_pusher")
     persister = asyncio.create_task(state_persister(), name="state_persister")
     refresher = asyncio.create_task(aircraft_db_refresher(), name="aircraft_db_refresher")
+    # VFRMap chart cycle — one-shot discover on boot, then refresh every
+    # few hours so the IFR tile URLs track the current 28-day FAA cycle.
+    vfrmap_discover = asyncio.create_task(vfrmap_cycle.discover(), name="vfrmap_discover")
+    vfrmap_refresher = asyncio.create_task(vfrmap_cycle.refresher(), name="vfrmap_refresher")
     try:
         yield
     finally:
@@ -558,9 +602,12 @@ async def lifespan(app: FastAPI):
             pusher,
             db_task,
             airports_task,
+            navaids_task,
             airlines_task,
             persister,
             refresher,
+            vfrmap_discover,
+            vfrmap_refresher,
         ):
             t.cancel()
         await asyncio.gather(
@@ -568,9 +615,12 @@ async def lifespan(app: FastAPI):
             pusher,
             db_task,
             airports_task,
+            navaids_task,
             airlines_task,
             persister,
             refresher,
+            vfrmap_discover,
+            vfrmap_refresher,
             return_exceptions=True,
         )
         # One last save so we don't lose the gap between the final periodic
@@ -591,6 +641,7 @@ async def lifespan(app: FastAPI):
             planespotters.aclose(),
             metar.aclose(),
             notifier.aclose(),
+            vfrmap_cycle.aclose(),
         ):
             with contextlib.suppress(Exception):
                 await closer
@@ -728,6 +779,44 @@ async def api_airports(
         return JSONResponse({"error": "bad longitude bounds"}, status_code=400)
     limit = max(1, min(int(limit), 5000))
     return airports_db.bbox(min_lat, min_lon, max_lat, max_lon, limit)
+
+
+@app.get("/api/navaids", summary="Navaids (VOR / DME / NDB) in a bounding box")
+async def api_navaids(
+    min_lat: float,
+    min_lon: float,
+    max_lat: float,
+    max_lon: float,
+    limit: int = 2000,
+):
+    """Navaids inside the requested bbox, VOR family first.
+
+    Drives the optional Navaids layer on the map. Server holds the full
+    OurAirports navaids dataset (~12k entries); the client refetches on
+    pan/zoom and only renders what's in view. `limit` caps the response
+    so very wide views still return in bounded time.
+    """
+    if not (-90.0 <= min_lat <= max_lat <= 90.0):
+        return JSONResponse({"error": "bad latitude bounds"}, status_code=400)
+    if not (-180.0 <= min_lon <= 180.0 and -180.0 <= max_lon <= 180.0):
+        return JSONResponse({"error": "bad longitude bounds"}, status_code=400)
+    limit = max(1, min(int(limit), 5000))
+    return navaids_db.bbox(min_lat, min_lon, max_lat, max_lon, limit)
+
+
+@app.get("/api/map_config", summary="Client-side map config (tile keys, chart cycles)")
+async def api_map_config():
+    """Configuration the browser needs before it can register tile overlays.
+
+    Keeps deploy-time secrets (OpenAIP API key) out of the static
+    `index.html` and surfaces the auto-discovered VFRMap chart cycle so
+    the client doesn't have to re-scrape it. All fields are strings —
+    empty means "unset, don't register the overlay".
+    """
+    return {
+        "openaip_api_key": cfg.openaip_api_key,
+        "vfrmap_chart_date": vfrmap_cycle.current_date() or "",
+    }
 
 
 @app.get("/api/coverage", summary="Polar coverage map (max distance per bearing)")

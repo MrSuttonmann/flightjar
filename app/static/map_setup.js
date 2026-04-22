@@ -10,6 +10,7 @@
 
 import { ALT_STOPS } from './altitude.js';
 import { getUnitSystem, uconv } from './units.js';
+import { showToast } from './toast.js';
 import { state } from './state.js';
 
 function slugify(name) {
@@ -23,7 +24,7 @@ function applyBasemapClass(name) {
   document.body.classList.add('basemap-' + slugify(name));
 }
 
-export function initMap(overlayHandlers) {
+export function initMap({ config = {}, ...overlayHandlers } = {}) {
   const map = L.map('map', { worldCopyJump: true, zoomControl: false })
     .setView([51.5, -0.1], 6);
   L.control.zoom({ position: 'bottomright' }).addTo(map);
@@ -81,6 +82,9 @@ export function initMap(overlayHandlers) {
   // renderer so thousands of circleMarkers render smoothly.
   const airportsLayer = L.layerGroup();
   const airportsCanvas = L.canvas({ padding: 0.1 });
+  // Navaids (VOR / DME / NDB) — same bbox-fetch pattern as airports,
+  // shares the airports canvas renderer.
+  const navaidsLayer = L.layerGroup();
   const RANGE_RING_SETS = {
     nautical: { values: [50, 100, 200], metersPerUnit: 1852,    suffix: ' NM' },
     imperial: { values: [50, 100, 200], metersPerUnit: 1609.344, suffix: ' mi' },
@@ -117,6 +121,7 @@ export function initMap(overlayHandlers) {
   const labelsProxy = L.layerGroup();
   const trailsProxy = L.layerGroup();
   const airportsProxy = L.layerGroup();
+  const navaidsProxy = L.layerGroup();
   const coverageProxy = L.layerGroup();
   let syncingOverlays = false;
   function syncOverlay(proxy, on) {
@@ -129,14 +134,119 @@ export function initMap(overlayHandlers) {
     }
   }
 
-  const overlays = {
-    'Aircraft labels': labelsProxy,
-    'Altitude trails': trailsProxy,
-    'Airports': airportsProxy,
-    'Polar coverage': coverageProxy,
-    'Range rings': rangeRings,
-  };
+  // Proxy-overlay registry. Each entry binds a layers-control checkbox to
+  // a setter in `overlayHandlers`; adding/removing the proxy dispatches
+  // the setter instead of drawing anything directly. Keeping this as a
+  // table lets new overlays plug in with one line instead of four
+  // if-branches in overlayadd/overlayremove.
+  const PROXY_OVERLAYS = [
+    { label: 'Aircraft labels', proxy: labelsProxy,   handler: 'setLabels' },
+    { label: 'Altitude trails', proxy: trailsProxy,   handler: 'setTrails' },
+    { label: 'Airports',        proxy: airportsProxy, handler: 'setAirports' },
+    { label: 'Navaids',         proxy: navaidsProxy,  handler: 'setNavaids' },
+    { label: 'Polar coverage',  proxy: coverageProxy, handler: 'setCoverage' },
+  ];
+  const proxyToHandler = new Map(PROXY_OVERLAYS.map((o) => [o.proxy, o.handler]));
+
+  // Tile-overlay registry. Unlike the proxy overlays these are real
+  // L.tileLayer instances that Leaflet's native add/remove handles
+  // directly. We still want their checkbox state to survive reloads, so
+  // each entry has a `storageKey` we write on overlayadd/overlayremove.
+  // An overlay with no valid config (missing key / date) is skipped so
+  // the user isn't offered a toggle that would just yield broken tiles.
+  const tileOverlays = [];
+  if (config.openaip_api_key) {
+    const openaipLayer = L.tileLayer(
+      `https://api.tiles.openaip.net/api/data/openaip/{z}/{x}/{y}.png?apiKey=${encodeURIComponent(config.openaip_api_key)}`,
+      {
+        attribution:
+          '&copy; <a href="https://www.openaip.net/" target="_blank" rel="noopener">OpenAIP</a> (CC BY-NC-SA)',
+        maxZoom: 14,
+        minZoom: 4,
+        opacity: 0.75,
+      },
+    );
+    tileOverlays.push({
+      label: 'Aeronautical (OpenAIP)',
+      layer: openaipLayer,
+      storageKey: 'flightjar.openaip',
+      initiallyOn: state.showOpenaip,
+    });
+  }
+  if (config.vfrmap_chart_date) {
+    // VFRMap tile URLs embed the 28-day FAA chart cycle date. When the
+    // configured date falls off the back of vfrmap.com's retention the
+    // server 404s each tile — we watch tileerror and nudge the user if
+    // it happens repeatedly.
+    const VFRMAP_BASE = `https://vfrmap.com/${encodeURIComponent(config.vfrmap_chart_date)}/tiles`;
+    const VFRMAP_ATTRIB =
+      'Charts: <a href="https://vfrmap.com/" target="_blank" rel="noopener">VFRMap.com</a> / FAA';
+    // One shared counter + one shared toast across both IFR layers —
+    // staleness affects both simultaneously so we only want to warn once.
+    let ifrTileErrors = 0;
+    let ifrToastFired = false;
+    function onIfrTileError() {
+      ifrTileErrors += 1;
+      if (ifrTileErrors >= 5 && !ifrToastFired) {
+        ifrToastFired = true;
+        showToast(
+          'IFR chart date may be stale — update VFRMAP_CHART_DATE to the current FAA cycle.',
+          { level: 'warn', duration: 8000 },
+        );
+      }
+    }
+    // VFRMap serves tiles in TMS orientation (their own map.js sets
+    // `tms:true`); Leaflet's default XYZ scheme would request the
+    // mirror-flipped row and silently get 486-byte blank tiles back.
+    const ifrLowLayer = L.tileLayer(
+      `${VFRMAP_BASE}/ifrlc/{z}/{y}/{x}.jpg`,
+      {
+        attribution: VFRMAP_ATTRIB,
+        tms: true,
+        maxZoom: 11,
+        minZoom: 5,
+        opacity: 0.85,
+      },
+    );
+    ifrLowLayer.on('tileerror', onIfrTileError);
+    tileOverlays.push({
+      label: 'IFR Low (US)',
+      layer: ifrLowLayer,
+      storageKey: 'flightjar.ifr_low',
+      initiallyOn: state.showIfrLow,
+    });
+    const ifrHighLayer = L.tileLayer(
+      `${VFRMAP_BASE}/ehc/{z}/{y}/{x}.jpg`,
+      {
+        attribution: VFRMAP_ATTRIB,
+        tms: true,
+        // EHC tops out at zoom 10 per VFRMap's own config (vs 11 for IFR Low).
+        maxZoom: 10,
+        minZoom: 5,
+        opacity: 0.85,
+      },
+    );
+    ifrHighLayer.on('tileerror', onIfrTileError);
+    tileOverlays.push({
+      label: 'IFR High (US)',
+      layer: ifrHighLayer,
+      storageKey: 'flightjar.ifr_high',
+      initiallyOn: state.showIfrHigh,
+    });
+  }
+  const tileLayerToKey = new Map(tileOverlays.map((o) => [o.layer, o.storageKey]));
+
+  const overlays = {};
+  for (const o of PROXY_OVERLAYS) overlays[o.label] = o.proxy;
+  for (const o of tileOverlays) overlays[o.label] = o.layer;
+  overlays['Range rings'] = rangeRings;
   L.control.layers(baseLayers, overlays, { position: 'topright' }).addTo(map);
+
+  // Restore tile-overlay visibility from localStorage. Done after the
+  // layers-control is built so its checkbox state reflects the layer.
+  for (const o of tileOverlays) {
+    if (o.initiallyOn) o.layer.addTo(map);
+  }
 
   map.on('baselayerchange', (e) => {
     try { localStorage.setItem('flightjar.basemap', e.name); } catch (_) {}
@@ -144,17 +254,17 @@ export function initMap(overlayHandlers) {
   });
   map.on('overlayadd', (e) => {
     if (syncingOverlays) return;
-    if (e.layer === labelsProxy) overlayHandlers.setLabels(true);
-    else if (e.layer === trailsProxy) overlayHandlers.setTrails(true);
-    else if (e.layer === airportsProxy) overlayHandlers.setAirports(true);
-    else if (e.layer === coverageProxy) overlayHandlers.setCoverage(true);
+    const handler = proxyToHandler.get(e.layer);
+    if (handler) { overlayHandlers[handler]?.(true); return; }
+    const key = tileLayerToKey.get(e.layer);
+    if (key) { try { localStorage.setItem(key, '1'); } catch (_) {} }
   });
   map.on('overlayremove', (e) => {
     if (syncingOverlays) return;
-    if (e.layer === labelsProxy) overlayHandlers.setLabels(false);
-    else if (e.layer === trailsProxy) overlayHandlers.setTrails(false);
-    else if (e.layer === airportsProxy) overlayHandlers.setAirports(false);
-    else if (e.layer === coverageProxy) overlayHandlers.setCoverage(false);
+    const handler = proxyToHandler.get(e.layer);
+    if (handler) { overlayHandlers[handler]?.(false); return; }
+    const key = tileLayerToKey.get(e.layer);
+    if (key) { try { localStorage.setItem(key, '0'); } catch (_) {} }
   });
 
   // Publish to the shared state so every other module can reach them
@@ -163,9 +273,11 @@ export function initMap(overlayHandlers) {
   state.trailsCanvas = trailsCanvas;
   state.airportsCanvas = airportsCanvas;
   state.airportsLayer = airportsLayer;
+  state.navaidsLayer = navaidsLayer;
   state.labelsProxy = labelsProxy;
   state.trailsProxy = trailsProxy;
   state.airportsProxy = airportsProxy;
+  state.navaidsProxy = navaidsProxy;
   state.coverageProxy = coverageProxy;
   state.syncOverlay = syncOverlay;
   state.buildRangeRings = buildRangeRings;

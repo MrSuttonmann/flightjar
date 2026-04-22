@@ -100,12 +100,13 @@ function renderStatsSparkline() {
 
 async function refreshServerStats() {
   try {
-    const [s, c, h] = await Promise.all([
+    const [s, c, h, p] = await Promise.all([
       fetch('/api/stats').then(r => r.ok ? r.json() : null),
       fetch('/api/coverage').then(r => r.ok ? r.json() : null),
       fetch('/api/heatmap').then(r => r.ok ? r.json() : null),
+      fetch('/api/polar_heatmap').then(r => r.ok ? r.json() : null),
     ]);
-    statsServerInfo = { stats: s, coverage: c, heatmap: h };
+    statsServerInfo = { stats: s, coverage: c, heatmap: h, polarHeatmap: p };
   } catch (e) {
     console.warn('stats fetch failed', e);
   }
@@ -155,6 +156,120 @@ function renderTrafficHeatmap(data) {
   el.innerHTML = out;
 }
 
+// Polar heatmap: concentric bands (distance from receiver) x radial wedges
+// (bearing buckets). Each cell is a filled SVG path built from the two
+// radii + two bearings that bound it, with opacity scaled to count.
+// North is up; bearings increase clockwise (0°=N, 90°=E), matching the
+// server's bearing convention.
+function renderPolarHeatmap(data) {
+  const el = document.getElementById('stats-polar-heatmap');
+  if (!el) return;
+  const grid = data?.grid;
+  const buckets = grid?.length || 0;
+  const bands = grid?.[0]?.length || 0;
+  if (!Array.isArray(grid) || buckets === 0 || bands === 0 || !data?.total) {
+    el.innerHTML = '<div class="heatmap-empty">awaiting position fixes</div>';
+    return;
+  }
+  const bucketDeg = data.bucket_deg || (360 / buckets);
+  const bandKm = data.band_km || 25;
+  const SIZE = 320;
+  const PAD = 18;
+  const CX = SIZE / 2;
+  const CY = SIZE / 2;
+  const R = SIZE / 2 - PAD;
+  let max = 0;
+  for (const row of grid) for (const c of row) if (c > max) max = c;
+  max = Math.max(1, max);
+
+  // SVG polar-coord helper: 0°=North (up), clockwise, degrees.
+  const pt = (r, deg) => {
+    const rad = (deg - 90) * Math.PI / 180;
+    return [CX + r * Math.cos(rad), CY + r * Math.sin(rad)];
+  };
+
+  let out =
+    `<svg viewBox="0 0 ${SIZE} ${SIZE}" preserveAspectRatio="xMidYMid meet" ` +
+    `width="100%" height="auto">`;
+
+  // Filled wedges — one per (bucket, band). Innermost band first so the
+  // stroke antialiasing between rings looks right, though with fill-only
+  // the order barely matters.
+  for (let band = 0; band < bands; band++) {
+    const r0 = R * (band / bands);
+    const r1 = R * ((band + 1) / bands);
+    for (let b = 0; b < buckets; b++) {
+      const count = grid[b][band] || 0;
+      const alpha = count === 0 ? 0.04 : (0.12 + (count / max) * 0.88).toFixed(3);
+      const a0 = b * bucketDeg;
+      const a1 = (b + 1) * bucketDeg;
+      const [x0, y0] = pt(r0, a0);
+      const [x1, y1] = pt(r1, a0);
+      const [x2, y2] = pt(r1, a1);
+      const [x3, y3] = pt(r0, a1);
+      // Sweep flag 1 = clockwise, matches our 0°=N-clockwise convention.
+      const d =
+        `M ${x0.toFixed(2)} ${y0.toFixed(2)} ` +
+        `L ${x1.toFixed(2)} ${y1.toFixed(2)} ` +
+        `A ${r1.toFixed(2)} ${r1.toFixed(2)} 0 0 1 ${x2.toFixed(2)} ${y2.toFixed(2)} ` +
+        `L ${x3.toFixed(2)} ${y3.toFixed(2)} ` +
+        (r0 > 0
+          ? `A ${r0.toFixed(2)} ${r0.toFixed(2)} 0 0 0 ${x0.toFixed(2)} ${y0.toFixed(2)} `
+          : '') +
+        'Z';
+      const midA = (a0 + a1) / 2;
+      const dLo = Math.round(band * bandKm);
+      const dHi = Math.round((band + 1) * bandKm);
+      const bandLbl = band === bands - 1 ? `${dLo}+ km` : `${dLo}–${dHi} km`;
+      out +=
+        `<path d="${d}" fill="var(--accent)" fill-opacity="${alpha}">` +
+        `<title>${Math.round(midA)}° · ${bandLbl} — ${count}</title>` +
+        `</path>`;
+    }
+  }
+
+  // Reference grid: concentric rings for band boundaries.
+  for (let band = 1; band <= bands; band++) {
+    const r = R * (band / bands);
+    out +=
+      `<circle cx="${CX}" cy="${CY}" r="${r.toFixed(2)}" ` +
+      `fill="none" stroke="currentColor" stroke-opacity="0.15" ` +
+      `stroke-width="0.6"/>`;
+  }
+  // Cardinal crosshair for orientation.
+  for (const deg of [0, 90, 180, 270]) {
+    const [x, y] = pt(R, deg);
+    out +=
+      `<line x1="${CX}" y1="${CY}" x2="${x.toFixed(2)}" y2="${y.toFixed(2)}" ` +
+      `stroke="currentColor" stroke-opacity="0.2" stroke-width="0.6"/>`;
+  }
+  // Compass labels (N/E/S/W) just outside the outer ring.
+  const labels = [
+    { t: 'N', d: 0 }, { t: 'E', d: 90 }, { t: 'S', d: 180 }, { t: 'W', d: 270 },
+  ];
+  for (const { t, d } of labels) {
+    const [lx, ly] = pt(R + 10, d);
+    out +=
+      `<text x="${lx.toFixed(2)}" y="${ly.toFixed(2)}" text-anchor="middle" ` +
+      `dominant-baseline="middle" font-size="10" fill="currentColor" ` +
+      `opacity="0.6">${t}</text>`;
+  }
+  // Outer distance label so the reader knows the scale, plus the rolling
+  // window length if the server returned one.
+  const outerKm = Math.round(bands * bandKm);
+  const windowDays = data.window_days;
+  const caption = windowDays
+    ? `outer ring = ${outerKm} km · last ${windowDays} days`
+    : `outer ring = ${outerKm} km`;
+  out +=
+    `<text x="${CX}" y="${SIZE - 4}" text-anchor="middle" ` +
+    `font-size="9" fill="currentColor" opacity="0.5">` +
+    `${caption}</text>`;
+
+  out += '</svg>';
+  el.innerHTML = out;
+}
+
 export function renderStats(snap) {
   document.getElementById('stats-tracked').textContent = snap?.count ?? '—';
   document.getElementById('stats-positioned').textContent = snap?.positioned ?? '—';
@@ -175,6 +290,7 @@ export function renderStats(snap) {
     document.getElementById('msg-rate').textContent || '—';
 
   renderTrafficHeatmap(statsServerInfo?.heatmap);
+  renderPolarHeatmap(statsServerInfo?.polarHeatmap);
 
   const bearings = statsServerInfo?.coverage?.bearings ?? [];
   if (bearings.length > 0) {

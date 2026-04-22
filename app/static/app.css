@@ -320,6 +320,16 @@
     text-align: center; font-size: 11px; color: var(--muted);
     padding: 20px 0; font-style: italic;
   }
+  #stats-polar-heatmap { display: block; width: 100%;
+                         background: rgba(255, 255, 255, 0.03);
+                         border: 1px solid var(--border); border-radius: 4px;
+                         padding: 8px; color: var(--text); }
+  #stats-polar-heatmap svg { display: block; width: 100%; height: auto;
+                             max-width: 360px; margin: 0 auto; }
+  #stats-polar-heatmap .heatmap-empty {
+    text-align: center; font-size: 11px; color: var(--muted);
+    padding: 20px 0; font-style: italic;
+  }
 
   /* Watchlist dialog — same modal shell as about/stats, with a
      dedicated list of entries + add-by-hex row. */

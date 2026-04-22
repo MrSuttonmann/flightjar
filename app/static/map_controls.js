@@ -97,6 +97,90 @@ export function setAirports(value) {
   applyAirportsToggle();
 }
 
+// ---- navaids overlay ----
+
+// Colour + radius per navaid type. VOR family gets the most visual weight
+// (biggest, green) because they anchor airways; DME/TACAN and NDBs are
+// secondary. Any unknown type falls through to the default.
+const NAVAID_STYLE = {
+  VORTAC:    { color: '#16a34a', radius: 4 },
+  'VOR-DME': { color: '#16a34a', radius: 4 },
+  VOR:       { color: '#16a34a', radius: 4 },
+  DME:       { color: '#3b82f6', radius: 3 },
+  TACAN:     { color: '#3b82f6', radius: 3 },
+  'NDB-DME': { color: '#f97316', radius: 3 },
+  NDB:       { color: '#f97316', radius: 3 },
+};
+const NAVAID_STYLE_DEFAULT = { color: '#9ca3af', radius: 2 };
+
+function formatNavaidFrequency(khz, type) {
+  if (khz == null) return '';
+  // VOR/DME/TACAN broadcast in MHz; NDBs in kHz. The CSV stores everything
+  // in kHz, so divide for the VHF family.
+  if (type === 'NDB' || type === 'NDB-DME') {
+    return `${Math.round(khz)} kHz`;
+  }
+  const mhz = khz / 1000;
+  return `${mhz.toFixed(mhz < 100 ? 3 : 2)} MHz`;
+}
+
+let navaidsFetchPending = null;
+let navaidsDebounce = null;
+
+function refreshNavaids() {
+  if (!state.showNavaids) { state.navaidsLayer.clearLayers(); return; }
+  const b = state.map.getBounds();
+  const url = `/api/navaids?min_lat=${b.getSouth()}&min_lon=${b.getWest()}`
+            + `&max_lat=${b.getNorth()}&max_lon=${b.getEast()}&limit=2000`;
+  if (navaidsFetchPending) navaidsFetchPending.abort?.();
+  const ctrl = new AbortController();
+  navaidsFetchPending = ctrl;
+  fetch(url, { signal: ctrl.signal })
+    .then(r => r.ok ? r.json() : [])
+    .then(rows => {
+      if (!state.showNavaids) return;
+      state.navaidsLayer.clearLayers();
+      for (const n of rows) {
+        const style = NAVAID_STYLE[n.type] || NAVAID_STYLE_DEFAULT;
+        const m = L.circleMarker([n.lat, n.lon], {
+          renderer: state.airportsCanvas,
+          radius: style.radius,
+          color: '#0e1116', weight: 1,
+          fillColor: style.color, fillOpacity: 0.9,
+        });
+        const freq = formatNavaidFrequency(n.frequency_khz, n.type);
+        const tip = `<b>${escapeHtml(n.ident)}</b> · ${escapeHtml(n.type)}`
+          + (freq ? ` · ${escapeHtml(freq)}` : '')
+          + (n.name ? `<br>${escapeHtml(n.name)}` : '');
+        m.bindTooltip(tip, { direction: 'top', sticky: true });
+        m.addTo(state.navaidsLayer);
+      }
+    })
+    .catch((e) => { if (e.name !== 'AbortError') console.warn('navaids fetch', e); });
+}
+
+function scheduleNavaidRefresh() {
+  clearTimeout(navaidsDebounce);
+  navaidsDebounce = setTimeout(refreshNavaids, 250);
+}
+
+function applyNavaidsToggle() {
+  if (state.showNavaids) {
+    if (!state.map.hasLayer(state.navaidsLayer)) state.navaidsLayer.addTo(state.map);
+    refreshNavaids();
+  } else {
+    state.map.removeLayer(state.navaidsLayer);
+    state.navaidsLayer.clearLayers();
+  }
+  state.syncOverlay(state.navaidsProxy, state.showNavaids);
+}
+
+export function setNavaids(value) {
+  state.showNavaids = value;
+  try { localStorage.setItem('flightjar.navaids', value ? '1' : '0'); } catch (_) {}
+  applyNavaidsToggle();
+}
+
 // ---- polar coverage overlay ----
 
 const coverageLayer = L.layerGroup();
@@ -272,6 +356,10 @@ export function initMapControls() {
   // Airports overlay — refresh on pan/zoom when visible.
   state.map.on('moveend', () => { if (state.showAirports) scheduleAirportRefresh(); });
   applyAirportsToggle();
+
+  // Navaids overlay — same refresh-on-moveend pattern.
+  state.map.on('moveend', () => { if (state.showNavaids) scheduleNavaidRefresh(); });
+  applyNavaidsToggle();
 
   // Polar coverage overlay — periodic refresh while visible.
   applyCoverageToggle();

@@ -89,6 +89,20 @@ class Config:
     # UI.
     metar_enabled: bool = True
 
+    # OpenAIP raster tiles for the optional Aeronautical (OpenAIP) overlay.
+    # Free-tier access requires a personal API key from openaip.net; the
+    # key ends up in browser tile URLs so it isn't a secret — scope it to
+    # your deployment's origin if OpenAIP offers referer restrictions.
+    # Empty means "hide the overlay from the layers control".
+    openaip_api_key: str = ""
+
+    # FAA chart cycle date (YYYYMMDD) for VFRMap.com's IFR Low / IFR High
+    # enroute tile overlays. VFRMap embeds the current 28-day chart cycle
+    # in its tile URL path — there's no stable `latest` redirector, so
+    # this needs bumping per cycle. Empty means "hide both IFR overlays".
+    # The URL template is https://vfrmap.com/{DATE}/tiles/{chart}/{z}/{y}/{x}.jpg .
+    vfrmap_chart_date: str = ""
+
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "Config":
         import os
@@ -134,4 +148,6 @@ class Config:
             aircraft_db_refresh_hours=refresh_hours,
             flight_routes_enabled=env_bool(env, "FLIGHT_ROUTES", "1"),
             metar_enabled=env_bool(env, "METAR_WEATHER", "1"),
+            openaip_api_key=_env_str(env, "OPENAIP_API_KEY"),
+            vfrmap_chart_date=_env_str(env, "VFRMAP_CHART_DATE"),
         )

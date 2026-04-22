@@ -108,6 +108,10 @@ up as a fullscreen sheet:
   map as small markers (biggest first so wide views still show the
   majors). Sourced from the OurAirports public-domain database baked
   into the image.
+- **Navaids overlay** — a companion toggle showing VOR / VOR-DME / VORTAC
+  (green), DME / TACAN (blue), and NDB / NDB-DME (orange) from the
+  same OurAirports dataset. Hover a dot for ident, type, and frequency.
+  Useful for eyeballing which airway a plane is on.
 - **Trails persist across restarts** — registry state (aircraft + full
   trails) is checkpointed to `/data/state.json.gz` every 30s and on
   shutdown, so restarting the container doesn't wipe the history. Entries
@@ -211,9 +215,12 @@ for the dev loop.
 - **Map layers** — the layers control (top-right of the map) hosts
   everything map-side: base tiles (OpenStreetMap, Carto Dark, Esri
   Satellite) plus the overlays — *Aircraft labels*, *Altitude trails*,
-  *Airports*, *Polar coverage* (your receiver's observed max range per
-  bearing), and *Range rings* at 50/100/200 NM. All preferences
-  persist.
+  *Airports*, *Navaids*, *Polar coverage* (your receiver's observed
+  max range per bearing), *Range rings* at 50/100/200 NM, plus
+  *IFR Low (US)* / *IFR High (US)* FAA enroute charts (cycle date
+  auto-discovered from vfrmap.com) and — when `OPENAIP_API_KEY` is
+  set — *Aeronautical (OpenAIP)* for worldwide airspaces + navaid
+  symbology. All preferences persist.
 - **Follow + Compact** — two small icon buttons stacked below the
   layers control. Follow auto-enables when a detail panel opens and
   disables when it closes; tap manually to override. Compact hides the
@@ -377,6 +384,8 @@ It shows up next to "Flightjar" in the sidebar and in the browser tab title
 | `AIRCRAFT_DB_REFRESH_HOURS` | `0`           | Auto-refresh interval for the aircraft DB. `0` disables.       |
 | `FLIGHT_ROUTES`       | `1`                 | Enable origin/destination lookups via adsbdb.com. `0` disables.|
 | `METAR_WEATHER`       | `1`                 | Enable METAR lookups via aviationweather.gov. `0` disables.    |
+| `OPENAIP_API_KEY`     | (unset)             | Personal key from [openaip.net](https://www.openaip.net/) enabling the optional worldwide **Aeronautical (OpenAIP)** tile overlay (airspaces + navaids + obstacles). The key appears in browser tile URLs — it's **not** a secret, but scope it to your deployment's origin if OpenAIP supports referer restrictions. OpenAIP is **CC BY-NC-SA**; don't use the free tier for commercial deployments. |
+| `VFRMAP_CHART_DATE`   | (unset — auto)      | Optional override pinning the [VFRMap.com](https://vfrmap.com/) IFR chart cycle to a specific `YYYYMMDD`. By default, the current cycle is discovered automatically at startup (scraped from vfrmap.com, cached to `/data/vfrmap_cycle.json`, refreshed every 6 h). Set this only for air-gapped deployments or to reproduce a bug against a historical cycle. The optional **IFR Low (US)** / **IFR High (US)** overlays are US only — they stay registered but render blank outside US airspace. |
 
 Notification channels aren't configured via env vars — they're
 managed in the **Alerts** dialog in the sidebar footer. See the
@@ -461,9 +470,9 @@ the pure helpers are unit-testable without a browser. `app.js` is the
 entrypoint and imports the rest.
 
 `tar1090_shapes.js` (the per-type SVG silhouette bundle) and
-`airports.csv` / `aircraft_db.csv.gz` aren't committed — they're
-auto-generated at Docker build. If you're running the FastAPI app
-outside Docker, regenerate them once:
+`airports.csv` / `navaids.csv` / `aircraft_db.csv.gz` aren't committed
+— they're auto-generated at Docker build. If you're running the FastAPI
+app outside Docker, regenerate them once:
 
 ```bash
 python scripts/fetch_plane_shapes.py    # writes app/static/tar1090_shapes.js
