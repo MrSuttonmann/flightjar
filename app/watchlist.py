@@ -154,7 +154,9 @@ class WatchlistStore:
             self._last_seen = cleaned
         log.info(
             "loaded %d watchlist entries (%d with last-seen) from %s",
-            len(self._set), len(self._last_seen), self.path,
+            len(self._set),
+            len(self._last_seen),
+            self.path,
         )
 
     def _persist(self) -> None:
