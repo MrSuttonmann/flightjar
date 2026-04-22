@@ -110,6 +110,12 @@ after a deploy (causing new named imports to fail silently).
 asset — browsers keep the cached copy but revalidate via ETag each request
 (304 when unchanged, full re-fetch on change).
 
+The Dockerfile runs `esbuild --minify` over every `app/static/*.js` and
+`app/static/*.css` in place after the tar1090 shapes bundle is
+generated, so the runtime image ships minified assets (~35% smaller
+overall) while the repo + local dev + unit tests keep working against
+the unminified source.
+
 ### BEAST wire format (`app/beast.py`)
 
 Frames are `0x1A <type> <6B MLAT ts> <1B sig> <msg>`, where any `0x1A` in the
