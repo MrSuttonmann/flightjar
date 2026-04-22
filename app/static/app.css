@@ -808,6 +808,32 @@
   .pop-wx .wx-line { display: inline-flex; gap: 5px; align-items: baseline;
                      font-variant-numeric: tabular-nums; cursor: help; }
 
+  /* "Live / Last known" freshness header above the telemetry grid.
+     Sits muted grey by default; picks up a green tint + pulsing dot
+     when updatePopupContent adds `.is-live` (message age < 5 s). */
+  .panel-live-indicator {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 10px; font-weight: 600; letter-spacing: 0.6px;
+    text-transform: uppercase; color: var(--muted);
+    /* Zero bottom margin so the indicator visually belongs to the
+       telemetry tiles below rather than floating between sections. */
+    margin: 10px 0 2px; padding: 0;
+  }
+  .live-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--muted);
+    transition: background 0.2s ease, box-shadow 0.2s ease;
+  }
+  .panel-live-indicator.is-live { color: #6ee7b7; }
+  .panel-live-indicator.is-live .live-dot {
+    background: #6ee7b7;
+    animation: live-pulse 1.8s ease-in-out infinite;
+  }
+  @keyframes live-pulse {
+    0%, 100% { box-shadow: 0 0 0 2px rgba(110, 231, 183, 0.30); }
+    50%      { box-shadow: 0 0 0 5px rgba(110, 231, 183, 0.12); }
+  }
+
   .panel-meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
   .panel-meta .metric { background: rgba(255, 255, 255, 0.03);
                         border: 1px solid var(--border); border-radius: 4px;
@@ -854,7 +880,7 @@
 
   /* Reception stats strip — same card style as the metric cells. */
   .panel-stats {
-    display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
     padding-top: 8px; border-top: 1px solid var(--border);
   }
   .panel-stats .stat {

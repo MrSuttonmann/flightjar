@@ -462,6 +462,10 @@ import { isNotable, militaryLabel } from './notable_aircraft.js';
           `<div class="pop-wx-dest wx-cell" hidden></div>` +
         `</div>` +
       `</div>` +
+      `<div class="panel-live-indicator">` +
+        `<span class="live-dot"></span>` +
+        `<span class="live-label">Live</span>` +
+      `</div>` +
       `<div class="panel-meta">` +
         `<div class="metric"><div class="label">Altitude</div>` +
           `<div class="val pop-alt-wrap"><b class="pop-alt"></b>` +
@@ -509,8 +513,6 @@ import { isNotable, militaryLabel } from './notable_aircraft.js';
           `<span class="stat-val pop-signal"></span></div>` +
         `<div class="stat"><span class="stat-label">First seen</span>` +
           `<span class="stat-val pop-first-seen"></span></div>` +
-        `<div class="stat"><span class="stat-label">Last message</span>` +
-          `<span class="stat-val pop-age"></span></div>` +
       `</div>`;
     updatePopupContent(root, a, now, airports);
     return root;
@@ -561,6 +563,20 @@ import { isNotable, militaryLabel } from './notable_aircraft.js';
       milChip.hidden = true;
     }
     q('.pop-first-today').hidden = !(firstOfDayIcao && a.icao === firstOfDayIcao);
+
+    // "Live" / "Last known" indicator above the telemetry grid. 5 s
+    // of silence (or a missing last_seen) flips to "Last known" so
+    // normal 1-3 s snapshot jitter doesn't flicker the state. Once
+    // we're past the live window the label carries the relative age
+    // too — the footer's dedicated "Last message" stat is retired
+    // now that this line expresses the same thing in a prominent way.
+    const ageS = ageOf(a, now);
+    const isLive = ageS != null && ageS < 5;
+    const liveIndicator = q('.panel-live-indicator');
+    liveIndicator.classList.toggle('is-live', isLive);
+    q('.live-label').textContent = isLive
+      ? 'Live'
+      : `Last known · ${relativeAge(a.last_seen, now)}`;
 
     // Registration line (tar1090-db's registration + aircraft_db's long
     // type name — usually "G-ABCD · Airbus A319-111").
@@ -738,7 +754,6 @@ import { isNotable, militaryLabel } from './notable_aircraft.js';
     // back to the snapshot's rolling window if no entry exists yet.
     const pathTrail = entry?.clientTrail?.length ? entry.clientTrail : (a.trail || []);
     q('.pop-path').textContent = uconv('dst', trailDistanceKm(pathTrail));
-    q('.pop-age').textContent = fmt(ageOf(a, now), 's', 0) + ' ago';
 
     // Bottom section: altitude + speed profiles, external links, stats.
     renderAltProfile(q('.pop-alt-profile'), a.trail);
