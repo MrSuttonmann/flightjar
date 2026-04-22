@@ -11,6 +11,7 @@
 
 import { altColor } from './altitude.js';
 import { haversineKm, trailDistanceKm } from './geo.js';
+import { matchesActiveFilters } from './filters.js';
 import { state } from './state.js';
 
 // Sum of great-circle distance added by appending `newPoints` to a
@@ -148,6 +149,11 @@ export function applyTrailsVisibility() {
       entry.trailFp = null;
       continue;
     }
+    if (entry.hiddenByFilter) {
+      entry.trail.clearLayers();
+      entry.trailFp = null;
+      continue;
+    }
     if (state.selectedIcao && state.selectedIcao !== icao) {
       // A different plane is in focus — hide this one's trail.
       entry.trail.clearLayers();
@@ -161,6 +167,37 @@ export function applyTrailsVisibility() {
     rebuildTrail(entry, source, drTo);
   }
   state.syncOverlay(state.trailsProxy, state.showTrails);
+}
+
+// Show/hide markers + trails for aircraft that don't match the active
+// list filters. The currently-selected aircraft is exempt — hiding a
+// plane the user is actively looking at would orphan the detail panel.
+// Called on filter-chip toggle and on every snapshot tick (so a plane
+// that newly meets/exits a filter via server data flips correctly).
+export function applyFilterVisibility() {
+  const active = state.activeFilters;
+  if (active.size === 0) {
+    for (const entry of state.aircraft.values()) {
+      if (entry.hiddenByFilter) {
+        state.map.addLayer(entry.marker);
+        entry.hiddenByFilter = false;
+      }
+    }
+    return;
+  }
+  const selIcao = state.selectedIcao;
+  for (const [icao, entry] of state.aircraft) {
+    const visible = icao === selIcao || matchesActiveFilters(entry.data);
+    if (!visible && !entry.hiddenByFilter) {
+      state.map.removeLayer(entry.marker);
+      entry.trail.clearLayers();
+      entry.trailFp = null;
+      entry.hiddenByFilter = true;
+    } else if (visible && entry.hiddenByFilter) {
+      state.map.addLayer(entry.marker);
+      entry.hiddenByFilter = false;
+    }
+  }
 }
 
 export function setHoverHalo(icao) {

@@ -6,13 +6,16 @@
 
 import { compassIcon, escapeHtml, flagIcon, fmt } from './format.js';
 import { isNotable, militaryLabel } from './notable_aircraft.js';
+import { matchesActiveFilters } from './filters.js';
 import { routeLabel, selectAircraft } from './detail_panel.js';
-import { setHoverHalo } from './trails.js';
+import { applyFilterVisibility, setHoverHalo } from './trails.js';
 import {
   COUNT_HISTORY_LEN,
   DEFAULT_SORT_DIR,
+  FILTER_KEYS,
   sortValue,
   state,
+  writeFilters,
 } from './state.js';
 import { signalBars } from './profile.js';
 import { trendInfo } from './trend.js';
@@ -59,6 +62,12 @@ export function renderSortBar() {
   });
 }
 
+function renderFilterBar() {
+  document.querySelectorAll('.filter-chip').forEach(el => {
+    el.classList.toggle('active', state.activeFilters.has(el.dataset.filter));
+  });
+}
+
 export function renderSidebar(snap) {
   // Push the current count onto the rolling history (consumed by the
   // Stats dialog sparkline when it's open).
@@ -77,11 +86,20 @@ export function renderSidebar(snap) {
     : `Flightjar (${snap.count})`;
 
   const q = state.searchFilter;
-  const filtered = q
-    ? snap.aircraft.filter(a =>
-        (a.callsign || '').toLowerCase().includes(q) ||
-        a.icao.toLowerCase().includes(q) ||
-        (a.registration || '').toLowerCase().includes(q))
+  const selIcao = state.selectedIcao;
+  const needsFilter = state.activeFilters.size > 0 || !!q;
+  const filtered = needsFilter
+    ? snap.aircraft.filter(a => {
+        // The selected aircraft stays visible even when it stops
+        // matching — otherwise the detail panel orphans mid-read.
+        if (a.icao === selIcao) return true;
+        if (q && !(
+          (a.callsign || '').toLowerCase().includes(q) ||
+          a.icao.toLowerCase().includes(q) ||
+          (a.registration || '').toLowerCase().includes(q)
+        )) return false;
+        return matchesActiveFilters(a);
+      })
     : snap.aircraft;
 
   const rows = filtered.slice().sort((a, b) => {
@@ -98,9 +116,11 @@ export function renderSidebar(snap) {
   if (rows.length === 0) {
     const msg = q
       ? 'No matches for this search.'
-      : snap.count === 0
-        ? 'Waiting for aircraft…'
-        : 'No aircraft have a callsign or position yet.';
+      : state.activeFilters.size > 0
+        ? 'No aircraft match the selected filters.'
+        : snap.count === 0
+          ? 'Waiting for aircraft…'
+          : 'No aircraft have a callsign or position yet.';
     const emptyHtml = `<div class="ac-empty">${msg}</div>`;
     if (emptyHtml !== lastSidebarHtml) {
       list.innerHTML = emptyHtml;
@@ -218,8 +238,8 @@ export function renderSidebar(snap) {
   }
 }
 
-// Wire the sort chips, search input, and delegated click/hover handlers
-// on #ac-list. Called once at boot.
+// Wire the sort chips, filter chips, search input, and delegated
+// click/hover handlers on #ac-list. Called once at boot.
 export function initSidebar() {
   document.querySelectorAll('.sort-chip').forEach(el => {
     el.addEventListener('click', () => {
@@ -235,6 +255,23 @@ export function initSidebar() {
     });
   });
   renderSortBar();
+
+  document.querySelectorAll('.filter-chip').forEach(el => {
+    const key = el.dataset.filter;
+    if (!FILTER_KEYS.includes(key)) return;
+    el.addEventListener('click', () => {
+      if (state.activeFilters.has(key)) state.activeFilters.delete(key);
+      else state.activeFilters.add(key);
+      writeFilters(state.activeFilters);
+      renderFilterBar();
+      if (state.lastSnap) {
+        renderSidebar(state.lastSnap);
+        applyFilterVisibility();
+      }
+    });
+  });
+  renderFilterBar();
+  applyFilterVisibility();
 
   const searchInput = document.getElementById('search');
   searchInput.addEventListener('input', () => {

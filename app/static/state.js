@@ -20,6 +20,30 @@ export const DEFAULT_SORT_DIR = {
   callsign: 1, altitude: -1, distance: 1, age: 1,
 };
 
+// List-filter toggles — 'mil' / 'emergency' / 'watched'. Empty means
+// "show everything" (default). Persisted to localStorage so the last
+// chosen filter survives refresh.
+export const FILTER_KEYS = ['mil', 'emergency', 'watched'];
+const FILTERS_STORAGE_KEY = 'flightjar.filters';
+
+function readFilters() {
+  try {
+    const raw = localStorage.getItem(FILTERS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((k) => FILTER_KEYS.includes(k));
+  } catch (_) {
+    return [];
+  }
+}
+
+export function writeFilters(set) {
+  try {
+    localStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify([...set]));
+  } catch (_) { /* storage disabled */ }
+}
+
 export const state = {
   // Leaflet handles — populated by map_setup.initMap().
   map: null,
@@ -54,6 +78,10 @@ export const state = {
 
   // Sidebar state.
   searchFilter: '',
+  // Active list filters ('mil' | 'emergency' | 'watched'). OR semantics:
+  // an aircraft matches when any active filter matches. Empty set means
+  // "show everything" — the default.
+  activeFilters: new Set(readFilters()),
   hoveredFromListIcao: null,
   hoveredFromMapIcao: null,
   sortKey: 'callsign',

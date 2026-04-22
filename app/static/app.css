@@ -152,6 +152,14 @@
   .sort-chip:hover { color: var(--text); }
   .sort-chip.active { color: var(--text); background: #1d2533; border-color: var(--border); }
   .sort-chip .arrow { display: inline-block; width: 8px; color: var(--accent); }
+  #filter-bar { display: flex; gap: 4px; padding: 0 8px 6px; background: #131821; }
+  .filter-chip { flex: 1; padding: 4px 6px; font-size: 11px; text-align: center;
+                 color: var(--muted); background: transparent; border: 1px solid var(--border);
+                 border-radius: 3px; cursor: pointer; user-select: none;
+                 font-variant-numeric: tabular-nums; letter-spacing: 0.02em;
+                 font-family: inherit; }
+  .filter-chip:hover { color: var(--text); }
+  .filter-chip.active { color: var(--text); background: #1d2533; border-color: var(--accent); }
   #ac-list { flex: 1; overflow-y: auto; }
   .ac-empty { padding: 24px 16px; text-align: center; color: var(--muted);
               font-size: 12px; font-style: italic; }

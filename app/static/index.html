@@ -39,6 +39,14 @@
         <div class="sort-chip" data-key="distance">Dist<span class="arrow"></span></div>
         <div class="sort-chip" data-key="age">Age<span class="arrow"></span></div>
       </div>
+      <div id="filter-bar" role="group" aria-label="Filter aircraft">
+        <button type="button" class="filter-chip" data-filter="mil"
+                title="Show only military aircraft">MIL</button>
+        <button type="button" class="filter-chip" data-filter="emergency"
+                title="Show only aircraft squawking emergency">Emergency</button>
+        <button type="button" class="filter-chip" data-filter="watched"
+                title="Show only watchlisted aircraft">Watched</button>
+      </div>
     </div>
     <div id="ac-list"></div>
   </div>

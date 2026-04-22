@@ -7,7 +7,13 @@
 import { altColor } from './altitude.js';
 import { claimFirstOfDay, RANGE_RECORD_THROTTLE_MS, state } from './state.js';
 import { GO_AROUND_COOLDOWN_MS } from './state.js';
-import { applyTrailsVisibility, mergeClientTrail, peekListItem, setHoverHalo } from './trails.js';
+import {
+  applyFilterVisibility,
+  applyTrailsVisibility,
+  mergeClientTrail,
+  peekListItem,
+  setHoverHalo,
+} from './trails.js';
 import { isNotable } from './notable_aircraft.js';
 import {
   markEntryLost,
@@ -162,6 +168,11 @@ export function update(snap) {
     };
     updateLabelFor(entry);
   }
+
+  // Hide / show markers per the active list filters before the trail
+  // pass so applyTrailsVisibility sees fresh hiddenByFilter flags and
+  // doesn't redraw a trail for a now-hidden plane.
+  applyFilterVisibility();
 
   // Single pass across all aircraft now that each has its fresh
   // snapshot data merged — applyTrailsVisibility picks which source
