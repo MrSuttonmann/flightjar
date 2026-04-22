@@ -248,6 +248,12 @@ import { isNotable, militaryLabel } from './notable_aircraft.js';
     } catch (_) { /* storage disabled */ }
   }
   let firstOfDayIcao = readFirstOfDay();
+  // Watchlist last-seen timestamps (unix seconds, icao -> ts) served
+  // by the backend via /api/watchlist. Refreshed on dialog open. The
+  // server is authoritative because alerts (Telegram / ntfy / webhook)
+  // also fire on the server, so both layers share one source of truth
+  // and the data survives browser-storage resets + multi-device use.
+  let watchlistLastSeen = {};
   function getSessionStats() {
     const frames = lastSnap && sessionStartFrames != null
       ? Math.max(0, lastSnap.frames - sessionStartFrames)
@@ -2008,11 +2014,27 @@ import { isNotable, militaryLabel } from './notable_aircraft.js';
     const label = [reg, type].filter(Boolean).join(' · ');
     const rangeCls = inRange ? 'wl-range wl-range-on' : 'wl-range';
     const rangeTitle = inRange ? 'In range right now' : 'Not currently in range';
+    // Last-seen label: live when the plane is in the current snapshot,
+    // relative age when we have a persisted timestamp from an earlier
+    // sighting, and empty otherwise.
+    const nowSec = Date.now() / 1000;
+    const lastSeenTs = inRange ? (snap.last_seen || nowSec) : watchlistLastSeen[icao];
+    let lastSeenHtml = '';
+    if (inRange) {
+      lastSeenHtml = '<span class="wl-last-seen wl-live">Live</span>';
+    } else if (lastSeenTs) {
+      lastSeenHtml =
+        `<span class="wl-last-seen" title="${escapeHtml(new Date(lastSeenTs * 1000).toLocaleString())}">` +
+        `${escapeHtml(relativeAge(lastSeenTs, nowSec))}</span>`;
+    } else {
+      lastSeenHtml = '<span class="wl-last-seen wl-last-seen-none">—</span>';
+    }
     return `
       <li class="watchlist-entry${inRange ? ' in-range' : ''}" data-icao="${escapeHtml(icao)}">
         <span class="${rangeCls}" title="${rangeTitle}"></span>
         <code class="wl-icao">${escapeHtml(icao.toUpperCase())}</code>
         <span class="wl-label">${escapeHtml(label)}</span>
+        ${lastSeenHtml}
         <button type="button" class="wl-remove" data-icao="${escapeHtml(icao)}"
                 aria-label="Remove from watchlist" title="Remove">&times;</button>
       </li>
@@ -2058,6 +2080,20 @@ import { isNotable, militaryLabel } from './notable_aircraft.js';
       watchlistEntriesEl.innerHTML = '';
       return;
     }
+    // Refresh the server-tracked last-seen map before rendering so the
+    // "last seen 3h ago" labels reflect the latest timestamps. Best-
+    // effort: if the fetch fails we just render with stale values.
+    try {
+      const r = await fetch('/api/watchlist', {
+        headers: { Accept: 'application/json' },
+      });
+      if (r.ok) {
+        const body = await r.json();
+        if (body && typeof body.last_seen === 'object' && body.last_seen) {
+          watchlistLastSeen = body.last_seen;
+        }
+      }
+    } catch (_) { /* offline — use what we already have */ }
     // Quick first-paint from snapshot / cache; async-fill the rest.
     const snapMap = new Map(
       (lastSnap?.aircraft || []).map((a) => [a.icao.toLowerCase(), a]),

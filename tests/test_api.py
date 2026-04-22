@@ -136,7 +136,7 @@ def test_watchlist_get_round_trips_empty():
     with _client() as c:
         r = c.get("/api/watchlist")
     assert r.status_code == 200
-    assert r.json() == {"icao24s": []}
+    assert r.json() == {"icao24s": [], "last_seen": {}}
 
 
 def test_watchlist_post_replaces_and_normalises():
@@ -148,13 +148,29 @@ def test_watchlist_post_replaces_and_normalises():
                 json={"icao24s": ["ABC123", " def456 ", "xyz!!!", "00aabb"]},
             )
         assert r.status_code == 200
+        body = r.json()
         # Invalid entries are dropped, valid ones lowercased + sorted.
-        assert r.json() == {"icao24s": ["00aabb", "abc123", "def456"]}
-        # Persisted to the server-side store — the GET endpoint returns the
-        # same list.
+        assert body["icao24s"] == ["00aabb", "abc123", "def456"]
+        assert body["last_seen"] == {}
+        # Persisted to the server-side store — the GET endpoint returns
+        # the same list.
         with _client() as c:
             r2 = c.get("/api/watchlist")
-        assert r2.json() == {"icao24s": ["00aabb", "abc123", "def456"]}
+        assert r2.json()["icao24s"] == ["00aabb", "abc123", "def456"]
+    finally:
+        _reset_watchlist()
+
+
+def test_watchlist_get_returns_last_seen_map():
+    _reset_watchlist()
+    try:
+        main.watchlist_store.replace(["abc123"])
+        main.watchlist_store.record_seen("abc123", 1_700_000_000.0)
+        with _client() as c:
+            r = c.get("/api/watchlist")
+        body = r.json()
+        assert body["icao24s"] == ["abc123"]
+        assert body["last_seen"] == {"abc123": 1_700_000_000.0}
     finally:
         _reset_watchlist()
 

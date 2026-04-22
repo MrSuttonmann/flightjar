@@ -334,6 +334,11 @@ def build_snapshot(now: float | None = None) -> dict:
             ac["destination"] = None
             dest_info = None
         ac["phase"] = flight_phase(ac, dest_info)
+        # Note the last-seen timestamp for any watchlisted tail in
+        # coverage so the watchlist dialog can show "last seen Xh
+        # ago" for out-of-range entries. Non-watchlisted icaos are a
+        # no-op inside record_seen.
+        watchlist_store.record_seen(ac["icao"], ac.get("last_seen"))
         airline = airlines_db.lookup_by_callsign(ac.get("callsign"))
         if airline:
             ac["operator_iata"] = airline.get("iata")
@@ -575,6 +580,11 @@ async def lifespan(app: FastAPI):
                 save_state(registry, STATE_PATH)
             except Exception as e:
                 log.warning("final state save failed: %s", e)
+        # Flush any pending watchlist last-seen updates (record_seen
+        # debounces disk writes; we don't want to lose up to 30 s of
+        # data on graceful shutdown).
+        with contextlib.suppress(Exception):
+            watchlist_store.flush()
         # Release pooled connections held by the HTTP clients.
         for closer in (
             adsbdb.aclose(),
@@ -770,24 +780,31 @@ async def api_heatmap_reset():
 
 @app.get("/api/watchlist", summary="Server-side watchlist of ICAO24 codes")
 async def api_watchlist():
-    """Return the current watchlist. The browser uses this on page load
-    to merge its local copy with anything persisted on disk, so starred
-    aircraft survive across devices + browser-storage resets."""
-    return {"icao24s": watchlist_store.get()}
+    """Return the current watchlist plus last-seen timestamps. Shape:
+
+        {
+          "icao24s": ["abc123", ...],
+          "last_seen": {"abc123": 1714000000.0, ...}
+        }
+
+    The client merges `icao24s` with its local copy on page load and
+    uses `last_seen` to render "last seen Xh ago" rows in the
+    watchlist dialog for tails that aren't currently in coverage."""
+    return watchlist_store.get()
 
 
 @app.post("/api/watchlist", summary="Replace the watchlist")
 async def api_watchlist_replace(body: dict):
     """Overwrite the watchlist with the supplied list of ICAO24 hex
     codes. Invalid entries are dropped silently; `icao24s` is required
-    (an empty list wipes the watchlist)."""
+    (an empty list wipes the watchlist). Last-seen entries for removed
+    tails are pruned automatically."""
     if not isinstance(body, dict) or not isinstance(body.get("icao24s"), list):
         return JSONResponse({"error": 'body must be {"icao24s": [...]}'}, status_code=400)
     # Cap body size to keep a rogue client from blowing memory.
     if len(body["icao24s"]) > 10_000:
         return JSONResponse({"error": "too many entries"}, status_code=413)
-    new = watchlist_store.replace(body["icao24s"])
-    return {"icao24s": new}
+    return watchlist_store.replace(body["icao24s"])
 
 
 @app.get("/api/notifications/config", summary="Notification channel config")
