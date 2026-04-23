@@ -7,6 +7,7 @@
 import { altColor } from './altitude.js';
 import { ageOf, compassIcon, escapeHtml, flagIcon, fmt } from './format.js';
 import { flightProgress, trailDistanceKm } from './geo.js';
+import { lucide } from './icons_lib.js';
 import { planeIcon } from './icons.js';
 import { isNotable, militaryLabel } from './notable_aircraft.js';
 import {
@@ -373,8 +374,9 @@ export function updatePopupContent(root, a, now, airports) {
   const airnav = q('.pop-link-airnav');
   if (a.registration) {
     const regLower = a.registration.toLowerCase();
+    const regUpper = a.registration.toUpperCase();
     fr24.href = `https://www.flightradar24.com/data/aircraft/${regLower}`;
-    airnav.href = `https://www.airnavradar.com/data/aircraft/${regLower}`;
+    airnav.href = `https://www.airnavradar.com/data/registration/${regUpper}`;
     fr24.hidden = false;
     airnav.hidden = false;
   } else {
@@ -497,13 +499,7 @@ async function fillAircraftPhoto(icao) {
     slot.classList.add('no-photo');
     slot.innerHTML =
       `<div class="no-photo-inner">` +
-        `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" ` +
-          `stroke="currentColor" stroke-width="1.5" stroke-linecap="round" ` +
-          `stroke-linejoin="round" aria-hidden="true">` +
-          `<path d="M3 7h4l1.5-2h7L17 7h4v12H3z"/>` +
-          `<circle cx="12" cy="13" r="3"/>` +
-          `<line x1="3" y1="3" x2="21" y2="21"/>` +
-        `</svg>` +
+        lucide('camera-off', { size: 22, strokeWidth: 1.5 }) +
         `<span>No photo available</span>` +
       `</div>`;
     return;

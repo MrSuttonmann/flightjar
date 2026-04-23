@@ -1,8 +1,9 @@
 // Sidebar + sort bar. renderSidebar() is called on every snapshot tick
 // plus on a handful of state-change events (search input, sort chip
-// click, watchlist toggle, etc.). Row HTML is cached per icao; the
-// whole-list innerHTML write is also gated by byte-equality so
-// steady-state ticks touch the DOM minimally.
+// click, watchlist toggle, etc.). Rows are DOM-diffed per icao: each
+// row's rendered Element is cached and reused while its fingerprint
+// holds, and DOM order is patched in place with insertBefore so a
+// steady-cruise tick doesn't touch DOM that didn't actually change.
 
 import { compassIcon, escapeHtml, flagIcon, fmt } from './format.js';
 import { isNotable, militaryLabel } from './notable_aircraft.js';
@@ -41,12 +42,26 @@ function updateMsgRate(snap) {
   prevFramesAt = snap.now;
 }
 
-// Last rendered sidebar HTML + per-row HTML cache. Skipping the
-// innerHTML reparse when nothing changed is the single biggest win
-// on a steady-cruise tick; the per-row cache is what makes the
-// whole-list equality check cheap to compute.
-let lastSidebarHtml = '';
-const rowHtmlCache = new Map();
+// Per-row DOM cache. On a steady-cruise tick the sidebar fingerprint
+// of most rows is identical, so we keep the previously-built row
+// Elements alive and reuse them — the browser only re-parses HTML for
+// rows whose fingerprint actually changed, and the order is patched in
+// place with insertBefore rather than blowing away list.innerHTML.
+const rowElementCache = new Map();  // icao -> { fp, el }
+let lastEmptyMsg = null;
+let lastStatusText = '';
+let lastSiteName = '';
+let lastDocTitle = '';
+
+// Scratch host used to parse a row's HTML string into a real Element.
+// Reused across calls — the parsed node becomes detached as soon as we
+// overwrite innerHTML, so callers who've stashed the reference keep
+// their own detached node intact.
+const rowBuilder = document.createElement('div');
+function buildRowElement(html) {
+  rowBuilder.innerHTML = html;
+  return rowBuilder.firstElementChild;
+}
 
 // Lets dialogs / etc. call renderStats when the stats dialog is open
 // without importing dialogs.js (which imports *us* for countHistory).
@@ -76,14 +91,24 @@ export function renderSidebar(snap) {
   const statsDialog = document.getElementById('stats-dialog');
   if (statsDialog?.open) _renderStats(snap);
   updateMsgRate(snap);
-  const status = document.getElementById('status-text');
-  status.textContent =
-    `${snap.count} aircraft · ${snap.positioned} positioned`;
+
+  const statusText = `${snap.count} aircraft · ${snap.positioned} positioned`;
+  if (statusText !== lastStatusText) {
+    document.getElementById('status-text').textContent = statusText;
+    lastStatusText = statusText;
+  }
   const site = snap.site_name || '';
-  document.getElementById('site-name').textContent = site;
-  document.title = site
+  if (site !== lastSiteName) {
+    document.getElementById('site-name').textContent = site;
+    lastSiteName = site;
+  }
+  const docTitle = site
     ? `Flightjar — ${site} (${snap.count})`
     : `Flightjar (${snap.count})`;
+  if (docTitle !== lastDocTitle) {
+    document.title = docTitle;
+    lastDocTitle = docTitle;
+  }
 
   const q = state.searchFilter;
   const selIcao = state.selectedIcao;
@@ -121,16 +146,20 @@ export function renderSidebar(snap) {
         : snap.count === 0
           ? 'Waiting for aircraft…'
           : 'No aircraft have a callsign or position yet.';
-    const emptyHtml = `<div class="ac-empty">${msg}</div>`;
-    if (emptyHtml !== lastSidebarHtml) {
-      list.innerHTML = emptyHtml;
-      lastSidebarHtml = emptyHtml;
+    if (msg !== lastEmptyMsg) {
+      list.innerHTML = `<div class="ac-empty">${msg}</div>`;
+      lastEmptyMsg = msg;
+      rowElementCache.clear();
     }
     return;
   }
-  const visibleIcaos = new Set();
-  const htmlOut = rows.map(a => {
-    visibleIcaos.add(a.icao);
+  lastEmptyMsg = null;
+
+  const desiredEls = new Array(rows.length);
+  const desiredIcaos = new Set();
+  for (let i = 0; i < rows.length; i++) {
+    const a = rows[i];
+    desiredIcaos.add(a.icao);
     const entry = state.aircraft.get(a.icao);
     const entryTrend = entry?.trend;
     const tAlt = entryTrend?.alt || trendInfo(entry, 'alt');
@@ -142,7 +171,7 @@ export function renderSidebar(snap) {
     const route = routeLabel(a, snap.airports);
 
     // Fingerprint every value that affects rendered HTML. Stable rows
-    // hit the cache and skip the template build entirely.
+    // hit the cache and skip both the template build and DOM parse.
     const fp = [
       selected ? 1 : 0, watched ? 1 : 0, isFirstOfDay ? 1 : 0,
       a.emergency || '', a.callsign || '', a.registration || '',
@@ -153,8 +182,11 @@ export function renderSidebar(snap) {
       tAlt.cls, tAlt.arrow, tSpd.cls, tSpd.arrow, tDst.cls, tDst.arrow,
       route,
     ].join('|');
-    const cached = rowHtmlCache.get(a.icao);
-    if (cached && cached.fp === fp) return cached.html;
+    const cached = rowElementCache.get(a.icao);
+    if (cached && cached.fp === fp) {
+      desiredEls[i] = cached.el;
+      continue;
+    }
 
     const classes = [
       'ac-item',
@@ -187,8 +219,11 @@ export function renderSidebar(snap) {
       ? `<span class="flag" title="${escapeHtml(a.operator_country || a.country_iso)}">${flag}</span> `
       : '';
     const sigBars = signalBars(a.signal_peak);
-    const phaseChip = a.phase
-      ? `<span class="phase-chip phase-${a.phase}">${a.phase}</span>`
+    const phaseRaw = a.phase == null ? '' : String(a.phase);
+    const phaseText = escapeHtml(phaseRaw);
+    const phaseClass = phaseRaw.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+    const phaseChip = phaseRaw
+      ? `<span class="phase-chip phase-${phaseClass}">${phaseText}</span>`
       : '';
     const notable = isNotable(a.icao, a.callsign);
     const notableTag = notable
@@ -201,40 +236,39 @@ export function renderSidebar(snap) {
     const firstOfDayTag = isFirstOfDay
       ? `<span class="first-of-day-tag" title="First contact today">🌅</span> `
       : '';
-    const html = `
-      <div class="${classes}" data-icao="${icao}">
-        <div class="row1">
-          <span class="cs">${flagTag}${notableTag}${firstOfDayTag}${callsign} ${emergencyBadge} ${milChip} ${phaseChip}</span>
-          <span class="icao">${sigBars}${subtitle || icao.toUpperCase()}</span>
-        </div>
-        ${airline ? `<div class="airline-row">${airline}</div>` : ''}
-        ${route ? `<div class="route-row">${route}</div>` : ''}
-        <div class="meta">
-          <div class="metric"><div class="label">Alt</div><div class="val ${tAlt.cls}">${uconv('alt', a.altitude)}${tAlt.arrow}</div></div>
-          <div class="metric"><div class="label">Spd</div><div class="val ${tSpd.cls}">${uconv('spd', a.speed)}${tSpd.arrow}</div></div>
-          <div class="metric"><div class="label">Hdg</div><div class="val">${fmt(a.track, '°')}${compassIcon(a.track)}</div></div>
-          <div class="metric"><div class="label">Dist</div><div class="val ${tDst.cls}">${uconv('dst', a.distance_km)}${tDst.arrow}</div></div>
-        </div>
-      </div>
-    `;
-    rowHtmlCache.set(a.icao, { fp, html });
-    return html;
-  }).join('');
-
-  if (htmlOut !== lastSidebarHtml) {
-    list.innerHTML = htmlOut;
-    lastSidebarHtml = htmlOut;
+    const html = `<div class="${classes}" data-icao="${icao}"><div class="row1"><span class="cs">${flagTag}${notableTag}${firstOfDayTag}${callsign} ${emergencyBadge} ${milChip} ${phaseChip}</span><span class="icao">${sigBars}${subtitle || icao.toUpperCase()}</span></div>${airline ? `<div class="airline-row">${airline}</div>` : ''}${route ? `<div class="route-row">${route}</div>` : ''}<div class="meta"><div class="metric"><div class="label">Alt</div><div class="val ${tAlt.cls}">${uconv('alt', a.altitude)}${tAlt.arrow}</div></div><div class="metric"><div class="label">Spd</div><div class="val ${tSpd.cls}">${uconv('spd', a.speed)}${tSpd.arrow}</div></div><div class="metric"><div class="label">Hdg</div><div class="val">${fmt(a.track, '°')}${compassIcon(a.track)}</div></div><div class="metric"><div class="label">Dist</div><div class="val ${tDst.cls}">${uconv('dst', a.distance_km)}${tDst.arrow}</div></div></div></div>`;
+    const el = buildRowElement(html);
+    rowElementCache.set(a.icao, { fp, el });
+    desiredEls[i] = el;
   }
 
-  if (rowHtmlCache.size > visibleIcaos.size) {
-    for (const key of rowHtmlCache.keys()) {
-      if (!visibleIcaos.has(key)) rowHtmlCache.delete(key);
+  // Drop rows no longer visible — detach from DOM and forget.
+  if (rowElementCache.size > desiredIcaos.size) {
+    for (const [icao, cached] of rowElementCache) {
+      if (!desiredIcaos.has(icao)) {
+        cached.el.remove();
+        rowElementCache.delete(icao);
+      }
     }
   }
 
+  // Patch DOM order in place. insertBefore on a node already in the
+  // document moves it; on a fresh node it inserts. Browsers no-op when
+  // the target is already in the requested slot, so steady-state ticks
+  // with no reorders touch zero nodes here.
+  for (let i = 0; i < desiredEls.length; i++) {
+    const el = desiredEls[i];
+    if (list.children[i] !== el) {
+      list.insertBefore(el, list.children[i] || null);
+    }
+  }
+  while (list.children.length > desiredEls.length) {
+    list.lastElementChild.remove();
+  }
+
   if (state.hoveredFromMapIcao) {
-    const el = list.querySelector(`.ac-item[data-icao="${state.hoveredFromMapIcao}"]`);
-    if (el) el.classList.add('peek');
+    const cached = rowElementCache.get(state.hoveredFromMapIcao);
+    if (cached) cached.el.classList.add('peek');
   }
 }
 

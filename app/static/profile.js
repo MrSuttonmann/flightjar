@@ -5,6 +5,7 @@
 // SVGs the caller hands in, so this whole module is safe to unit-test.
 
 import { altColor } from './altitude.js';
+import { lucide } from './icons_lib.js';
 
 // Maps ADS-B emitter category (TC 4) bytes to human-readable names.
 // Keys < 1 or > 7 are not surfaced to the user.
@@ -49,15 +50,10 @@ export function signalBars(byte) {
 }
 
 // Small "opens-in-new-tab" glyph baked into every external-tracker link.
-// currentColor so each button's link icon inherits its text tone.
-export const LINK_ICON_SVG =
-  `<svg class="link-icon" viewBox="0 0 16 16" width="9" height="9" ` +
-    `aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" ` +
-    `stroke-linecap="round" stroke-linejoin="round">` +
-    `<path d="M10 3h3v3"/>` +
-    `<path d="M13 3l-6 6"/>` +
-    `<path d="M12 9v3a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3"/>` +
-  `</svg>`;
+// Sized down to 9 px so it reads as a decoration, not a primary control.
+export const LINK_ICON_SVG = lucide('external-link', {
+  size: 9, strokeWidth: 1.5, className: 'link-icon',
+});
 
 // Render a tiny history polyline into `svgEl` from the snapshot's
 // per-aircraft trail. Segments are coloured via `strokeFn(value, index)`
@@ -139,12 +135,64 @@ export function relativeAge(t, now) {
   return (s / 3600).toFixed(1) + 'h ago';
 }
 
+// Maps our internal METAR-state key to the Lucide icon that renders it.
+// Kept alongside `weatherIconKey` so reviewers reading the classifier
+// see the pick-to-glyph mapping in one place.
+const WX_KEY_TO_LUCIDE = {
+  clear: 'sun',
+  partly: 'cloud-sun',
+  cloud: 'cloud',
+  fog: 'cloud-fog',
+  rain: 'cloud-rain',
+  snow: 'cloud-snow',
+  hail: 'cloud-hail',
+  thunder: 'cloud-lightning',
+};
+
+// Pick a short key for the icon that best summarises a METAR.
+// Priority: thunder → hail → snow → rain → fog → cloud → partly → clear.
+// Tokenises the raw METAR and matches each present-weather group as a
+// whole — full-token matching avoids false positives from ICAO station
+// codes like LFRA or EDSN that happen to contain "RA"/"SN". Falls back
+// to the `cover` field, then 'clear' for CAVOK / SKC / no data.
+// Returns '' when the input is null.
+export function weatherIconKey(m) {
+  if (!m) return '';
+  const raw = (m.raw || '').toUpperCase();
+  // A present-weather token is: optional intensity (+, -), optional
+  // vicinity (VC), optional descriptor (MI/PR/BC/DR/BL/SH/TS/FZ), then
+  // one or more 2-letter phenomenon pairs. VCTS / TS / VCSH / SH are
+  // valid bare forms (vicinity-only thunder or shower).
+  const wxRe = /^[-+]?(?:VC)?(?:(?:MI|PR|BC|DR|BL|SH|TS|FZ)?(?:DZ|RA|SN|SG|IC|PL|GR|GS|UP|BR|FG|FU|VA|DU|SA|HZ|PY|PO|SQ|FC|SS|DS)+|TS|SH)$/;
+  const tokens = raw.split(/\s+/).filter(t => wxRe.test(t));
+  const has = (code) => tokens.some(t => t.includes(code));
+  if (tokens.some(t => /TS/.test(t))) return 'thunder';
+  if (has('GR') || has('GS')) return 'hail';
+  if (has('SN') || has('SG') || has('IC') || has('PL')) return 'snow';
+  if (has('RA') || has('DZ') || has('UP')) return 'rain';
+  if (tokens.length > 0) return 'fog';
+  const cover = (m.cover || '').toUpperCase();
+  if (cover === 'OVC' || cover === 'BKN') return 'cloud';
+  if (cover === 'SCT' || cover === 'FEW') return 'partly';
+  return 'clear';
+}
+
+// Inline SVG for the weather icon selected by `weatherIconKey`. Uses
+// `currentColor` so the stroke inherits the surrounding text tone.
+export function weatherIconSvg(m) {
+  const key = weatherIconKey(m);
+  if (!key) return '';
+  return lucide(WX_KEY_TO_LUCIDE[key], {
+    size: 14, strokeWidth: 2, className: `wx-icon wx-${key}`,
+  });
+}
+
 // Compact weather summary from a distilled METAR payload
 // ({ raw, wind_dir, wind_kt, visibility, cover, ... }).
-// Returns HTML: the airport code as a monospace tag, then space-separated
-// fragments ("250°/12kt", "10SM", "BKN"). Fragments that don't have data
-// drop out so a quiet METAR like "EGLL 0000Z CAVOK" reads as "EGLL ·
-// CAVOK" in practice. Hover tooltip carries the raw METAR string.
+// Returns HTML: the airport code as a monospace tag, a weather emoji,
+// then space-separated fragments ("250°/12kt", "10SM", "BKN"). Fragments
+// without data drop out, so a quiet METAR like "EGLL 0000Z CAVOK" reads
+// as "EGLL ☀ CAVOK". Hover tooltip carries the raw METAR string.
 export function formatMetar(code, m) {
   if (!code || !m) return '';
   const parts = [];
@@ -161,7 +209,8 @@ export function formatMetar(code, m) {
   }
   if (m.cover) parts.push(m.cover);
   const tag = `<span class="airline-tag">${code}</span>`;
+  const icon = weatherIconSvg(m);
   const body = parts.length ? parts.join(' · ') : '—';
   const title = m.raw ? ` title="${m.raw.replace(/"/g, '&quot;')}"` : '';
-  return `<span class="wx-line"${title}>${tag} ${body}</span>`;
+  return `<span class="wx-line"${title}>${tag}${icon ? ' ' + icon : ''} ${body}</span>`;
 }

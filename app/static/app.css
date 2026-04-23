@@ -238,9 +238,11 @@
   #about-dialog .about-close-form { margin: 0; padding: 0; display: flex;
                                     justify-content: flex-end; }
   #about-dialog .about-close { background: transparent; border: 0;
-                               color: var(--muted); font-size: 22px;
-                               line-height: 1; cursor: pointer;
-                               padding: 0 4px; margin: -8px -8px 0 0; }
+                               color: var(--muted); cursor: pointer;
+                               padding: 2px 4px; margin: -6px -8px 0 0;
+                               display: inline-flex; align-items: center;
+                               justify-content: center; }
+  #about-dialog .about-close svg { display: block; }
   #about-dialog .about-close:hover { color: var(--text); }
   /* Version pill next to the title. Populated from /api/stats on open. */
   .about-version {
@@ -285,9 +287,11 @@
   #stats-dialog .about-close-form { margin: 0; padding: 0; display: flex;
                                     justify-content: flex-end; }
   #stats-dialog .about-close { background: transparent; border: 0;
-                               color: var(--muted); font-size: 22px;
-                               line-height: 1; cursor: pointer;
-                               padding: 0 4px; margin: -8px -8px 0 0; }
+                               color: var(--muted); cursor: pointer;
+                               padding: 2px 4px; margin: -6px -8px 0 0;
+                               display: inline-flex; align-items: center;
+                               justify-content: center; }
+  #stats-dialog .about-close svg { display: block; }
   #stats-dialog .about-close:hover { color: var(--text); }
   .stats-grid { display: grid;
                 grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
@@ -348,9 +352,11 @@
   #watchlist-dialog .about-close-form { margin: 0; padding: 0; display: flex;
                                         justify-content: flex-end; }
   #watchlist-dialog .about-close { background: transparent; border: 0;
-                                   color: var(--muted); font-size: 22px;
-                                   line-height: 1; cursor: pointer;
-                                   padding: 0 4px; margin: -8px -8px 0 0; }
+                                   color: var(--muted); cursor: pointer;
+                                   padding: 2px 4px; margin: -6px -8px 0 0;
+                                   display: inline-flex; align-items: center;
+                                   justify-content: center; }
+  #watchlist-dialog .about-close svg { display: block; }
   #watchlist-dialog .about-close:hover { color: var(--text); }
   .watchlist-count { color: var(--muted); font-weight: 400;
                      text-transform: none; letter-spacing: 0; }
@@ -418,9 +424,11 @@
   #alerts-dialog .about-close-form { margin: 0; padding: 0; display: flex;
                                      justify-content: flex-end; }
   #alerts-dialog .about-close { background: transparent; border: 0;
-                                color: var(--muted); font-size: 22px;
-                                line-height: 1; cursor: pointer;
-                                padding: 0 4px; margin: -8px -8px 0 0; }
+                                color: var(--muted); cursor: pointer;
+                                padding: 2px 4px; margin: -6px -8px 0 0;
+                                display: inline-flex; align-items: center;
+                                justify-content: center; }
+  #alerts-dialog .about-close svg { display: block; }
   #alerts-dialog .about-close:hover { color: var(--text); }
   .alerts-section { margin-bottom: 10px; }
   .alerts-entry { background: rgba(255, 255, 255, 0.03);
@@ -712,9 +720,10 @@
     width: 28px; height: 28px; padding: 0;
     background: transparent; color: var(--muted);
     border: 1px solid var(--border); border-radius: 4px;
-    font-size: 18px; line-height: 1; cursor: pointer;
-    font-family: inherit;
+    cursor: pointer; font-family: inherit;
+    display: inline-flex; align-items: center; justify-content: center;
   }
+  #detail-close svg { display: block; }
   #detail-close:hover { color: var(--text); background: #1d222b; }
 
   /* ---- panel content layout ---- */
@@ -829,8 +838,15 @@
   .pop-wx { display: flex; flex-direction: column; gap: 3px; margin-top: 8px;
             font-size: 11px; color: var(--muted); }
   .pop-wx .wx-cell[hidden] { display: none; }
-  .pop-wx .wx-line { display: inline-flex; gap: 5px; align-items: baseline;
+  .pop-wx .wx-line { display: inline-flex; gap: 5px; align-items: center;
                      font-variant-numeric: tabular-nums; cursor: help; }
+  /* Inline Lucide weather glyph between the airport tag and the wind /
+     visibility summary. Inherits stroke colour from the surrounding
+     .pop-wx muted text; sunny / clear picks up a warm amber tint. */
+  .pop-wx .wx-icon { flex: 0 0 auto; opacity: 0.9; }
+  .pop-wx .wx-clear { color: #f0b73a; }
+  .pop-wx .wx-partly { color: #e0c77a; }
+  .pop-wx .wx-thunder { color: #f7c945; }
 
   /* "Live / Last known" freshness header above the telemetry grid.
      Sits muted grey by default; picks up a green tint + pulsing dot

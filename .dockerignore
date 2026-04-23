@@ -1,0 +1,26 @@
+# Keep local dev state out of the build context so it doesn't clobber the
+# fresh NuGet restore (every project writes obj/project.assets.json there).
+**/bin/
+**/obj/
+**/*.user
+**/*.suo
+.vs/
+
+# Tests never ship in the image — skip the whole tree so the build
+# context is lighter and restore doesn't pull in the xUnit + testing
+# packages.
+dotnet/tests/
+
+# Local logs + data directories — no need to ship them
+beast-logs/
+test-results/
+playwright-report/
+
+# VCS + editor noise
+.git/
+.github/
+.idea/
+.vscode/
+
+# Node / Playwright scratch
+node_modules/

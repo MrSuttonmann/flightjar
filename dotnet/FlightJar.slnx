@@ -1,0 +1,18 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/FlightJar.Api/FlightJar.Api.csproj" />
+    <Project Path="src/FlightJar.Clients/FlightJar.Clients.csproj" />
+    <Project Path="src/FlightJar.Core/FlightJar.Core.csproj" />
+    <Project Path="src/FlightJar.Decoder/FlightJar.Decoder.csproj" />
+    <Project Path="src/FlightJar.Notifications/FlightJar.Notifications.csproj" />
+    <Project Path="src/FlightJar.Persistence/FlightJar.Persistence.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/FlightJar.Api.Tests/FlightJar.Api.Tests.csproj" />
+    <Project Path="tests/FlightJar.Clients.Tests/FlightJar.Clients.Tests.csproj" />
+    <Project Path="tests/FlightJar.Core.Tests/FlightJar.Core.Tests.csproj" />
+    <Project Path="tests/FlightJar.Decoder.Tests/FlightJar.Decoder.Tests.csproj" />
+    <Project Path="tests/FlightJar.Notifications.Tests/FlightJar.Notifications.Tests.csproj" />
+    <Project Path="tests/FlightJar.Persistence.Tests/FlightJar.Persistence.Tests.csproj" />
+  </Folder>
+</Solution>
