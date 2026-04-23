@@ -452,32 +452,43 @@ and `site_name` at the top level.
 
 ## Development
 
-If you want to hack on Flightjar, the dev tooling is wired in via
-`pyproject.toml` and `requirements-dev.txt`:
+The backend lives under [`dotnet/`](dotnet/). Standard dev loop:
 
 ```bash
-pip install -r requirements-dev.txt
-ruff check .            # lint
-ruff format .           # apply formatting
-mypy                    # type-check app/
-pytest                  # run the backend test suite
-node --test tests/js/   # run the frontend test suite (Node 20+)
+cd dotnet
+dotnet format FlightJar.slnx --verify-no-changes   # lint (whitespace + style)
+dotnet build FlightJar.slnx -c Release             # build
+dotnet test FlightJar.slnx                         # test suite
+cd ..
+node --test tests/js/                              # frontend ES-module tests (Node 20+)
+```
+
+Run it against a live BEAST feed without Docker:
+
+```bash
+BEAST_HOST=<readsb-host> BEAST_PORT=30005 LAT_REF=<lat> LON_REF=<lon> \
+  dotnet run --project dotnet/src/FlightJar.Api --urls http://127.0.0.1:8080
 ```
 
 The frontend is split into small ES modules under `app/static/` —
 `format.js`, `units.js`, `altitude.js`, `trend.js` — so
 the pure helpers are unit-testable without a browser. `app.js` is the
-entrypoint and imports the rest.
+entrypoint and imports the rest. The backend serves these files
+verbatim; no bundling / minification at dev time.
 
-`tar1090_shapes.js` (the per-type SVG silhouette bundle) and
-`airports.csv` / `navaids.csv` / `aircraft_db.csv.gz` aren't committed
-— they're auto-generated at Docker build. If you're running the FastAPI
-app outside Docker, regenerate them once:
+`tar1090_shapes.js` (the per-type SVG silhouette bundle) and the
+aircraft / airports / navaids / airlines data files aren't committed
+— the Docker build fetches them automatically. If you're running the
+backend directly and want the frontend to show plane silhouettes:
 
 ```bash
-python scripts/fetch_plane_shapes.py    # writes app/static/tar1090_shapes.js
-# (and similarly for the airport/aircraft DBs if you want them locally)
+python3 scripts/fetch_plane_shapes.py  # writes app/static/tar1090_shapes.js
 ```
+
+The reference-data CSVs are optional — without them, aircraft snapshots
+simply won't carry registration / type / airline enrichment. Drop them
+under `/data/` at runtime (via the docker-compose volume) or alongside
+the published binary to get enrichment back.
 
 GitHub Actions runs all of the above on every push and pull request, and
 only builds + publishes the multi-arch Docker image to Docker Hub when
@@ -488,10 +499,11 @@ pushing a `v*` git tag publishes the matching image tag automatically.
 
 ### Configuration is validated at startup
 
-Env vars are parsed into a typed `Config` object (`app/config.py`). A bad
-`BEAST_PORT`, an unknown `BEAST_ROTATE` value, a negative `BEAST_ROTATE_KEEP`
-or a zero `SNAPSHOT_INTERVAL` produces a clear `ConfigError` at startup
-rather than silently falling back or crashing deeper in the stack.
+Env vars are parsed into a typed `AppOptions` record. A bad
+`BEAST_PORT`, an unknown `BEAST_ROTATE` value, a negative
+`BEAST_ROTATE_KEEP` or a zero `SNAPSHOT_INTERVAL` raises a clear
+error at startup rather than silently falling back or crashing
+deeper in the stack.
 
 Optional floats (`LAT_REF`, `LON_REF`, `RECEIVER_ANON_KM`) stay lenient:
 a malformed value is treated as unset.
@@ -525,7 +537,8 @@ Both are also linked from the footer of the sidebar in the UI.
 Flightjar is released under the **GNU General Public License v3.0** — see
 [`LICENSE`](LICENSE) for the full text.
 
-GPL-3.0 was chosen to match [pyModeS](https://github.com/junzis/pyModeS), the
-Mode S / ADS-B decoding library Flightjar depends on, which is itself
+GPL-3.0 matches [pyModeS](https://github.com/junzis/pyModeS), whose
+Mode S / ADS-B decoder logic Flightjar derives from — the derived work
+inherits pyModeS's licence terms, which are
 GPL-3.0-or-later. You're free to use, modify, and redistribute Flightjar; any
 redistributed derivative must be made available under the same terms.

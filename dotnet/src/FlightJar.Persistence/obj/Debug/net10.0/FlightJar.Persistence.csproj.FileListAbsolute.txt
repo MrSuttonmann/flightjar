@@ -1,0 +1,13 @@
+/home/james/tar1090-beast-logger/dotnet/src/FlightJar.Persistence/bin/Debug/net10.0/FlightJar.Persistence.deps.json
+/home/james/tar1090-beast-logger/dotnet/src/FlightJar.Persistence/bin/Debug/net10.0/FlightJar.Persistence.dll
+/home/james/tar1090-beast-logger/dotnet/src/FlightJar.Persistence/bin/Debug/net10.0/FlightJar.Persistence.pdb
+/home/james/tar1090-beast-logger/dotnet/src/FlightJar.Persistence/obj/Debug/net10.0/FlightJar.Persistence.csproj.AssemblyReference.cache
+/home/james/tar1090-beast-logger/dotnet/src/FlightJar.Persistence/obj/Debug/net10.0/FlightJar.Persistence.GeneratedMSBuildEditorConfig.editorconfig
+/home/james/tar1090-beast-logger/dotnet/src/FlightJar.Persistence/obj/Debug/net10.0/FlightJar.Persistence.AssemblyInfoInputs.cache
+/home/james/tar1090-beast-logger/dotnet/src/FlightJar.Persistence/obj/Debug/net10.0/FlightJar.Persistence.AssemblyInfo.cs
+/home/james/tar1090-beast-logger/dotnet/src/FlightJar.Persistence/obj/Debug/net10.0/FlightJar.Persistence.csproj.CoreCompileInputs.cache
+/home/james/tar1090-beast-logger/dotnet/src/FlightJar.Persistence/obj/Debug/net10.0/FlightJar.Persistence.sourcelink.json
+/home/james/tar1090-beast-logger/dotnet/src/FlightJar.Persistence/obj/Debug/net10.0/FlightJar.Persistence.dll
+/home/james/tar1090-beast-logger/dotnet/src/FlightJar.Persistence/obj/Debug/net10.0/refint/FlightJar.Persistence.dll
+/home/james/tar1090-beast-logger/dotnet/src/FlightJar.Persistence/obj/Debug/net10.0/FlightJar.Persistence.pdb
+/home/james/tar1090-beast-logger/dotnet/src/FlightJar.Persistence/obj/Debug/net10.0/ref/FlightJar.Persistence.dll

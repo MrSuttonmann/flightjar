@@ -1,6 +1,8 @@
 services:
   flightjar:
-    build: .
+    build:
+      context: .
+      dockerfile: dotnet/Dockerfile
     image: flightjar:latest
     container_name: flightjar
     restart: unless-stopped
@@ -29,7 +31,7 @@ services:
       BEAST_ROTATE: daily        # none | hourly | daily
       BEAST_ROTATE_KEEP: "14"
       BEAST_STDOUT: "1"          # "0" to silence docker logs
-      # BEAST_NO_DECODE: "1"     # uncomment to skip pyModeS decoding
+      # BEAST_NO_DECODE: "1"     # uncomment to skip Mode S decoding
 
       SNAPSHOT_INTERVAL: "1.0"
 

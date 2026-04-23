@@ -1,4 +1,4 @@
-// Playwright config. The FastAPI backend is booted as an ephemeral web
+// Playwright config. The .NET backend is booted as an ephemeral web
 // server for the duration of the test run, pointed at a non-existent
 // BEAST host so the UI loads and sits in the "Disconnected" state.
 // That's enough to exercise every test in tests/e2e — they all cover
@@ -28,14 +28,18 @@ export default defineConfig({
   ],
 
   webServer: {
-    command:
-      `uvicorn app.main:app --host 127.0.0.1 --port ${PORT} --no-access-log`,
-    // /healthz returns 503 while BEAST is disconnected (which it is
-    // in the test harness), so wait on / instead — it always returns
-    // 200 once the FastAPI app is listening.
+    // Run the .NET backend via `dotnet run` for local dev (reuses the
+    // cached build), or from a pre-published directory in CI where we
+    // `dotnet publish` into dotnet-publish/ first.
+    command: process.env.CI
+      ? `dotnet dotnet-publish/FlightJar.Api.dll --urls http://127.0.0.1:${PORT}`
+      : `dotnet run --project dotnet/src/FlightJar.Api --urls http://127.0.0.1:${PORT}`,
+    // /healthz returns 503 while BEAST is disconnected (which it is in
+    // the test harness), so wait on / instead — it always returns 200
+    // once Kestrel is listening and the static root has been resolved.
     url: `http://127.0.0.1:${PORT}/`,
     reuseExistingServer: !process.env.CI,
-    timeout: 30_000,
+    timeout: 60_000,
     // Keep the backend quiet: no BEAST host to reach, no on-disk
     // artefacts, no file output. LAT/LON are present so receiver-
     // anchored UI (range rings, coverage) can initialise.
@@ -46,6 +50,7 @@ export default defineConfig({
       LON_REF: '-0.1',
       BEAST_OUTFILE: '',
       FLIGHT_ROUTES: '0',
+      FLIGHTJAR_STATIC_DIR: `${process.cwd()}/app/static`,
     },
   },
 });

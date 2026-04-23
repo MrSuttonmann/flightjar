@@ -1,0 +1,12 @@
+/home/james/tar1090-beast-logger/dotnet/src/FlightJar.Decoder/bin/Release/net10.0/FlightJar.Decoder.deps.json
+/home/james/tar1090-beast-logger/dotnet/src/FlightJar.Decoder/bin/Release/net10.0/FlightJar.Decoder.dll
+/home/james/tar1090-beast-logger/dotnet/src/FlightJar.Decoder/bin/Release/net10.0/FlightJar.Decoder.pdb
+/home/james/tar1090-beast-logger/dotnet/src/FlightJar.Decoder/obj/Release/net10.0/FlightJar.Decoder.GeneratedMSBuildEditorConfig.editorconfig
+/home/james/tar1090-beast-logger/dotnet/src/FlightJar.Decoder/obj/Release/net10.0/FlightJar.Decoder.AssemblyInfoInputs.cache
+/home/james/tar1090-beast-logger/dotnet/src/FlightJar.Decoder/obj/Release/net10.0/FlightJar.Decoder.AssemblyInfo.cs
+/home/james/tar1090-beast-logger/dotnet/src/FlightJar.Decoder/obj/Release/net10.0/FlightJar.Decoder.csproj.CoreCompileInputs.cache
+/home/james/tar1090-beast-logger/dotnet/src/FlightJar.Decoder/obj/Release/net10.0/FlightJar.Decoder.sourcelink.json
+/home/james/tar1090-beast-logger/dotnet/src/FlightJar.Decoder/obj/Release/net10.0/FlightJar.Decoder.dll
+/home/james/tar1090-beast-logger/dotnet/src/FlightJar.Decoder/obj/Release/net10.0/refint/FlightJar.Decoder.dll
+/home/james/tar1090-beast-logger/dotnet/src/FlightJar.Decoder/obj/Release/net10.0/FlightJar.Decoder.pdb
+/home/james/tar1090-beast-logger/dotnet/src/FlightJar.Decoder/obj/Release/net10.0/ref/FlightJar.Decoder.dll

@@ -1,0 +1,159 @@
+using System.Globalization;
+using FlightJar.Core.Configuration;
+
+namespace FlightJar.Api.Configuration;
+
+public static class AppOptionsBinder
+{
+    public static AppOptions FromEnvironment(IDictionary<string, string?>? env = null)
+    {
+        var get = MakeLookup(env);
+
+        var rotateRaw = Str(get, "BEAST_ROTATE", "daily");
+        if (!TryParseRotate(rotateRaw, out var rotate))
+        {
+            throw new ConfigException($"BEAST_ROTATE='{rotateRaw}': must be one of none, hourly, daily");
+        }
+
+        var port = Int(get, "BEAST_PORT", 30005);
+        if (port < 1 || port > 65535)
+        {
+            throw new ConfigException($"BEAST_PORT={port}: must be in 1..65535");
+        }
+
+        var keep = Int(get, "BEAST_ROTATE_KEEP", 14);
+        if (keep < 0)
+        {
+            throw new ConfigException($"BEAST_ROTATE_KEEP={keep}: must be >= 0");
+        }
+
+        var interval = FloatRequired(get, "SNAPSHOT_INTERVAL", 1.0);
+        if (interval <= 0)
+        {
+            throw new ConfigException(
+                $"SNAPSHOT_INTERVAL={interval.ToString(CultureInfo.InvariantCulture)}: must be > 0");
+        }
+
+        var refreshHours = FloatRequired(get, "AIRCRAFT_DB_REFRESH_HOURS", 0.0);
+        if (refreshHours < 0)
+        {
+            throw new ConfigException(
+                $"AIRCRAFT_DB_REFRESH_HOURS={refreshHours.ToString(CultureInfo.InvariantCulture)}: must be >= 0");
+        }
+
+        var host = Str(get, "BEAST_HOST", "readsb");
+        if (string.IsNullOrEmpty(host))
+        {
+            host = "readsb";
+        }
+
+        return new AppOptions
+        {
+            BeastHost = host,
+            BeastPort = port,
+            LatRef = FloatOptional(get, "LAT_REF"),
+            LonRef = FloatOptional(get, "LON_REF"),
+            ReceiverAnonKm = FloatOptional(get, "RECEIVER_ANON_KM") ?? 0.0,
+            SiteName = NullIfEmpty(Str(get, "SITE_NAME", "")),
+            JsonlPath = Str(get, "BEAST_OUTFILE", "/data/beast.jsonl"),
+            JsonlRotate = rotate,
+            JsonlKeep = keep,
+            JsonlStdout = Bool(get, "BEAST_STDOUT", false),
+            JsonlDecode = !Bool(get, "BEAST_NO_DECODE", false),
+            SnapshotInterval = interval,
+            AircraftDbRefreshHours = refreshHours,
+            FlightRoutesEnabled = Bool(get, "FLIGHT_ROUTES", true),
+            MetarEnabled = Bool(get, "METAR_WEATHER", true),
+            OpenAipApiKey = Str(get, "OPENAIP_API_KEY", ""),
+            VfrmapChartDate = Str(get, "VFRMAP_CHART_DATE", ""),
+        };
+    }
+
+    private static Func<string, string?> MakeLookup(IDictionary<string, string?>? env)
+    {
+        if (env is null)
+        {
+            return static name => Environment.GetEnvironmentVariable(name);
+        }
+        return name => env.TryGetValue(name, out var v) ? v : null;
+    }
+
+    private static string Str(Func<string, string?> get, string name, string @default)
+    {
+        var raw = get(name);
+        if (raw is null)
+        {
+            return @default;
+        }
+        return raw.Trim();
+    }
+
+    private static string? NullIfEmpty(string s) => string.IsNullOrEmpty(s) ? null : s;
+
+    private static int Int(Func<string, string?> get, string name, int @default)
+    {
+        var raw = Str(get, name, "");
+        if (raw.Length == 0)
+        {
+            return @default;
+        }
+        if (!int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v))
+        {
+            throw new ConfigException($"{name}='{raw}': not an integer");
+        }
+        return v;
+    }
+
+    private static double FloatRequired(Func<string, string?> get, string name, double @default)
+    {
+        var raw = Str(get, name, "");
+        if (raw.Length == 0)
+        {
+            return @default;
+        }
+        if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var v))
+        {
+            throw new ConfigException($"{name}='{raw}': not a number");
+        }
+        return v;
+    }
+
+    private static double? FloatOptional(Func<string, string?> get, string name)
+    {
+        var raw = Str(get, name, "");
+        if (raw.Length == 0)
+        {
+            return null;
+        }
+        if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var v))
+        {
+            return null;
+        }
+        return v;
+    }
+
+    private static bool Bool(Func<string, string?> get, string name, bool @default)
+    {
+        var raw = Str(get, name, @default ? "1" : "0").ToLowerInvariant();
+        return raw is "1" or "true" or "yes" or "on";
+    }
+
+    private static bool TryParseRotate(string raw, out JsonlRotateMode mode)
+    {
+        switch (raw.ToLowerInvariant())
+        {
+            case "none":
+                mode = JsonlRotateMode.None;
+                return true;
+            case "hourly":
+                mode = JsonlRotateMode.Hourly;
+                return true;
+            case "daily":
+                mode = JsonlRotateMode.Daily;
+                return true;
+            default:
+                mode = JsonlRotateMode.Daily;
+                return false;
+        }
+    }
+}

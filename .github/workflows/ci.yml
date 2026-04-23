@@ -18,24 +18,25 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-dotnet@v5
         with:
-          python-version: "3.12"
-          cache: pip
+          dotnet-version: "10.0.x"
 
-      - run: pip install -r requirements-dev.txt
+      - name: Restore
+        working-directory: dotnet
+        run: dotnet restore FlightJar.slnx
 
-      - name: Ruff lint
-        run: ruff check .
+      - name: Format check
+        working-directory: dotnet
+        run: dotnet format FlightJar.slnx --verify-no-changes --no-restore
 
-      - name: Ruff format check
-        run: ruff format --check .
+      - name: Build
+        working-directory: dotnet
+        run: dotnet build FlightJar.slnx -c Release --no-restore /p:TreatWarningsAsErrors=true
 
-      - name: Mypy
-        run: mypy
-
-      - name: Pytest
-        run: pytest
+      - name: Test
+        working-directory: dotnet
+        run: dotnet test FlightJar.slnx -c Release --no-build --logger "console;verbosity=normal"
 
       - uses: actions/setup-node@v6
         with:
@@ -45,7 +46,7 @@ jobs:
         run: node --test tests/js/
 
   e2e:
-    # Playwright smoke suite against the real FastAPI backend in its
+    # Playwright smoke suite against the real .NET backend in its
     # no-BEAST harness mode (see playwright.config.js webServer env).
     # Runs in parallel with `check`; `publish` gates on this one too
     # so a broken UI also blocks the image push.
@@ -53,11 +54,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-dotnet@v5
         with:
-          python-version: "3.12"
-          cache: pip
-      - run: pip install -r requirements.txt
+          dotnet-version: "10.0.x"
 
       - uses: actions/setup-node@v6
         with:
@@ -80,23 +79,14 @@ jobs:
           npx playwright install --with-deps chromium
 
       - name: Stage auto-generated assets
-        # Neither the aircraft CSV nor the tar1090 silhouettes are
-        # committed; fetch them so the app serves a complete page.
-        # TAR1090_SHAPES_DEST overrides the script's default (/app/...)
-        # to land inside the checked-out repo rather than the Docker
-        # image path.
+        # tar1090 silhouettes aren't committed; fetch them so the app serves
+        # a complete page. Python interpreter is preinstalled on GitHub runners.
         env:
           TAR1090_SHAPES_DEST: ${{ github.workspace }}/app/static/tar1090_shapes.js
-        run: |
-          python scripts/fetch_plane_shapes.py
-          curl -sSL -o app/aircraft_db.csv.gz \
-            https://raw.githubusercontent.com/wiedehopf/tar1090-db/refs/heads/csv/aircraft.csv.gz
-          curl -sSL -o app/airports.csv \
-            https://raw.githubusercontent.com/davidmegginson/ourairports-data/main/airports.csv
-          curl -sSL -o app/navaids.csv \
-            https://raw.githubusercontent.com/davidmegginson/ourairports-data/main/navaids.csv
-          curl -sSL -o app/airlines.dat \
-            https://raw.githubusercontent.com/jpatokal/openflights/master/data/airlines.dat
+        run: python3 scripts/fetch_plane_shapes.py
+
+      - name: Publish backend for Playwright
+        run: dotnet publish dotnet/src/FlightJar.Api/FlightJar.Api.csproj -c Release -o dotnet-publish
 
       - name: Playwright tests
         run: npm run test:e2e
@@ -150,6 +140,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: dotnet/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
@@ -157,8 +148,8 @@ jobs:
           # DATA_CACHEBUST is a per-commit string that's referenced in
           # the Dockerfile just above the data-fetch RUN layers, so those
           # never serve cached (potentially months-old) aircraft /
-          # airport / tar1090-marker data. Everything else (pip install,
-          # app code copy) still caches normally between builds.
+          # airport / tar1090-marker data. Everything else (dotnet publish,
+          # static-asset copy) still caches normally between builds.
           # FLIGHTJAR_VERSION stamps the image with the commit that
           # produced it; /api/stats exposes it and the About dialog
           # shows the short form next to the title.
