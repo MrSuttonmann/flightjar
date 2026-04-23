@@ -35,7 +35,7 @@ dotnet/                 # Backend solution
     FlightJar.Core/             # Registry, state, enrichment, phase/route logic,
                                 # reference-data loaders, stats (polar coverage, traffic heatmap)
     FlightJar.Decoder/          # BEAST framing + Mode S + CPR (no framework deps)
-    FlightJar.Clients/          # Typed HTTP clients: adsbdb, planespotters, metar, vfrmap
+    FlightJar.Clients/          # Typed HTTP clients: adsbdb, planespotters, metar, vfrmap, openaip
     FlightJar.Notifications/    # INotifier + Telegram/Ntfy/Webhook + dispatcher + AlertWatcher
     FlightJar.Persistence/      # Gzipped JSON state, watchlist, notifications config
   tests/
@@ -126,6 +126,10 @@ locks.
 - `GET /api/airports` — bounded bbox of OurAirports entries. Validates
   lat/lon bounds; 400 on out-of-range inputs.
 - `GET /api/navaids` — same shape for navaids.
+- `GET /api/openaip/airspaces` / `GET /api/openaip/obstacles` /
+  `GET /api/openaip/reporting_points` — bbox overlays backed by
+  `OpenAipClient`. Return empty arrays (not 500) when
+  `OPENAIP_API_KEY` is unset.
 - `GET /api/map_config` — `openaip_api_key` + VFRMap chart cycle date.
 - `GET /api/coverage` / `POST /api/coverage/reset` — polar coverage polygon.
 - `GET /api/heatmap` / `POST /api/heatmap/reset` — weekday × hour traffic grid.
@@ -237,6 +241,14 @@ primitive.
   once on startup and every 6 h to discover the current FAA 28-day
   chart cycle (the date embedded in the IFR tile URLs). Persisted to
   `/data/vfrmap_cycle.json`.
+- **`Clients/OpenAip/OpenAipClient`** — airspace / obstacle /
+  reporting-point bbox lookups against `api.core.openaip.net`.
+  Enabled when `OPENAIP_API_KEY` is set (the same key that lights up
+  the raster tile overlay). Requested bbox is snapped outward to a
+  2° grid and each (kind, snapped-bbox) maps to one fetch — with
+  pagination followed up to `MaxPagesPerRequest` pages. Three
+  parallel caches share one throttle + one on-disk file.
+  `/data/openaip.json.gz`.
 
 Reference-data loaders live under `FlightJar.Core.ReferenceData`:
 
@@ -322,6 +334,7 @@ throughput ceiling on CI and build boxes):
 | `watchlist.json` | `WatchlistStore` | Watchlist of ICAO24 hex codes + last-seen map. |
 | `notifications.json` | `NotificationsConfigStore` | UI-managed alert channels. |
 | `vfrmap_cycle.json` | `VfrmapCycle` | Auto-discovered FAA chart cycle date. |
+| `openaip.json.gz` | `OpenAipClient` | Cached OpenAIP airspaces / obstacles / reporting points per 2° bbox tile (schema v1, 7-day TTL). |
 | `aircraft_db.csv.gz` | optional | Runtime override for the baked-in DB. |
 | `airports.csv` / `navaids.csv` / `airlines.dat` | optional | Runtime overrides for those DBs. |
 

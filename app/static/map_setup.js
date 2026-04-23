@@ -85,6 +85,11 @@ export function initMap({ config = {}, ...overlayHandlers } = {}) {
   // Navaids (VOR / DME / NDB) — same bbox-fetch pattern as airports,
   // shares the airports canvas renderer.
   const navaidsLayer = L.layerGroup();
+  // OpenAIP overlays — airspaces (polygons), obstacles + reporting points
+  // (canvas circleMarkers on the shared airports renderer).
+  const airspacesLayer = L.layerGroup();
+  const obstaclesLayer = L.layerGroup();
+  const reportingLayer = L.layerGroup();
   const RANGE_RING_SETS = {
     nautical: { values: [50, 100, 200], metersPerUnit: 1852,    suffix: ' NM' },
     imperial: { values: [50, 100, 200], metersPerUnit: 1609.344, suffix: ' mi' },
@@ -122,6 +127,9 @@ export function initMap({ config = {}, ...overlayHandlers } = {}) {
   const trailsProxy = L.layerGroup();
   const airportsProxy = L.layerGroup();
   const navaidsProxy = L.layerGroup();
+  const airspacesProxy = L.layerGroup();
+  const obstaclesProxy = L.layerGroup();
+  const reportingProxy = L.layerGroup();
   const coverageProxy = L.layerGroup();
   let syncingOverlays = false;
   function syncOverlay(proxy, on) {
@@ -144,6 +152,9 @@ export function initMap({ config = {}, ...overlayHandlers } = {}) {
     { label: 'Altitude trails', proxy: trailsProxy,   handler: 'setTrails' },
     { label: 'Airports',        proxy: airportsProxy, handler: 'setAirports' },
     { label: 'Navaids',         proxy: navaidsProxy,  handler: 'setNavaids' },
+    { label: 'Airspaces',       proxy: airspacesProxy, handler: 'setAirspaces' },
+    { label: 'Obstacles',       proxy: obstaclesProxy, handler: 'setObstacles' },
+    { label: 'Reporting points', proxy: reportingProxy, handler: 'setReporting' },
     { label: 'Polar coverage',  proxy: coverageProxy, handler: 'setCoverage' },
   ];
   const proxyToHandler = new Map(PROXY_OVERLAYS.map((o) => [o.proxy, o.handler]));
@@ -274,10 +285,16 @@ export function initMap({ config = {}, ...overlayHandlers } = {}) {
   state.airportsCanvas = airportsCanvas;
   state.airportsLayer = airportsLayer;
   state.navaidsLayer = navaidsLayer;
+  state.airspacesLayer = airspacesLayer;
+  state.obstaclesLayer = obstaclesLayer;
+  state.reportingLayer = reportingLayer;
   state.labelsProxy = labelsProxy;
   state.trailsProxy = trailsProxy;
   state.airportsProxy = airportsProxy;
   state.navaidsProxy = navaidsProxy;
+  state.airspacesProxy = airspacesProxy;
+  state.obstaclesProxy = obstaclesProxy;
+  state.reportingProxy = reportingProxy;
   state.coverageProxy = coverageProxy;
   state.syncOverlay = syncOverlay;
   state.buildRangeRings = buildRangeRings;

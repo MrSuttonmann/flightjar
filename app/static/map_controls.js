@@ -10,6 +10,7 @@ import { applyTrailsVisibility } from './trails.js';
 import { escapeHtml } from './format.js';
 import { lucide } from './icons_lib.js';
 import { getUnitSystem, setUnitSystem, uconv } from './units.js';
+import { initOpenaipOverlays } from './openaip.js';
 import { renderSidebar } from './sidebar.js';
 import { state } from './state.js';
 import { updatePopupContent } from './detail_panel.js';
@@ -359,6 +360,10 @@ export function initMapControls() {
   // Polar coverage overlay — periodic refresh while visible.
   applyCoverageToggle();
   setInterval(() => { if (state.showCoverage) refreshCoverage(); }, 60_000);
+
+  // OpenAIP overlays (airspaces / obstacles / reporting points). Wires
+  // its own moveend listener and replays persisted toggles.
+  initOpenaipOverlays();
 
   // Home control.
   const HomeControl = L.Control.extend({

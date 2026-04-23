@@ -6,6 +6,7 @@ using FlightJar.Api.Configuration;
 using FlightJar.Api.Hosting;
 using FlightJar.Clients.Adsbdb;
 using FlightJar.Clients.Metar;
+using FlightJar.Clients.OpenAip;
 using FlightJar.Clients.Planespotters;
 using FlightJar.Clients.Vfrmap;
 using FlightJar.Core;
@@ -123,6 +124,7 @@ var adsbdbPath = !string.IsNullOrEmpty(dataDir) ? Path.Combine(dataDir, "flight_
 var photosPath = !string.IsNullOrEmpty(dataDir) ? Path.Combine(dataDir, "photos.json.gz") : null;
 var metarPath = !string.IsNullOrEmpty(dataDir) ? Path.Combine(dataDir, "metar.json.gz") : null;
 var vfrmapPath = !string.IsNullOrEmpty(dataDir) ? Path.Combine(dataDir, "vfrmap_cycle.json") : null;
+var openaipPath = !string.IsNullOrEmpty(dataDir) ? Path.Combine(dataDir, "openaip.json.gz") : null;
 
 builder.Services.AddHttpClient<AdsbdbClient>();
 builder.Services.AddSingleton(sp => new AdsbdbClient(
@@ -156,6 +158,14 @@ builder.Services.AddSingleton(sp => new VfrmapCycle(
     vfrmapPath,
     overrideDate: sp.GetRequiredService<AppOptions>().VfrmapChartDate));
 
+builder.Services.AddHttpClient<OpenAipClient>();
+builder.Services.AddSingleton(sp => new OpenAipClient(
+    sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(OpenAipClient)),
+    sp.GetRequiredService<ILogger<OpenAipClient>>(),
+    sp.GetRequiredService<TimeProvider>(),
+    openaipPath,
+    apiKey: sp.GetRequiredService<AppOptions>().OpenAipApiKey));
+
 // HttpClient for the three notifier types — reused across dispatches.
 builder.Services.AddHttpClient<TelegramNotifier>();
 builder.Services.AddHttpClient<NtfyNotifier>();
@@ -186,7 +196,8 @@ await Task.WhenAll(
     app.Services.GetRequiredService<AdsbdbClient>().LoadCacheAsync(),
     app.Services.GetRequiredService<PlanespottersClient>().LoadCacheAsync(),
     app.Services.GetRequiredService<MetarClient>().LoadCacheAsync(),
-    app.Services.GetRequiredService<VfrmapCycle>().LoadCacheAsync());
+    app.Services.GetRequiredService<VfrmapCycle>().LoadCacheAsync(),
+    app.Services.GetRequiredService<OpenAipClient>().LoadCacheAsync());
 
 // Reference data — runtime override under /data/ first, baked-in fallback
 // under the published output's app/ directory second.
@@ -358,6 +369,64 @@ app.MapGet("/api/navaids", (
     var hits = db.Bbox(mnLat, mnLon, mxLat, mxLon, limit: Math.Clamp(limit ?? 2000, 1, 5000));
     return Results.Json(hits);
 });
+
+// OpenAIP bbox overlays — backed by OpenAipClient's disk cache. The frontend
+// fires one request per moveend and aborts the previous one mid-flight when
+// the user pans, which trips the request's cancellation token and bubbles an
+// OperationCanceledException out of the throttle's semaphore wait. That's
+// expected — swallow it so it doesn't spam Kestrel's error log.
+static (double mnLat, double mxLat, double mnLon, double mxLon)? ReadBbox(
+    double? minLat, double? maxLat, double? minLon, double? maxLon)
+{
+    if (minLat is not double mnLat || maxLat is not double mxLat
+        || minLon is not double mnLon || maxLon is not double mxLon) return null;
+    if (mnLat < -90 || mnLat > 90 || mxLat < -90 || mxLat > 90
+        || mnLon < -180 || mnLon > 180 || mxLon < -180 || mxLon > 180) return null;
+    return (mnLat, mxLat, mnLon, mxLon);
+}
+
+static async Task<IResult> ServeOpenAip<T>(
+    Func<double, double, double, double, CancellationToken, Task<IReadOnlyList<T>>> fetch,
+    double? min_lat, double? max_lat, double? min_lon, double? max_lon,
+    CancellationToken ct)
+{
+    var bbox = ReadBbox(min_lat, max_lat, min_lon, max_lon);
+    if (bbox is null)
+    {
+        return Results.BadRequest(new { error = "min_lat/max_lat/min_lon/max_lon required, in range" });
+    }
+    var (mnLat, mxLat, mnLon, mxLon) = bbox.Value;
+    try
+    {
+        var items = await fetch(mnLat, mnLon, mxLat, mxLon, ct);
+        return Results.Json(items);
+    }
+    catch (OperationCanceledException) when (ct.IsCancellationRequested)
+    {
+        // Client bailed (typical — map pan aborted the previous fetch).
+        // Returning Results.Empty here is harmless; Kestrel won't write
+        // back to a disconnected socket.
+        return Results.Empty;
+    }
+}
+
+app.MapGet("/api/openaip/airspaces", (
+    [Microsoft.AspNetCore.Mvc.FromServices] OpenAipClient client,
+    double? min_lat, double? max_lat, double? min_lon, double? max_lon,
+    CancellationToken ct) =>
+    ServeOpenAip<Airspace>(client.GetAirspacesAsync, min_lat, max_lat, min_lon, max_lon, ct));
+
+app.MapGet("/api/openaip/obstacles", (
+    [Microsoft.AspNetCore.Mvc.FromServices] OpenAipClient client,
+    double? min_lat, double? max_lat, double? min_lon, double? max_lon,
+    CancellationToken ct) =>
+    ServeOpenAip<Obstacle>(client.GetObstaclesAsync, min_lat, max_lat, min_lon, max_lon, ct));
+
+app.MapGet("/api/openaip/reporting_points", (
+    [Microsoft.AspNetCore.Mvc.FromServices] OpenAipClient client,
+    double? min_lat, double? max_lat, double? min_lon, double? max_lon,
+    CancellationToken ct) =>
+    ServeOpenAip<ReportingPoint>(client.GetReportingPointsAsync, min_lat, max_lat, min_lon, max_lon, ct));
 
 // ----- Coverage + heatmap -----
 

@@ -218,9 +218,16 @@ for the dev loop.
   *Airports*, *Navaids*, *Polar coverage* (your receiver's observed
   max range per bearing), *Range rings* at 50/100/200 NM, plus
   *IFR Low (US)* / *IFR High (US)* FAA enroute charts (cycle date
-  auto-discovered from vfrmap.com) and — when `OPENAIP_API_KEY` is
-  set — *Aeronautical (OpenAIP)* for worldwide airspaces + navaid
-  symbology. All preferences persist.
+  auto-discovered from vfrmap.com). When `OPENAIP_API_KEY` is set four
+  additional worldwide overlays appear: *Aeronautical (OpenAIP)* (the
+  combined raster chart), *Airspaces* (interactive polygons coloured by
+  type — prohibited/danger in red, CTR/TMA/CTA in blue, TMZ/RMZ in
+  amber, etc., with a tooltip showing class and vertical limits),
+  *Obstacles* (towers, masts, wind turbines — with height AGL), and
+  *Reporting points* (VFR waypoints, compulsory ones in blue). The
+  three vector overlays zoom-gate (airspaces from z5, reporting
+  points from z7, obstacles from z9) so zoomed-out continental views
+  don't drown in data. All preferences persist.
 - **Follow + Compact** — two small icon buttons stacked below the
   layers control. Follow auto-enables when a detail panel opens and
   disables when it closes; tap manually to override. Compact hides the
@@ -384,7 +391,7 @@ It shows up next to "Flightjar" in the sidebar and in the browser tab title
 | `AIRCRAFT_DB_REFRESH_HOURS` | `0`           | Auto-refresh interval for the aircraft DB. `0` disables.       |
 | `FLIGHT_ROUTES`       | `1`                 | Enable origin/destination lookups via adsbdb.com. `0` disables.|
 | `METAR_WEATHER`       | `1`                 | Enable METAR lookups via aviationweather.gov. `0` disables.    |
-| `OPENAIP_API_KEY`     | (unset)             | Personal key from [openaip.net](https://www.openaip.net/) enabling the optional worldwide **Aeronautical (OpenAIP)** tile overlay (airspaces + navaids + obstacles). The key appears in browser tile URLs — it's **not** a secret, but scope it to your deployment's origin if OpenAIP supports referer restrictions. OpenAIP is **CC BY-NC-SA**; don't use the free tier for commercial deployments. |
+| `OPENAIP_API_KEY`     | (unset)             | Personal key from [openaip.net](https://www.openaip.net/) enabling five optional worldwide overlays: the combined **Aeronautical (OpenAIP)** raster tiles, plus interactive **Airspaces**, **Obstacles**, and **Reporting points** vector layers backed by the OpenAIP Core REST API. The key appears in browser tile URLs (for the raster layer) and is forwarded server-side (for the vector layers), so it's **not** a secret — scope it to your deployment's origin if OpenAIP supports referer restrictions. Vector-layer results are cached on disk at `/data/openaip.json.gz` (snapped to a 2° grid, 7-day TTL) so a typical session makes only a handful of upstream calls. OpenAIP is **CC BY-NC-SA**; don't use the free tier for commercial deployments. |
 | `VFRMAP_CHART_DATE`   | (unset — auto)      | Optional override pinning the [VFRMap.com](https://vfrmap.com/) IFR chart cycle to a specific `YYYYMMDD`. By default, the current cycle is discovered automatically at startup (scraped from vfrmap.com, cached to `/data/vfrmap_cycle.json`, refreshed every 6 h). Set this only for air-gapped deployments or to reproduce a bug against a historical cycle. The optional **IFR Low (US)** / **IFR High (US)** overlays are US only — they stay registered but render blank outside US airspace. |
 
 Notification channels aren't configured via env vars — they're

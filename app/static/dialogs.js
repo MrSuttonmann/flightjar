@@ -411,7 +411,9 @@ function wireWatchlistRowHandlers() {
       const icao = row.dataset.icao;
       if (!icao) return;
       dialog.close();
-      selectAircraft(icao);
+      // Watchlist stores ICAOs lowercase; the snapshot/registry keys are
+      // uppercase. Normalise so selectAircraft finds the entry.
+      selectAircraft(icao.toUpperCase());
     });
   });
 }

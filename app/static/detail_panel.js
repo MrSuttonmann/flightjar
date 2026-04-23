@@ -374,8 +374,9 @@ export function updatePopupContent(root, a, now, airports) {
   const airnav = q('.pop-link-airnav');
   if (a.registration) {
     const regLower = a.registration.toLowerCase();
+    const regUpper = a.registration.toUpperCase();
     fr24.href = `https://www.flightradar24.com/data/aircraft/${regLower}`;
-    airnav.href = `https://www.airnavradar.com/data/aircraft/${regLower}`;
+    airnav.href = `https://www.airnavradar.com/data/registration/${regUpper}`;
     fr24.hidden = false;
     airnav.hidden = false;
   } else {

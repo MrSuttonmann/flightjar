@@ -24,6 +24,11 @@ import {
   setNavaids,
   setTrails,
 } from './map_controls.js';
+import {
+  setAirspaces,
+  setObstacles,
+  setReporting,
+} from './openaip.js';
 import { initShortcuts } from './shortcuts.js';
 import { initSidebar, renderSidebar } from './sidebar.js';
 import { connect, startHeartbeat } from './websocket.js';
@@ -56,7 +61,13 @@ async function boot() {
   // Map first — everything else reads state.map and the layer handles it
   // populates. Overlay add/remove from the layers control dispatches back
   // into the setters owned by map_controls.js.
-  initMap({ config, setLabels, setTrails, setAirports, setNavaids, setCoverage });
+  initMap({
+    config,
+    setLabels, setTrails,
+    setAirports, setNavaids,
+    setAirspaces, setObstacles, setReporting,
+    setCoverage,
+  });
 
   // Shared singletons that aren't Leaflet.
   state.watchlist = createWatchlist();
