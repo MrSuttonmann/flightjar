@@ -219,8 +219,11 @@ export function renderSidebar(snap) {
       ? `<span class="flag" title="${escapeHtml(a.operator_country || a.country_iso)}">${flag}</span> `
       : '';
     const sigBars = signalBars(a.signal_peak);
-    const phaseChip = a.phase
-      ? `<span class="phase-chip phase-${a.phase}">${a.phase}</span>`
+    const phaseRaw = a.phase == null ? '' : String(a.phase);
+    const phaseText = escapeHtml(phaseRaw);
+    const phaseClass = phaseRaw.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+    const phaseChip = phaseRaw
+      ? `<span class="phase-chip phase-${phaseClass}">${phaseText}</span>`
       : '';
     const notable = isNotable(a.icao, a.callsign);
     const notableTag = notable
