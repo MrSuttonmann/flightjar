@@ -145,6 +145,57 @@ public class AppOptionsBinderTests
         Assert.Equal(expected, cfg.JsonlStdout);
     }
 
+    [Fact]
+    public void BlackspotDefaults()
+    {
+        var cfg = AppOptionsBinder.FromEnvironment(Env());
+        Assert.True(cfg.BlackspotsEnabled);
+        Assert.Equal(5.0, cfg.BlackspotsAntennaAglM);
+        Assert.Null(cfg.BlackspotsAntennaMslM);
+        Assert.Equal(400.0, cfg.BlackspotsRadiusKm);
+        Assert.Equal(0.05, cfg.BlackspotsGridDeg);
+        Assert.Equal(100.0, cfg.BlackspotsMaxAglM);
+        Assert.Equal("/data/terrain", cfg.TerrainCacheDir);
+    }
+
+    [Fact]
+    public void BlackspotsCustomised()
+    {
+        var cfg = AppOptionsBinder.FromEnvironment(Env(new()
+        {
+            ["BLACKSPOTS_ENABLED"] = "0",
+            ["BLACKSPOTS_ANTENNA_AGL_M"] = "30",
+            ["BLACKSPOTS_ANTENNA_MSL_M"] = "50",
+            ["BLACKSPOTS_RADIUS_KM"] = "150",
+            ["BLACKSPOTS_GRID_DEG"] = "0.1",
+            ["BLACKSPOTS_MAX_AGL_M"] = "200",
+            ["TERRAIN_CACHE_DIR"] = "/srv/terrain",
+        }));
+        Assert.False(cfg.BlackspotsEnabled);
+        Assert.Equal(30.0, cfg.BlackspotsAntennaAglM);
+        Assert.Equal(50.0, cfg.BlackspotsAntennaMslM);
+        Assert.Equal(150.0, cfg.BlackspotsRadiusKm);
+        Assert.Equal(0.1, cfg.BlackspotsGridDeg);
+        Assert.Equal(200.0, cfg.BlackspotsMaxAglM);
+        Assert.Equal("/srv/terrain", cfg.TerrainCacheDir);
+    }
+
+    [Theory]
+    [InlineData("BLACKSPOTS_ANTENNA_AGL_M", "-1")]
+    [InlineData("BLACKSPOTS_ANTENNA_MSL_M", "-501")]
+    [InlineData("BLACKSPOTS_ANTENNA_MSL_M", "9001")]
+    [InlineData("BLACKSPOTS_RADIUS_KM", "0")]
+    [InlineData("BLACKSPOTS_RADIUS_KM", "1500")]
+    [InlineData("BLACKSPOTS_GRID_DEG", "0")]
+    [InlineData("BLACKSPOTS_GRID_DEG", "2")]
+    [InlineData("BLACKSPOTS_MAX_AGL_M", "0")]
+    public void BlackspotsInvalidRanges(string key, string raw)
+    {
+        var ex = Assert.Throws<ConfigException>(() =>
+            AppOptionsBinder.FromEnvironment(Env(new() { [key] = raw })));
+        Assert.Contains(key, ex.Message);
+    }
+
     private static IDictionary<string, string?> Env(Dictionary<string, string?>? overrides = null)
         => (IDictionary<string, string?>)(overrides ?? new Dictionary<string, string?>());
 }

@@ -50,6 +50,10 @@ export default defineConfig({
       LON_REF: '-0.1',
       BEAST_OUTFILE: '',
       FLIGHT_ROUTES: '0',
+      // Blackspots would otherwise try to fetch SRTM tiles from AWS on
+      // every test run. Disable it here — the layer still registers in
+      // the frontend (testing that is the point of the e2e assertion).
+      BLACKSPOTS_ENABLED: '0',
       FLIGHTJAR_STATIC_DIR: `${process.cwd()}/app/static`,
     },
   },

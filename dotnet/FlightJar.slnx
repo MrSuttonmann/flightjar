@@ -6,6 +6,7 @@
     <Project Path="src/FlightJar.Decoder/FlightJar.Decoder.csproj" />
     <Project Path="src/FlightJar.Notifications/FlightJar.Notifications.csproj" />
     <Project Path="src/FlightJar.Persistence/FlightJar.Persistence.csproj" />
+    <Project Path="src/FlightJar.Terrain/FlightJar.Terrain.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/FlightJar.Api.Tests/FlightJar.Api.Tests.csproj" />
@@ -14,5 +15,6 @@
     <Project Path="tests/FlightJar.Decoder.Tests/FlightJar.Decoder.Tests.csproj" />
     <Project Path="tests/FlightJar.Notifications.Tests/FlightJar.Notifications.Tests.csproj" />
     <Project Path="tests/FlightJar.Persistence.Tests/FlightJar.Persistence.Tests.csproj" />
+    <Project Path="tests/FlightJar.Terrain.Tests/FlightJar.Terrain.Tests.csproj" />
   </Folder>
 </Solution>

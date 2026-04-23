@@ -47,6 +47,37 @@ public static class AppOptionsBinder
             host = "readsb";
         }
 
+        var antennaAgl = FloatRequired(get, "BLACKSPOTS_ANTENNA_AGL_M", 5.0);
+        if (antennaAgl < 0)
+        {
+            throw new ConfigException(
+                $"BLACKSPOTS_ANTENNA_AGL_M={antennaAgl.ToString(CultureInfo.InvariantCulture)}: must be >= 0");
+        }
+        var antennaMsl = FloatOptional(get, "BLACKSPOTS_ANTENNA_MSL_M");
+        if (antennaMsl is double mslVal && (mslVal < -500 || mslVal > 9000))
+        {
+            throw new ConfigException(
+                $"BLACKSPOTS_ANTENNA_MSL_M={mslVal.ToString(CultureInfo.InvariantCulture)}: must be in [-500, 9000]");
+        }
+        var radiusKm = FloatRequired(get, "BLACKSPOTS_RADIUS_KM", 400.0);
+        if (radiusKm <= 0 || radiusKm > 1000)
+        {
+            throw new ConfigException(
+                $"BLACKSPOTS_RADIUS_KM={radiusKm.ToString(CultureInfo.InvariantCulture)}: must be in (0, 1000]");
+        }
+        var gridDeg = FloatRequired(get, "BLACKSPOTS_GRID_DEG", 0.05);
+        if (gridDeg <= 0 || gridDeg > 1)
+        {
+            throw new ConfigException(
+                $"BLACKSPOTS_GRID_DEG={gridDeg.ToString(CultureInfo.InvariantCulture)}: must be in (0, 1]");
+        }
+        var maxAgl = FloatRequired(get, "BLACKSPOTS_MAX_AGL_M", 100.0);
+        if (maxAgl <= 0)
+        {
+            throw new ConfigException(
+                $"BLACKSPOTS_MAX_AGL_M={maxAgl.ToString(CultureInfo.InvariantCulture)}: must be > 0");
+        }
+
         return new AppOptions
         {
             BeastHost = host,
@@ -66,6 +97,13 @@ public static class AppOptionsBinder
             MetarEnabled = Bool(get, "METAR_WEATHER", true),
             OpenAipApiKey = Str(get, "OPENAIP_API_KEY", ""),
             VfrmapChartDate = Str(get, "VFRMAP_CHART_DATE", ""),
+            BlackspotsEnabled = Bool(get, "BLACKSPOTS_ENABLED", true),
+            BlackspotsAntennaAglM = antennaAgl,
+            BlackspotsAntennaMslM = antennaMsl,
+            BlackspotsRadiusKm = radiusKm,
+            BlackspotsGridDeg = gridDeg,
+            BlackspotsMaxAglM = maxAgl,
+            TerrainCacheDir = NullIfEmpty(Str(get, "TERRAIN_CACHE_DIR", "")) ?? "/data/terrain",
         };
     }
 

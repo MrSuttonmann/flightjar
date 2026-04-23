@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\FlightJar.Decoder\FlightJar.Decoder.csproj" />
     <ProjectReference Include="..\FlightJar.Persistence\FlightJar.Persistence.csproj" />
+    <ProjectReference Include="..\FlightJar.Terrain\FlightJar.Terrain.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

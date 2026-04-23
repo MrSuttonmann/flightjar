@@ -6,6 +6,7 @@
     <ProjectReference Include="..\FlightJar.Persistence\FlightJar.Persistence.csproj" />
     <ProjectReference Include="..\FlightJar.Clients\FlightJar.Clients.csproj" />
     <ProjectReference Include="..\FlightJar.Notifications\FlightJar.Notifications.csproj" />
+    <ProjectReference Include="..\FlightJar.Terrain\FlightJar.Terrain.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

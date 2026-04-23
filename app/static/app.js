@@ -24,6 +24,7 @@ import {
   setNavaids,
   setTrails,
 } from './map_controls.js';
+import { setBlackspots } from './blackspots.js';
 import {
   setAirspaces,
   setObstacles,
@@ -67,6 +68,7 @@ async function boot() {
     setAirports, setNavaids,
     setAirspaces, setObstacles, setReporting,
     setCoverage,
+    setBlackspots,
   });
 
   // Shared singletons that aren't Leaflet.

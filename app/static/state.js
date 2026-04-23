@@ -54,6 +54,7 @@ export const state = {
   airspacesLayer: null,
   obstaclesLayer: null,
   reportingLayer: null,
+  blackspotsLayer: null,
   labelsProxy: null,
   trailsProxy: null,
   airportsProxy: null,
@@ -61,6 +62,7 @@ export const state = {
   airspacesProxy: null,
   obstaclesProxy: null,
   reportingProxy: null,
+  blackspotsProxy: null,
   coverageProxy: null,
   receiverLayer: null,
   hoverHalo: null,
@@ -87,6 +89,7 @@ export const state = {
   showObstacles: localStorage.getItem('flightjar.obstacles') === '1',
   showReporting: localStorage.getItem('flightjar.reporting') === '1',
   showCoverage: localStorage.getItem('flightjar.coverage') === '1',
+  showBlackspots: localStorage.getItem('flightjar.blackspots') === '1',
   // Tile overlays (OpenAIP + VFRMap) — persistence is keyed on the layer
   // directly; these flags just seed the layers-control starting state.
   showOpenaip: localStorage.getItem('flightjar.openaip') === '1',

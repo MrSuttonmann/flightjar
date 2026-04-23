@@ -10,6 +10,7 @@ import { applyTrailsVisibility } from './trails.js';
 import { escapeHtml } from './format.js';
 import { lucide } from './icons_lib.js';
 import { getUnitSystem, setUnitSystem, uconv } from './units.js';
+import { initBlackspotsOverlay } from './blackspots.js';
 import { initOpenaipOverlays } from './openaip.js';
 import { renderSidebar } from './sidebar.js';
 import { state } from './state.js';
@@ -364,6 +365,9 @@ export function initMapControls() {
   // OpenAIP overlays (airspaces / obstacles / reporting points). Wires
   // its own moveend listener and replays persisted toggles.
   initOpenaipOverlays();
+
+  // Terrain blackspots — static grid, fetched once on first toggle-on.
+  initBlackspotsOverlay();
 
   // Home control.
   const HomeControl = L.Control.extend({
