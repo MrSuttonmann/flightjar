@@ -12,6 +12,8 @@ import {
   signalBars,
   signalLabel,
   wakeClass,
+  weatherIconKey,
+  weatherIconSvg,
 } from '../../app/static/profile.js';
 
 // Minimal SVG-element stub: we only need something renderTrailProfile can
@@ -219,6 +221,68 @@ test('formatMetar returns empty string for missing inputs', () => {
   assert.equal(formatMetar(null, null), '');
   assert.equal(formatMetar('EGLL', null), '');
   assert.equal(formatMetar(null, {}), '');
+});
+
+test('weatherIconKey picks thunder over rain even when both present', () => {
+  assert.equal(weatherIconKey({ raw: 'KJFK 231051Z +TSRA BKN040CB', cover: 'BKN' }), 'thunder');
+  assert.equal(weatherIconKey({ raw: 'EDDF 231050Z 27015KT VCTS SCT025CB', cover: 'SCT' }), 'thunder');
+});
+
+test('weatherIconKey returns snow for frozen-precip phenomena', () => {
+  assert.equal(weatherIconKey({ raw: 'EGLL 131950Z 09008KT -SN BKN010', cover: 'BKN' }), 'snow');
+  assert.equal(weatherIconKey({ raw: 'ENGM 131950Z +SHSN OVC015', cover: 'OVC' }), 'snow');
+});
+
+test('weatherIconKey returns rain for liquid-precip phenomena', () => {
+  assert.equal(weatherIconKey({ raw: 'EGLL 131950Z 25012KT -RA BKN020', cover: 'BKN' }), 'rain');
+  assert.equal(weatherIconKey({ raw: 'EGLL 131950Z 25012KT +SHRA BKN020', cover: 'BKN' }), 'rain');
+});
+
+test('weatherIconKey returns fog for obscuration phenomena', () => {
+  assert.equal(weatherIconKey({ raw: 'EGLL 131950Z VRB02KT 0100 FG OVC002', cover: 'OVC' }), 'fog');
+  assert.equal(weatherIconKey({ raw: 'EGLL 131950Z 25002KT 4000 BR NSC', cover: null }), 'fog');
+  assert.equal(weatherIconKey({ raw: 'OMDB 131950Z 25008KT 3000 HZ NSC', cover: null }), 'fog');
+});
+
+test('weatherIconKey falls back to cloud cover without present-weather groups', () => {
+  assert.equal(weatherIconKey({ raw: 'EGLL 131950Z 25012KT 9999 OVC020', cover: 'OVC' }), 'cloud');
+  assert.equal(weatherIconKey({ raw: 'EGLL 131950Z 25012KT 9999 BKN020', cover: 'BKN' }), 'cloud');
+  assert.equal(weatherIconKey({ raw: 'EGLL 131950Z 25012KT 9999 SCT020', cover: 'SCT' }), 'partly');
+  assert.equal(weatherIconKey({ raw: 'EGLL 131950Z 25012KT 9999 FEW020', cover: 'FEW' }), 'partly');
+});
+
+test('weatherIconKey returns clear for CAVOK / SKC', () => {
+  assert.equal(weatherIconKey({ raw: 'RJAA 231050Z 22005KT CAVOK 20/12 Q1018', cover: null }), 'clear');
+  assert.equal(weatherIconKey({ raw: 'KJFK 231051Z 24008KT 10SM CLR 18/10 A2992', cover: 'CLR' }), 'clear');
+  assert.equal(weatherIconKey({ raw: '', cover: null }), 'clear');
+  assert.equal(weatherIconKey(null), '');
+});
+
+test('weatherIconKey does not false-match ICAO codes containing RA or SN', () => {
+  // LFRA (Rennes) contains "RA" as part of the station identifier; must
+  // not be treated as rain if there's no actual present-weather group.
+  assert.equal(weatherIconKey({ raw: 'LFRA 131950Z 25012KT 9999 BKN020', cover: 'BKN' }), 'cloud');
+  // EDSN (Neuburg) contains "SN" — same story.
+  assert.equal(weatherIconKey({ raw: 'EDSN 131950Z 25012KT CAVOK', cover: null }), 'clear');
+});
+
+test('weatherIconSvg emits an SVG that labels its icon class + currentColor', () => {
+  const html = weatherIconSvg({ raw: 'EGLL 131950Z 25012KT -RA BKN020', cover: 'BKN' });
+  assert.match(html, /<svg /);
+  assert.match(html, /class="wx-icon wx-rain"/);
+  assert.match(html, /stroke="currentColor"/);
+});
+
+test('weatherIconSvg returns empty string for null input', () => {
+  assert.equal(weatherIconSvg(null), '');
+});
+
+test('formatMetar includes a weather icon SVG before the fragments', () => {
+  const html = formatMetar('EGLL', {
+    raw: 'EGLL 131950Z 25012KT 9999 -RA BKN020 15/10 Q1015',
+    wind_dir: 250, wind_kt: 12, visibility: '10+', cover: 'BKN',
+  });
+  assert.match(html, /wx-icon wx-rain/);
 });
 
 test('renderTrailProfile shows empty-state text when valid values < 2', () => {

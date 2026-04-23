@@ -13,6 +13,12 @@
 // select-all and delete a long masked string.
 
 import { escapeHtml } from './format.js';
+import { lucide } from './icons_lib.js';
+
+const X_ICON = lucide('x', { size: 14, strokeWidth: 2 });
+const CHECK_ICON = lucide('check', { size: 14, strokeWidth: 2 });
+const EYE_ICON = lucide('eye', { size: 14, strokeWidth: 1.8 });
+const EYE_OFF_ICON = lucide('eye-off', { size: 14, strokeWidth: 1.8 });
 
 const CONFIG_URL = '/api/notifications/config';
 const TEST_URL = (id) => `/api/notifications/test/${encodeURIComponent(id)}`;
@@ -47,11 +53,10 @@ let state = { channels: [] };
 function resetRemoveBtn(btn) {
   if (!btn || btn.dataset.confirming !== '1') return;
   btn.dataset.confirming = '0';
-  btn.textContent = btn.dataset.originalText || '×';
+  btn.innerHTML = X_ICON;
   btn.title = 'Remove';
   btn.classList.remove('confirming');
   delete btn.dataset.resetTimer;
-  delete btn.dataset.originalText;
 }
 
 export function initAlertsDialog() {
@@ -136,7 +141,7 @@ export function initAlertsDialog() {
     header.innerHTML = `
       <input type="text" class="alerts-name" value="${escapeHtml(c.name || '')}"
              placeholder="Name" aria-label="Channel name">
-      <button type="button" class="alerts-remove" aria-label="Remove">&times;</button>
+      <button type="button" class="alerts-remove" aria-label="Remove">${X_ICON}</button>
     `;
     wrap.appendChild(header);
 
@@ -156,7 +161,7 @@ export function initAlertsDialog() {
                  placeholder="${escapeHtml(def.placeholder || '')}"
                  data-key="${escapeHtml(def.key)}">
           ${def.secret ? `<button type="button" class="alerts-show" aria-label="Show"
-                                   data-target="${id}">👁</button>` : ''}
+                                   data-target="${id}">${EYE_ICON}</button>` : ''}
         </span>
       `;
       fields.appendChild(row);
@@ -216,12 +221,14 @@ export function initAlertsDialog() {
   sections.addEventListener('click', async (e) => {
     const row = e.target.closest('.alerts-entry');
     if (!row) return;
-    if (e.target.classList.contains('alerts-remove')) {
+    const removeBtn = e.target.classList.contains('alerts-remove')
+      ? e.target : e.target.closest('.alerts-remove');
+    if (removeBtn) {
       // Two-click confirm: first click switches the button into a
-      // "click again to delete" state with a red tint and a ✓ glyph;
-      // second click within REMOVE_CONFIRM_MS actually removes. Auto-
-      // cancels after the timeout so the button doesn't stay armed.
-      const btn = e.target;
+      // "click again to delete" state with a red tint and a check
+      // glyph; second click within REMOVE_CONFIRM_MS actually removes.
+      // Auto-cancels after the timeout so the button doesn't stay armed.
+      const btn = removeBtn;
       if (btn.dataset.confirming === '1') {
         window.clearTimeout(Number(btn.dataset.resetTimer));
         state.channels = state.channels.filter((c) => c.id !== row.dataset.id);
@@ -231,8 +238,7 @@ export function initAlertsDialog() {
       }
       btn.dataset.confirming = '1';
       btn.classList.add('confirming');
-      btn.dataset.originalText = btn.textContent;
-      btn.textContent = '✓';
+      btn.innerHTML = CHECK_ICON;
       btn.title = 'Click again to remove';
       btn.dataset.resetTimer = String(
         window.setTimeout(() => resetRemoveBtn(btn), 3500),
@@ -243,11 +249,19 @@ export function initAlertsDialog() {
       await testChannel(row.dataset.id, e.target);
       return;
     }
-    if (e.target.classList.contains('alerts-show')) {
-      const input = document.getElementById(e.target.dataset.target);
+    if (e.target.classList.contains('alerts-show')
+        || e.target.closest('.alerts-show')) {
+      const btn = e.target.classList.contains('alerts-show')
+        ? e.target : e.target.closest('.alerts-show');
+      const input = document.getElementById(btn.dataset.target);
       if (!input) return;
-      if (input.type === 'password') { input.type = 'text'; e.target.textContent = '🙈'; }
-      else { input.type = 'password'; e.target.textContent = '👁'; }
+      if (input.type === 'password') {
+        input.type = 'text';
+        btn.innerHTML = EYE_OFF_ICON;
+      } else {
+        input.type = 'password';
+        btn.innerHTML = EYE_ICON;
+      }
     }
   });
 

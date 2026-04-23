@@ -9,7 +9,10 @@
 // - Typing the literal phrase "barrel roll" into the search input
 //   spins the map once, then clears the input.
 
+import { lucide } from './icons_lib.js';
 import { showToast } from './toast.js';
+
+const EGG_CLOSE_ICON = lucide('x', { size: 14, strokeWidth: 2 });
 
 const KONAMI = [
   'ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown',
@@ -90,7 +93,7 @@ function showSessionStatsCard(stats) {
   card.innerHTML = `
     <div class="egg-session-head">
       <span>Session stats</span>
-      <button type="button" class="egg-session-close" aria-label="Close">&times;</button>
+      <button type="button" class="egg-session-close" aria-label="Close">${EGG_CLOSE_ICON}</button>
     </div>
     <dl class="egg-session-body">
       ${rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}

@@ -121,7 +121,7 @@ export function update(snap) {
         if (nowMs - last > GO_AROUND_COOLDOWN_MS) {
           state.goAroundFiredAt.set(a.icao, nowMs);
           const label = a.callsign || a.registration || a.icao.toUpperCase();
-          showToast(`⚠ Possible go-around: ${label}`, { level: 'warn' });
+          showToast(`Possible go-around: ${label}`, { level: 'warn' });
         }
       }
       entry.prevPhase = a.phase || entry.prevPhase;

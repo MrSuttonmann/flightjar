@@ -8,6 +8,7 @@ import { applyFollowState, setFollow } from './detail_panel.js';
 import { applyLabelsVisibility } from './labels.js';
 import { applyTrailsVisibility } from './trails.js';
 import { escapeHtml } from './format.js';
+import { lucide } from './icons_lib.js';
 import { getUnitSystem, setUnitSystem, uconv } from './units.js';
 import { renderSidebar } from './sidebar.js';
 import { state } from './state.js';
@@ -267,7 +268,7 @@ export function setFiltersCollapsed(value) {
 
 // ---- boot wiring ----
 
-function makeIconControl({ className, title, pathD, onClick }) {
+function makeIconControl({ className, title, iconHtml, onClick }) {
   return L.Control.extend({
     options: { position: 'topright' },
     onAdd() {
@@ -275,10 +276,7 @@ function makeIconControl({ className, title, pathD, onClick }) {
       a.href = '#'; a.title = title;
       a.setAttribute('role', 'button');
       a.setAttribute('aria-label', title);
-      a.innerHTML =
-        `<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true" ` +
-          `fill="none" stroke="currentColor" stroke-width="1.8" ` +
-          `stroke-linecap="round" stroke-linejoin="round">${pathD}</svg>`;
+      a.innerHTML = iconHtml;
       L.DomEvent
         .on(a, 'click', (e) => {
           L.DomEvent.preventDefault(e);
@@ -337,10 +335,7 @@ export function initMapControls() {
   const FollowControl = makeIconControl({
     className: 'follow-control',
     title: 'Follow selected aircraft',
-    pathD:
-      `<path d="M10,2 L11.5,9 L18,11 L18,12.5 L11.5,10.5 L11.5,15 ` +
-      `L13,17 L13,17.5 L7,17.5 L7,17 L8.5,15 L8.5,10.5 L2,12.5 ` +
-      `L2,11 L8.5,9 Z" fill="currentColor" stroke-linejoin="round"/>`,
+    iconHtml: lucide('navigation', { size: 16, strokeWidth: 1.8 }),
     onClick: () => setFollow(!state.followSelected),
   });
   state.map.addControl(new FollowControl());
@@ -374,16 +369,7 @@ export function initMapControls() {
       a.title = 'Re-centre on receiver (H)';
       a.setAttribute('role', 'button');
       a.setAttribute('aria-label', 'Re-centre on receiver');
-      a.innerHTML = (
-        '<svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true">' +
-          '<circle cx="10" cy="10" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/>' +
-          '<circle cx="10" cy="10" r="2.2" fill="currentColor"/>' +
-          '<line x1="10" y1="1" x2="10" y2="4"  stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>' +
-          '<line x1="10" y1="16" x2="10" y2="19" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>' +
-          '<line x1="1" y1="10" x2="4" y2="10"  stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>' +
-          '<line x1="16" y1="10" x2="19" y2="10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>' +
-        '</svg>'
-      );
+      a.innerHTML = lucide('crosshair', { size: 18, strokeWidth: 1.8 });
       L.DomEvent
         .on(a, 'click', (e) => {
           L.DomEvent.preventDefault(e);

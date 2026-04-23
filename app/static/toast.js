@@ -4,8 +4,15 @@
 // `duration` ms with a short fade. Every easter egg that needs to say
 // something goes through this so the visual language stays consistent.
 
+import { lucide } from './icons_lib.js';
+
 const LEVELS = new Set(['info', 'success', 'egg', 'warn']);
-const LEVEL_ICONS = { info: 'ℹ', success: '✓', warn: '!', egg: '✦' };
+const LEVEL_ICONS = {
+  info: 'info',
+  success: 'check',
+  warn: 'triangle-alert',
+  egg: 'sparkles',
+};
 const DEFAULT_DURATION_MS = 4000;
 const HOST_ID = 'toast-host';
 
@@ -37,7 +44,7 @@ export function showToast(message, opts = {}) {
   const icon = document.createElement('span');
   icon.className = 'toast-icon';
   icon.setAttribute('aria-hidden', 'true');
-  icon.textContent = LEVEL_ICONS[level] || LEVEL_ICONS.info;
+  icon.innerHTML = lucide(LEVEL_ICONS[level] || LEVEL_ICONS.info, { size: 14, strokeWidth: 2 });
   const body = document.createElement('span');
   body.className = 'toast-body';
   body.textContent = message;

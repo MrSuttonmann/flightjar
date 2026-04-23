@@ -6,7 +6,10 @@ import { applyWatchStateToPanel, selectAircraft } from './detail_panel.js';
 import { countHistory, renderSidebar, setRenderStats } from './sidebar.js';
 import { COUNT_HISTORY_LEN, state } from './state.js';
 import { escapeHtml } from './format.js';
+import { lucide } from './icons_lib.js';
 import { relativeAge } from './profile.js';
+
+const WL_REMOVE_ICON = lucide('x', { size: 14, strokeWidth: 2 });
 import { uconv } from './units.js';
 
 // ---------------- About dialog ----------------
@@ -384,7 +387,7 @@ function watchlistRowHtml(icao, snap, info) {
       <span class="wl-label">${escapeHtml(label)}</span>
       ${lastSeenHtml}
       <button type="button" class="wl-remove" data-icao="${escapeHtml(icao)}"
-              aria-label="Remove from watchlist" title="Remove">&times;</button>
+              aria-label="Remove from watchlist" title="Remove">${WL_REMOVE_ICON}</button>
     </li>
   `;
 }
