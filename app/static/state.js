@@ -44,6 +44,35 @@ export function writeFilters(set) {
   } catch (_) { /* storage disabled */ }
 }
 
+// Airspace subcategory filter. Defaults to "all groups on" so first-run
+// users see the same thing they used to. Stored as the set of DISABLED
+// group keys so "all on" is the empty-array default — if we ever add a
+// new group, unknown keys stay enabled instead of being silently hidden.
+export const AIRSPACE_GROUP_KEYS = [
+  'restricted', 'danger', 'controlled', 'class_ef',
+  'airways', 'atz_matz', 'mandatory', 'gliding', 'other',
+];
+const AIRSPACE_CATEGORIES_STORAGE_KEY = 'flightjar.airspaces.categories';
+
+function readAirspaceCategories() {
+  const enabled = new Set(AIRSPACE_GROUP_KEYS);
+  try {
+    const raw = localStorage.getItem(AIRSPACE_CATEGORIES_STORAGE_KEY);
+    if (!raw) return enabled;
+    const disabled = JSON.parse(raw);
+    if (!Array.isArray(disabled)) return enabled;
+    for (const k of disabled) enabled.delete(k);
+  } catch (_) { /* corrupt storage — keep all-on default */ }
+  return enabled;
+}
+
+export function writeAirspaceCategories(enabledSet) {
+  try {
+    const disabled = AIRSPACE_GROUP_KEYS.filter((k) => !enabledSet.has(k));
+    localStorage.setItem(AIRSPACE_CATEGORIES_STORAGE_KEY, JSON.stringify(disabled));
+  } catch (_) { /* storage disabled */ }
+}
+
 export const state = {
   // Leaflet handles — populated by map_setup.initMap().
   map: null,
@@ -64,6 +93,10 @@ export const state = {
   reportingProxy: null,
   blackspotsProxy: null,
   coverageProxy: null,
+  // Last airspace rows received from /api/openaip/airspaces. Kept so the
+  // subcategory filter dialog can re-render with new filters without
+  // triggering another backend fetch.
+  airspacesCache: [],
   receiverLayer: null,
   hoverHalo: null,
   syncOverlay: null,
@@ -101,6 +134,9 @@ export const state = {
   // an aircraft matches when any active filter matches. Empty set means
   // "show everything" — the default.
   activeFilters: new Set(readFilters()),
+  // Enabled airspace groups (see openaip.js → AIRSPACE_GROUPS). Rendered
+  // airspaces are filtered by membership; empty set means "hide all".
+  airspaceCategories: readAirspaceCategories(),
   hoveredFromListIcao: null,
   hoveredFromMapIcao: null,
   sortKey: 'callsign',

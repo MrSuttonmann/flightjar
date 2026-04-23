@@ -91,6 +91,20 @@
     animation: blackspots-spin 0.8s linear infinite;
     vertical-align: -2px;
   }
+  /* Filter-dialog opener injected next to the "Airspaces" label in the
+     layers control. Sits inline at the end of the row and suppresses
+     Leaflet's click-to-toggle so tapping the icon opens the dialog
+     without also disabling the overlay. */
+  .leaflet-control-layers-overlays label .airspace-filter-btn {
+    background: transparent; border: 0; padding: 0 2px;
+    margin-left: 4px; color: #4b5563; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    vertical-align: -2px; line-height: 1;
+  }
+  .leaflet-control-layers-overlays label .airspace-filter-btn:hover {
+    color: var(--accent);
+  }
+  .leaflet-control-layers-overlays label .airspace-filter-btn svg { display: block; }
   /* Non-aircraft point markers (airports / navaids / obstacles /
      reporting points) are rendered as divIcon SVG glyphs. Leaflet's
      default .leaflet-div-icon adds a white background + border we

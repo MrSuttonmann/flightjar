@@ -397,6 +397,29 @@
 
   <p class="map-key-footnote">Aircraft markers are coloured by altitude — see the gradient bar at the bottom of the map.</p>
 </dialog>
+
+<!-- Airspace subcategory filter dialog — opened from the filter icon
+     inline on the Airspaces row of the layers control. Body is built
+     in airspace_filters_dialog.js from openaip.js → AIRSPACE_GROUPS so
+     group definitions stay in one place. -->
+<dialog id="airspace-filters-dialog">
+  <form method="dialog" class="about-close-form">
+    <button class="about-close" value="close" aria-label="Close">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"
+           fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+      </svg>
+    </button>
+  </form>
+  <h2>Airspace filters</h2>
+  <p>Choose which airspace subcategories to show. Hover the <span class="airspace-filter-help-icon" aria-hidden="true">?</span> next to a group for a short explanation.</p>
+  <div class="airspace-filter-actions">
+    <button type="button" class="airspace-filter-action" data-action="all">Show all</button>
+    <button type="button" class="airspace-filter-action" data-action="none">Hide all</button>
+  </div>
+  <ul id="airspace-filter-list" class="airspace-filter-list"></ul>
+</dialog>
 </div>
 
 <!-- Desktop sidebar toggle: a vertical pill sitting on the sidebar/map

@@ -266,3 +266,88 @@
                 padding: 5px 10px; font-size: 12px; font-family: inherit;
                 cursor: pointer; }
   .alerts-add:hover { color: var(--text); border-color: var(--accent); }
+
+  /* Airspace subcategory filter dialog — same shell as the other
+     dialogs, with a checklist of groups each showing a colour swatch,
+     label, count of features in the current view, and a `?` hint. */
+  #airspace-filters-dialog { max-width: 480px; width: 90vw;
+                             border: 1px solid var(--border); border-radius: 6px;
+                             background: var(--panel); color: var(--text);
+                             padding: 20px 24px 24px;
+                             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+                             font-size: 13px; line-height: 1.45; }
+  #airspace-filters-dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
+  #airspace-filters-dialog h2 { margin: 0 0 8px; font-size: 18px; font-weight: 600; }
+  #airspace-filters-dialog p { margin: 0 0 10px; color: var(--muted); }
+  #airspace-filters-dialog .about-close-form { margin: 0; padding: 0;
+                                               display: flex; justify-content: flex-end; }
+  #airspace-filters-dialog .about-close { background: transparent; border: 0;
+                                          color: var(--muted); cursor: pointer;
+                                          padding: 2px 4px; margin: -6px -8px 0 0;
+                                          display: inline-flex; align-items: center;
+                                          justify-content: center; }
+  #airspace-filters-dialog .about-close svg { display: block; }
+  #airspace-filters-dialog .about-close:hover { color: var(--text); }
+  .airspace-filter-actions { display: flex; gap: 8px; margin: 0 0 8px; }
+  .airspace-filter-action { font-size: 11px; font-family: inherit;
+                            cursor: pointer; background: transparent;
+                            color: var(--muted); border: 1px solid var(--border);
+                            border-radius: 3px; padding: 3px 10px; }
+  .airspace-filter-action:hover { color: var(--text); border-color: var(--accent); }
+  .airspace-filter-list { list-style: none; margin: 0; padding: 0; }
+  .airspace-filter-row { display: flex; align-items: center; gap: 6px;
+                         padding: 4px 2px; border-bottom: 1px solid var(--border);
+                         font-size: 12px; }
+  .airspace-filter-row:last-child { border-bottom: 0; }
+  .airspace-filter-row label { display: flex; align-items: center; gap: 8px;
+                               flex: 1; cursor: pointer; color: var(--text); }
+  .airspace-filter-row input[type="checkbox"] { accent-color: var(--accent); }
+  .airspace-filter-swatch { display: inline-flex; align-items: center;
+                            justify-content: center; width: 32px; }
+  .airspace-filter-swatch svg { display: block; }
+  .airspace-filter-label { flex: 1; }
+  .airspace-filter-count { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .airspace-filter-help-icon {
+    position: relative;
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 10px; font-weight: 600; cursor: help;
+    user-select: none; line-height: 1;
+  }
+  .airspace-filter-help-icon:hover,
+  .airspace-filter-help-icon:focus { color: var(--text); border-color: var(--accent); outline: none; }
+  /* Hint bubble — pulled from data-hint so the hint text stays with
+     the DOM node, and shown on hover / focus so touch + keyboard work
+     the same as desktop hover. Positioned above the icon, right-edge
+     aligned, so it doesn't push off the dialog's right side on small
+     viewports. */
+  .airspace-filter-help-icon::after {
+    content: attr(data-hint);
+    position: absolute; right: -2px; bottom: calc(100% + 8px);
+    width: max-content; max-width: 260px;
+    padding: 8px 10px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 4px;
+    font-size: 11px; font-weight: 400; line-height: 1.45;
+    letter-spacing: 0; text-transform: none; text-align: left;
+    white-space: normal;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.12s ease;
+    z-index: 10;
+  }
+  .airspace-filter-help-icon::before {
+    content: ""; position: absolute;
+    right: 4px; bottom: calc(100% + 2px);
+    border: 6px solid transparent;
+    border-top-color: var(--border);
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.12s ease;
+  }
+  .airspace-filter-help-icon:hover::after,
+  .airspace-filter-help-icon:hover::before,
+  .airspace-filter-help-icon:focus::after,
+  .airspace-filter-help-icon:focus::before { opacity: 1; }

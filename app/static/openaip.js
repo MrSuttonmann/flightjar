@@ -10,6 +10,7 @@
 // are free. We still debounce moveend on the client to avoid firing
 // mid-drag.
 
+import { AIRSPACE_GROUPS, airspaceGroup } from './airspace_groups.js';
 import { escapeHtml } from './format.js';
 import {
   OBSTACLE_ICON,
@@ -17,6 +18,8 @@ import {
   REPORTING_NONCOMPULSORY_ICON,
 } from './point_icons.js';
 import { state } from './state.js';
+
+export { AIRSPACE_GROUPS, airspaceGroup };
 
 const FETCH_DEBOUNCE_MS = 300;
 
@@ -90,8 +93,15 @@ function airspaceTooltip(a) {
 }
 
 function renderAirspaces(rows, layer) {
+  // Cache the raw rows so the filter dialog can re-render without
+  // re-hitting the backend. We cache even the unfiltered subset that's
+  // been excluded by the current group toggles — a user who re-enables a
+  // group should see those features pop back instantly.
+  state.airspacesCache = rows;
+  const enabled = state.airspaceCategories;
   for (const a of rows) {
     if (!a.geometry) continue;
+    if (!enabled.has(airspaceGroup(a))) continue;
     const gj = L.geoJSON(
       { type: 'Feature', geometry: a.geometry, properties: {} },
       { style: airspaceLeafletStyle(a), interactive: true },
@@ -99,6 +109,27 @@ function renderAirspaces(rows, layer) {
     gj.bindTooltip(airspaceTooltip(a), { direction: 'top', sticky: true });
     gj.addTo(layer);
   }
+}
+
+// Re-render airspaces from the in-memory cache without re-fetching.
+// Called from the subcategory filter dialog after a group is toggled.
+export function reapplyAirspaceFilters() {
+  const layer = state.airspacesLayer;
+  if (!layer) return;
+  if (!state.showAirspaces) return;
+  layer.clearLayers();
+  renderAirspaces(state.airspacesCache || [], layer);
+}
+
+// Count of features per group in the current cache, for the filter
+// dialog's "(N)" annotations. Returns a plain object keyed by group key.
+export function airspaceGroupCounts() {
+  const counts = Object.fromEntries(AIRSPACE_GROUPS.map((g) => [g.key, 0]));
+  for (const a of state.airspacesCache || []) {
+    if (!a.geometry) continue;
+    counts[airspaceGroup(a)] = (counts[airspaceGroup(a)] || 0) + 1;
+  }
+  return counts;
 }
 
 function renderObstacles(rows, layer) {
@@ -298,6 +329,52 @@ function updateZoomAvailability() {
       ? ` ${spec.controlLabel}`
       : ` ${spec.controlLabel} (zoom ≥ ${spec.minZoom})`;
   }
+  ensureAirspaceFilterButton();
+}
+
+// Airspace row gets a tiny filter icon next to the label that opens
+// the subcategory dialog. Leaflet rebuilds the layers-control DOM on
+// every overlay toggle (same reason updateZoomAvailability has to be
+// re-applied), so we re-inject the button on each call and rely on
+// idempotency: `data-fj-filter-btn` guards against duplicate buttons
+// inside one render.
+let openAirspaceFilters = null;
+export function setAirspaceFiltersOpener(fn) { openAirspaceFilters = fn; }
+
+function ensureAirspaceFilterButton() {
+  const entry = findOverlayLabel(OVERLAYS.airspaces.controlLabel);
+  if (!entry) return;
+  if (entry.label.querySelector('[data-fj-filter-btn]')) return;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.dataset.fjFilterBtn = '1';
+  btn.className = 'airspace-filter-btn';
+  btn.setAttribute('aria-label', 'Airspace filters');
+  btn.title = 'Filter airspace subcategories';
+  // lucide: sliders-horizontal — matches the rest of the map chrome.
+  btn.innerHTML =
+    '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" '
+    + 'fill="none" stroke="currentColor" stroke-width="2" '
+    + 'stroke-linecap="round" stroke-linejoin="round">'
+    + '<line x1="21" y1="4" x2="14" y2="4"/><line x1="10" y1="4" x2="3" y2="4"/>'
+    + '<line x1="21" y1="12" x2="12" y2="12"/><line x1="8" y1="12" x2="3" y2="12"/>'
+    + '<line x1="21" y1="20" x2="16" y2="20"/><line x1="12" y1="20" x2="3" y2="20"/>'
+    + '<line x1="14" y1="2" x2="14" y2="6"/><line x1="8" y1="10" x2="8" y2="14"/>'
+    + '<line x1="16" y1="18" x2="16" y2="22"/></svg>';
+  // Clicking inside the label would otherwise toggle the checkbox — stop
+  // the event so pressing the filter icon doesn't also disable the layer.
+  const swallow = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  btn.addEventListener('click', (e) => {
+    swallow(e);
+    openAirspaceFilters?.();
+  });
+  // Leaflet also listens on mousedown/dblclick for control interactions.
+  btn.addEventListener('mousedown', (e) => e.stopPropagation());
+  btn.addEventListener('dblclick', swallow);
+  entry.label.appendChild(btn);
 }
 
 // Called from initMapControls after state.map exists. Attaches the

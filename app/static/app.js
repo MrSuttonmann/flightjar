@@ -7,6 +7,7 @@
 
 import { createWatchlist } from './watchlist.js';
 import { initAboutDialog, initMapKeyDialog, initStatsDialog, initWatchlistDialog } from './dialogs.js';
+import { initAirspaceFiltersDialog } from './airspace_filters_dialog.js';
 import { initAlertsDialog } from './alerts_dialog.js';
 import { initAirportTooltip } from './tooltip.js';
 import {
@@ -86,6 +87,7 @@ async function boot() {
   initMapKeyDialog();
   initStatsDialog();
   initWatchlistDialog();
+  initAirspaceFiltersDialog();
   initShortcuts();
   initFooterClock();
 
