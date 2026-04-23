@@ -3,26 +3,28 @@ beast-logs/
 *.jsonl
 *.jsonl.*
 
-# Python
+# Python (only `scripts/fetch_plane_shapes.py` remains, as a Docker
+# build-time utility — kept so a local venv created to run it doesn't
+# pollute the working tree).
 __pycache__/
 *.py[cod]
-*.egg-info/
 .venv/
 venv/
 .env
 
-# Tooling caches
-.ruff_cache/
-.mypy_cache/
-.pytest_cache/
-
-# Node (only used for dev; no runtime deps)
+# Node (only used for dev — Playwright + node --test; no runtime deps).
 node_modules/
 package-lock.json
 
-# .NET build output
+# .NET
 bin/
 obj/
+# IDE workspace state (Visual Studio, Rider).
+.vs/
+*.user
+# Coverage output from `dotnet test --collect:"XPlat Code Coverage"`.
+TestResults/
+coverage.cobertura.xml
 
 # Playwright artefacts: browser binaries live in ~/.cache, but test
 # traces / screenshots / reports land next to the repo.
