@@ -1,8 +1,0 @@
-{
-  "FlightJar.Api, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": "\/home\/james\/tar1090-beast-logger\/dotnet\/src\/FlightJar.Api",
-  "FlightJar.Clients, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": "\/home\/james\/tar1090-beast-logger\/dotnet\/src\/FlightJar.Clients",
-  "FlightJar.Core, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": "\/home\/james\/tar1090-beast-logger\/dotnet\/src\/FlightJar.Core",
-  "FlightJar.Decoder, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": "\/home\/james\/tar1090-beast-logger\/dotnet\/src\/FlightJar.Decoder",
-  "FlightJar.Notifications, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": "\/home\/james\/tar1090-beast-logger\/dotnet\/src\/FlightJar.Notifications",
-  "FlightJar.Persistence, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null": "\/home\/james\/tar1090-beast-logger\/dotnet\/src\/FlightJar.Persistence"
-}

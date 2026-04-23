@@ -20,6 +20,10 @@ venv/
 node_modules/
 package-lock.json
 
+# .NET build output
+bin/
+obj/
+
 # Playwright artefacts: browser binaries live in ~/.cache, but test
 # traces / screenshots / reports land next to the repo.
 test-results/
