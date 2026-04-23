@@ -33,17 +33,33 @@ public sealed class HttpThrottle
     /// request, then return a disposable that records the request completion
     /// time on dispose.
     /// </summary>
+    /// <remarks>
+    /// The inter-request delay has to live INSIDE a try/catch that releases
+    /// the gate on failure. Otherwise a cancellation mid-<c>Task.Delay</c>
+    /// throws with the permit still held and never handed to a Releaser —
+    /// that permanently deadlocks every subsequent acquirer on a single
+    /// slot semaphore. A map pan that cancels a pending OpenAIP request
+    /// would be enough to wedge the whole client.
+    /// </remarks>
     public async Task<IAsyncDisposable> AcquireAsync(
         TimeProvider time, CancellationToken ct)
     {
         await _gate.WaitAsync(ct);
-        var now = time.GetUtcNow();
-        var wait = (_lastRequestAt + MinInterval) - now;
-        if (wait > TimeSpan.Zero)
+        try
         {
-            await Task.Delay(wait, time, ct);
+            var now = time.GetUtcNow();
+            var wait = (_lastRequestAt + MinInterval) - now;
+            if (wait > TimeSpan.Zero)
+            {
+                await Task.Delay(wait, time, ct);
+            }
+            return new Releaser(this, time);
         }
-        return new Releaser(this, time);
+        catch
+        {
+            _gate.Release();
+            throw;
+        }
     }
 
     /// <summary>Extend the cooldown using an explicit Retry-After span (or <see cref="Default429Cooldown"/> if null).</summary>

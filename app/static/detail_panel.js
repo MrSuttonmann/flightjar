@@ -613,6 +613,33 @@ export function selectAircraft(icao) {
   if (entry) panToFollowed(entry.marker.getLatLng());
 }
 
+// While an aircraft is selected (panel open), redirect every zoom
+// action to pivot on that aircraft instead of the default pivot
+// (map center for buttons/keyboard, mouse cursor for scroll wheel).
+// We wrap the instance's setZoom + setZoomAround — zoomIn/zoomOut go
+// through setZoom, and scroll/double-click/box zoom go through
+// setZoomAround, so between the two we catch every entry point.
+function installSelectedZoomPivot(map) {
+  function pivotLatLng() {
+    if (!state.selectedIcao) return null;
+    const entry = state.aircraft.get(state.selectedIcao);
+    const a = entry?.data;
+    if (!a || a.lat == null || a.lon == null) return null;
+    return L.latLng(a.lat, a.lon);
+  }
+  const origSetZoom = map.setZoom.bind(map);
+  const origSetZoomAround = map.setZoomAround.bind(map);
+  map.setZoom = function (zoom, options) {
+    const p = pivotLatLng();
+    if (p && map._loaded) return origSetZoomAround(p, zoom, options);
+    return origSetZoom(zoom, options);
+  };
+  map.setZoomAround = function (latlng, zoom, options) {
+    const p = pivotLatLng();
+    return origSetZoomAround(p || latlng, zoom, options);
+  };
+}
+
 // Called by app.js after DOM + watchlist are ready. Captures DOM refs
 // into `state` and wires the panel's own event listeners (close button,
 // Escape, map background click → close, map drag → disable Follow).
@@ -643,6 +670,8 @@ export function initDetailPanel() {
       applyFollowState();
     }
   });
+
+  installSelectedZoomPivot(state.map);
 
   window.addEventListener('hashchange', () => {
     const icao = readDeepLink();

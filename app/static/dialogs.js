@@ -67,6 +67,22 @@ export function initAboutDialog() {
   });
 }
 
+// ---------------- Map-key dialog ----------------
+
+// Content is fully static HTML in index.html — this just wires the
+// click-outside-closes behaviour so it matches the other dialogs.
+// The open trigger is a Leaflet control registered in map_controls.js.
+export function initMapKeyDialog() {
+  const dialog = document.getElementById('map-key-dialog');
+  if (!dialog) return;
+  dialog.addEventListener('click', (e) => {
+    const r = dialog.getBoundingClientRect();
+    const inside = e.clientX >= r.left && e.clientX <= r.right
+                && e.clientY >= r.top && e.clientY <= r.bottom;
+    if (!inside) dialog.close();
+  });
+}
+
 // ---------------- Stats dialog ----------------
 
 let statsServerInfo = null;

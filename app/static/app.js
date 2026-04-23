@@ -6,7 +6,7 @@
 // arrives, and so on.
 
 import { createWatchlist } from './watchlist.js';
-import { initAboutDialog, initStatsDialog, initWatchlistDialog } from './dialogs.js';
+import { initAboutDialog, initMapKeyDialog, initStatsDialog, initWatchlistDialog } from './dialogs.js';
 import { initAlertsDialog } from './alerts_dialog.js';
 import { initAirportTooltip } from './tooltip.js';
 import {
@@ -83,6 +83,7 @@ async function boot() {
   initSidebar();
   initMapControls();
   initAboutDialog();
+  initMapKeyDialog();
   initStatsDialog();
   initWatchlistDialog();
   initShortcuts();

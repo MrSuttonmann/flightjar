@@ -60,6 +60,9 @@ export const LUCIDE_ICON_PATHS = {
     '<path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/>' +
     '<path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/>' +
     '<path d="m2 2 20 20"/>',
+  'list':
+    '<path d="M3 12h.01"/><path d="M3 18h.01"/><path d="M3 6h.01"/>' +
+    '<path d="M8 12h13"/><path d="M8 18h13"/><path d="M8 6h13"/>',
 
   // Weather icons (METAR overlay)
   'sun':

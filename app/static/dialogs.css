@@ -1,0 +1,268 @@
+  #about-dialog { max-width: 540px; width: 90vw; border: 1px solid var(--border);
+                  border-radius: 6px; background: var(--panel); color: var(--text);
+                  padding: 20px 24px 24px; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+                  font-size: 13px; line-height: 1.45; }
+  #about-dialog::backdrop { background: rgba(0,0,0,0.55); }
+  #about-dialog h2 { margin: 0 0 8px; font-size: 18px; font-weight: 600; }
+  #about-dialog h3 { margin: 16px 0 6px; font-size: 12px;
+                     text-transform: uppercase; letter-spacing: 0.5px;
+                     color: var(--muted); font-weight: 600; }
+  #about-dialog p { margin: 0 0 8px; color: var(--muted); }
+  #about-dialog a { color: var(--accent); text-decoration: none; }
+  #about-dialog a:hover { text-decoration: underline; }
+  #about-dialog .about-list { margin: 0; padding-left: 18px; }
+  #about-dialog .about-list li { margin-bottom: 4px; }
+  #about-dialog .about-close-form { margin: 0; padding: 0; display: flex;
+                                    justify-content: flex-end; }
+  #about-dialog .about-close { background: transparent; border: 0;
+                               color: var(--muted); cursor: pointer;
+                               padding: 2px 4px; margin: -6px -8px 0 0;
+                               display: inline-flex; align-items: center;
+                               justify-content: center; }
+  #about-dialog .about-close svg { display: block; }
+  #about-dialog .about-close:hover { color: var(--text); }
+  /* Version pill next to the title. Populated from /api/stats on open. */
+  .about-version {
+    font-size: 11px; font-family: ui-monospace, monospace;
+    font-weight: 500; color: var(--muted);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: 1px 7px; margin-left: 6px;
+    vertical-align: 2px;
+  }
+  /* Github + Buy-Me-A-Coffee moved out of the footer and into the
+     About dialog header. */
+  #about-dialog .about-links {
+    display: flex; align-items: center; gap: 16px;
+    margin: 10px 0 4px;
+  }
+  #about-dialog .about-links a {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: var(--muted);
+  }
+  #about-dialog .about-links a:hover { color: var(--text); text-decoration: none; }
+  #about-dialog .about-links svg {
+    width: 16px; height: 16px; fill: currentColor;
+  }
+  #about-dialog .about-links img { display: block; height: 28px; width: auto; }
+
+  /* Stats dialog — reuses the about-dialog visual shell but replaces
+     the bulleted lists with a responsive stat-card grid and a bigger
+     sparkline. Redraws live on each snapshot tick while the dialog is
+     open (see renderStats in app.js). */
+  #stats-dialog { max-width: 540px; width: 90vw;
+                  border: 1px solid var(--border); border-radius: 6px;
+                  background: var(--panel); color: var(--text);
+                  padding: 20px 24px 24px;
+                  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+                  font-size: 13px; line-height: 1.45; }
+  #stats-dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
+  #stats-dialog h2 { margin: 0 0 8px; font-size: 18px; font-weight: 600; }
+  #stats-dialog h3 { margin: 16px 0 6px; font-size: 11px;
+                     text-transform: uppercase; letter-spacing: 0.6px;
+                     color: var(--muted); font-weight: 600; }
+  #stats-dialog .about-close-form { margin: 0; padding: 0; display: flex;
+                                    justify-content: flex-end; }
+  #stats-dialog .about-close { background: transparent; border: 0;
+                               color: var(--muted); cursor: pointer;
+                               padding: 2px 4px; margin: -6px -8px 0 0;
+                               display: inline-flex; align-items: center;
+                               justify-content: center; }
+  #stats-dialog .about-close svg { display: block; }
+  #stats-dialog .about-close:hover { color: var(--text); }
+  .stats-grid { display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+                gap: 6px; }
+  .stats-grid .stat-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border); border-radius: 4px;
+    padding: 6px 10px; overflow: hidden;
+    font-variant-numeric: tabular-nums;
+  }
+  .stats-grid .stat-card.wide { grid-column: span 2; }
+  .stats-grid .stat-label { font-size: 9px; color: var(--muted);
+                            text-transform: uppercase; letter-spacing: 0.6px; }
+  .stats-grid .stat-val { font-size: 14px; margin-top: 2px;
+                          white-space: nowrap; overflow: hidden;
+                          text-overflow: ellipsis; }
+  .stats-grid .stat-val.stat-ok { color: #4ade80; }
+  .stats-grid .stat-val.stat-bad { color: #ef4444; }
+  #stats-sparkline { display: block; width: 100%; height: 80px;
+                     background: rgba(255, 255, 255, 0.03);
+                     border: 1px solid var(--border); border-radius: 4px;
+                     padding: 0; color: var(--muted); }
+  #stats-sparkline svg { display: block; width: 100%; height: 100%; }
+  #stats-heatmap { display: block; width: 100%;
+                   background: rgba(255, 255, 255, 0.03);
+                   border: 1px solid var(--border); border-radius: 4px;
+                   padding: 6px 8px; color: var(--text); }
+  #stats-heatmap svg { display: block; width: 100%; height: auto; }
+  #stats-heatmap .heatmap-empty {
+    text-align: center; font-size: 11px; color: var(--muted);
+    padding: 20px 0; font-style: italic;
+  }
+  #stats-polar-heatmap { display: block; width: 100%;
+                         background: rgba(255, 255, 255, 0.03);
+                         border: 1px solid var(--border); border-radius: 4px;
+                         padding: 8px; color: var(--text); }
+  #stats-polar-heatmap svg { display: block; width: 100%; height: auto;
+                             max-width: 360px; margin: 0 auto; }
+  #stats-polar-heatmap .heatmap-empty {
+    text-align: center; font-size: 11px; color: var(--muted);
+    padding: 20px 0; font-style: italic;
+  }
+
+  /* Watchlist dialog — same modal shell as about/stats, with a
+     dedicated list of entries + add-by-hex row. */
+  #watchlist-dialog { max-width: 480px; width: 90vw;
+                      border: 1px solid var(--border); border-radius: 6px;
+                      background: var(--panel); color: var(--text);
+                      padding: 20px 24px 24px;
+                      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+                      font-size: 13px; line-height: 1.45; }
+  #watchlist-dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
+  #watchlist-dialog h2 { margin: 0 0 8px; font-size: 18px; font-weight: 600; }
+  #watchlist-dialog h3 { margin: 16px 0 6px; font-size: 11px;
+                         text-transform: uppercase; letter-spacing: 0.6px;
+                         color: var(--muted); font-weight: 600; }
+  #watchlist-dialog p { margin: 0 0 8px; color: var(--muted); }
+  #watchlist-dialog .about-close-form { margin: 0; padding: 0; display: flex;
+                                        justify-content: flex-end; }
+  #watchlist-dialog .about-close { background: transparent; border: 0;
+                                   color: var(--muted); cursor: pointer;
+                                   padding: 2px 4px; margin: -6px -8px 0 0;
+                                   display: inline-flex; align-items: center;
+                                   justify-content: center; }
+  #watchlist-dialog .about-close svg { display: block; }
+  #watchlist-dialog .about-close:hover { color: var(--text); }
+  .watchlist-count { color: var(--muted); font-weight: 400;
+                     text-transform: none; letter-spacing: 0; }
+  .watchlist-notify-row { display: flex; align-items: center; gap: 8px;
+                          margin: 4px 0 0; cursor: pointer; color: var(--text); }
+  .watchlist-notify-row input { accent-color: var(--accent); }
+  .watchlist-add-form { display: flex; gap: 6px; margin: 0 0 4px; }
+  .watchlist-add-form input[type="text"] {
+    flex: 1; padding: 5px 8px; font-family: ui-monospace, monospace;
+    font-size: 12px; letter-spacing: 1px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 3px;
+  }
+  .watchlist-add-form input:focus { outline: none; border-color: var(--accent); }
+  .watchlist-add-form button { padding: 5px 12px; font-size: 12px;
+                               font-family: inherit; cursor: pointer;
+                               background: var(--accent); color: #fff;
+                               border: 0; border-radius: 3px; }
+  .watchlist-add-form button:hover { background: #1d4ed8; }
+  .watchlist-error { color: #fca5a5; font-size: 11px; margin: 2px 0 0; }
+  .watchlist-entries { list-style: none; margin: 0; padding: 0;
+                       max-height: 320px; overflow-y: auto; }
+  .watchlist-entry { display: grid;
+                     grid-template-columns: 10px auto 1fr auto auto;
+                     gap: 8px; align-items: center;
+                     padding: 7px 4px; border-bottom: 1px solid var(--border);
+                     font-size: 12px; }
+  .watchlist-entry:last-child { border-bottom: 0; }
+  .watchlist-entry.in-range { cursor: pointer; }
+  .watchlist-entry.in-range:hover { background: #1d222b; }
+  .wl-range { width: 8px; height: 8px; border-radius: 50%;
+              background: var(--border); }
+  .wl-range.wl-range-on { background: #4ade80;
+                          box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.25); }
+  .wl-icao { font-family: ui-monospace, monospace; font-weight: 600;
+             font-size: 12px; color: var(--text); letter-spacing: 0.5px; }
+  .wl-label { color: var(--muted); white-space: nowrap; overflow: hidden;
+              text-overflow: ellipsis; }
+  .wl-last-seen { font-size: 10px; color: var(--muted);
+                  font-variant-numeric: tabular-nums;
+                  white-space: nowrap; letter-spacing: 0.3px; }
+  .wl-last-seen.wl-live { color: #6ee7b7; font-weight: 600;
+                          text-transform: uppercase; }
+  .wl-last-seen.wl-last-seen-none { color: rgba(138, 148, 163, 0.6); }
+  .wl-remove { background: transparent; border: 0;
+               color: var(--muted); font-size: 18px; line-height: 1;
+               cursor: pointer; padding: 2px 6px; border-radius: 3px; }
+  .wl-remove:hover { color: #fca5a5; background: rgba(248, 113, 113, 0.12); }
+
+  /* Alerts dialog — notification-channel CRUD. Same modal shell as
+     about/stats/watchlist; per-channel sections stack vertically, each
+     with name/fields/toggles/Test row. */
+  #alerts-dialog { max-width: 560px; width: 90vw;
+                   border: 1px solid var(--border); border-radius: 6px;
+                   background: var(--panel); color: var(--text);
+                   padding: 20px 24px 24px;
+                   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+                   font-size: 13px; line-height: 1.45; }
+  #alerts-dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
+  #alerts-dialog h2 { margin: 0 0 8px; font-size: 18px; font-weight: 600; }
+  #alerts-dialog h3 { margin: 16px 0 6px; font-size: 11px;
+                      text-transform: uppercase; letter-spacing: 0.6px;
+                      color: var(--muted); font-weight: 600; }
+  #alerts-dialog p { margin: 0 0 8px; color: var(--muted); }
+  #alerts-dialog .about-close-form { margin: 0; padding: 0; display: flex;
+                                     justify-content: flex-end; }
+  #alerts-dialog .about-close { background: transparent; border: 0;
+                                color: var(--muted); cursor: pointer;
+                                padding: 2px 4px; margin: -6px -8px 0 0;
+                                display: inline-flex; align-items: center;
+                                justify-content: center; }
+  #alerts-dialog .about-close svg { display: block; }
+  #alerts-dialog .about-close:hover { color: var(--text); }
+  .alerts-section { margin-bottom: 10px; }
+  .alerts-entry { background: rgba(255, 255, 255, 0.03);
+                  border: 1px solid var(--border); border-radius: 4px;
+                  padding: 10px 12px; margin-bottom: 8px; }
+  .alerts-entry.disabled { opacity: 0.55; }
+  .alerts-entry-head { display: flex; gap: 8px; align-items: center;
+                       margin-bottom: 6px; }
+  .alerts-name { flex: 1; font-size: 13px; font-weight: 600;
+                 background: var(--bg); color: var(--text);
+                 border: 1px solid var(--border); border-radius: 3px;
+                 padding: 4px 7px; font-family: inherit; }
+  .alerts-name:focus { outline: none; border-color: var(--accent); }
+  .alerts-remove { background: transparent; border: 0;
+                   color: var(--muted); font-size: 18px; line-height: 1;
+                   cursor: pointer; padding: 2px 6px; border-radius: 3px;
+                   min-width: 24px; text-align: center;
+                   transition: background 0.12s ease, color 0.12s ease; }
+  .alerts-remove:hover { color: #fca5a5; background: rgba(248, 113, 113, 0.12); }
+  /* Armed state after the first click — a red pill with a checkmark
+     prompts the user to click again to confirm. Resets after ~3.5 s
+     or when the confirmation fires. */
+  .alerts-remove.confirming {
+    background: #ef4444; color: #fff; font-size: 14px; font-weight: 700;
+  }
+  .alerts-remove.confirming:hover { background: #dc2626; color: #fff; }
+  .alerts-fields { display: grid; gap: 5px; margin-bottom: 6px; }
+  .alerts-field { display: grid;
+                  grid-template-columns: 110px 1fr;
+                  gap: 8px; align-items: center; }
+  .alerts-field-label { font-size: 11px; color: var(--muted); }
+  .alerts-field-input { position: relative; display: flex; align-items: center; }
+  .alerts-field-input input { flex: 1; font-family: ui-monospace, monospace;
+                              font-size: 12px;
+                              background: var(--bg); color: var(--text);
+                              border: 1px solid var(--border); border-radius: 3px;
+                              padding: 4px 7px; }
+  .alerts-field-input input:focus { outline: none; border-color: var(--accent); }
+  .alerts-show { position: absolute; right: 3px; background: transparent;
+                 border: 0; color: var(--muted); cursor: pointer;
+                 font-size: 13px; padding: 2px 5px; line-height: 1; }
+  .alerts-show:hover { color: var(--text); }
+  .alerts-toggles { display: flex; gap: 14px; align-items: center;
+                    font-size: 11px; color: var(--muted); flex-wrap: wrap; }
+  .alerts-toggles input[type="checkbox"] { accent-color: var(--accent);
+                                           margin-right: 4px; }
+  .alerts-toggles label { cursor: pointer; color: var(--text); }
+  .alerts-test { margin-left: auto; font-size: 11px; font-family: inherit;
+                 cursor: pointer; background: transparent;
+                 color: var(--accent); border: 1px solid var(--accent);
+                 border-radius: 3px; padding: 2px 10px; }
+  .alerts-test:hover { background: rgba(93, 168, 255, 0.12); }
+  .alerts-test:disabled { color: var(--muted); border-color: var(--border);
+                          cursor: default; background: transparent; }
+  .alerts-add-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .alerts-add { background: transparent; color: var(--muted);
+                border: 1px dashed var(--border); border-radius: 3px;
+                padding: 5px 10px; font-size: 12px; font-family: inherit;
+                cursor: pointer; }
+  .alerts-add:hover { color: var(--text); border-color: var(--accent); }

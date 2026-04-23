@@ -193,6 +193,10 @@ builder.Services.AddSingleton<RegistryWorker>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<RegistryWorker>());
 builder.Services.AddHostedService<VfrmapCycleRefresher>();
 
+// Warm the OpenAIP tile cache around the receiver at startup so the first
+// map pan doesn't stall on paginated upstream fetches.
+builder.Services.AddHostedService<OpenAipPrewarmWorker>();
+
 var blackspotsPath = !string.IsNullOrEmpty(dataDir) ? Path.Combine(dataDir, "blackspots.json.gz") : null;
 builder.Services.AddSingleton(sp => new BlackspotsWorker(
     sp.GetRequiredService<AppOptions>(),
@@ -262,10 +266,12 @@ app.UseWebSockets();
 //   1. FLIGHTJAR_STATIC_DIR env var (explicit override)
 //   2. <AppContext.BaseDirectory>/static   (image layout)
 //   3. <repo-root>/app/static              (dev + tests, walks up from bin/)
-// Mirrors Python's `RevalidatingStaticFiles`: every asset under /static/
-// sets Cache-Control: no-cache so the browser always revalidates via ETag
-// (304 when unchanged, full re-fetch on change) — essential because
-// app.js's ES-module imports don't carry content-hashed query strings.
+// Every asset under /static/ sets Cache-Control: no-cache so the browser
+// always revalidates via ETag (304 when unchanged, full re-fetch on
+// change). Top-level app.css / app.js references in index.html also get
+// content-hash ?v= query strings substituted below; their ES-module
+// imports inside app.js, and the OpenAIP/Leaflet CDN sprinkles from the
+// browser, still rely on the ETag revalidation path.
 var staticRoot = ResolveStaticRoot(options);
 if (staticRoot is not null)
 {
@@ -280,15 +286,22 @@ if (staticRoot is not null)
         },
     });
 
+    // Cache-bust the CSS/JS references in index.html by substituting the
+    // `__CSS_V__` / `__JS_V__` placeholders with short SHA-256 prefixes
+    // of the files they decorate. Computed once at startup and cached so
+    // /serve is a single memcpy. Each occurrence resolves to the hash of
+    // the *specific* file it's attached to (dialogs.css, detail_panel.css
+    // etc. each get their own hash), so changing one asset invalidates
+    // only that one's cached URL.
+    var renderedIndex = IndexHtmlRenderer.Render(staticRoot);
     app.MapGet("/", (HttpContext ctx) =>
     {
-        var indexPath = Path.Combine(staticRoot, "index.html");
-        if (!File.Exists(indexPath))
+        if (renderedIndex is null)
         {
             return Results.NotFound();
         }
         ctx.Response.Headers.CacheControl = "no-cache";
-        return Results.File(indexPath, "text/html; charset=utf-8");
+        return Results.Content(renderedIndex, "text/html; charset=utf-8");
     });
 }
 
@@ -405,46 +418,63 @@ static (double mnLat, double mxLat, double mnLon, double mxLon)? ReadBbox(
 
 static async Task<IResult> ServeOpenAip<T>(
     Func<double, double, double, double, CancellationToken, Task<IReadOnlyList<T>>> fetch,
+    string endpoint,
+    ILogger logger,
     double? min_lat, double? max_lat, double? min_lon, double? max_lon,
     CancellationToken ct)
 {
     var bbox = ReadBbox(min_lat, max_lat, min_lon, max_lon);
     if (bbox is null)
     {
+        logger.LogInformation(
+            "openaip /api/openaip/{Endpoint} rejected: bbox missing or out of range",
+            endpoint);
         return Results.BadRequest(new { error = "min_lat/max_lat/min_lon/max_lon required, in range" });
     }
     var (mnLat, mxLat, mnLon, mxLon) = bbox.Value;
     try
     {
         var items = await fetch(mnLat, mnLon, mxLat, mxLon, ct);
+        logger.LogInformation(
+            "openaip /api/openaip/{Endpoint} bbox=({MnLat:0.###},{MnLon:0.###})-({MxLat:0.###},{MxLon:0.###}) → {Count} items",
+            endpoint, mnLat, mnLon, mxLat, mxLon, items.Count);
         return Results.Json(items);
     }
-    catch (OperationCanceledException) when (ct.IsCancellationRequested)
+    catch (OperationCanceledException)
     {
-        // Client bailed (typical — map pan aborted the previous fetch).
-        // Returning Results.Empty here is harmless; Kestrel won't write
-        // back to a disconnected socket.
+        // OCE here covers two cases. The usual one is our own `ct` firing
+        // — the map pan aborted this request, Kestrel won't be able to
+        // write the response anyway. The less-obvious one: OpenAipClient
+        // shares an in-flight fetch across concurrent callers via
+        // `inflight.GetOrAdd`, so if a *sibling* request's ct cancelled
+        // the fetch task, we inherit its OCE even though our own ct is
+        // fine. In both cases the client will re-request on the next
+        // moveend, so returning Empty is the right recovery — and it
+        // keeps Kestrel's error log from filling with benign noise.
         return Results.Empty;
     }
 }
 
 app.MapGet("/api/openaip/airspaces", (
     [Microsoft.AspNetCore.Mvc.FromServices] OpenAipClient client,
+    [Microsoft.AspNetCore.Mvc.FromServices] ILogger<OpenAipClient> logger,
     double? min_lat, double? max_lat, double? min_lon, double? max_lon,
     CancellationToken ct) =>
-    ServeOpenAip<Airspace>(client.GetAirspacesAsync, min_lat, max_lat, min_lon, max_lon, ct));
+    ServeOpenAip<Airspace>(client.GetAirspacesAsync, "airspaces", logger, min_lat, max_lat, min_lon, max_lon, ct));
 
 app.MapGet("/api/openaip/obstacles", (
     [Microsoft.AspNetCore.Mvc.FromServices] OpenAipClient client,
+    [Microsoft.AspNetCore.Mvc.FromServices] ILogger<OpenAipClient> logger,
     double? min_lat, double? max_lat, double? min_lon, double? max_lon,
     CancellationToken ct) =>
-    ServeOpenAip<Obstacle>(client.GetObstaclesAsync, min_lat, max_lat, min_lon, max_lon, ct));
+    ServeOpenAip<Obstacle>(client.GetObstaclesAsync, "obstacles", logger, min_lat, max_lat, min_lon, max_lon, ct));
 
 app.MapGet("/api/openaip/reporting_points", (
     [Microsoft.AspNetCore.Mvc.FromServices] OpenAipClient client,
+    [Microsoft.AspNetCore.Mvc.FromServices] ILogger<OpenAipClient> logger,
     double? min_lat, double? max_lat, double? min_lon, double? max_lon,
     CancellationToken ct) =>
-    ServeOpenAip<ReportingPoint>(client.GetReportingPointsAsync, min_lat, max_lat, min_lon, max_lon, ct));
+    ServeOpenAip<ReportingPoint>(client.GetReportingPointsAsync, "reporting_points", logger, min_lat, max_lat, min_lon, max_lon, ct));
 
 // ----- Coverage + heatmap -----
 

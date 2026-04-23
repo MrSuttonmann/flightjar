@@ -96,6 +96,7 @@ public static class AppOptionsBinder
             FlightRoutesEnabled = Bool(get, "FLIGHT_ROUTES", true),
             MetarEnabled = Bool(get, "METAR_WEATHER", true),
             OpenAipApiKey = Str(get, "OPENAIP_API_KEY", ""),
+            OpenAipPrefetchRadiusKm = FloatOptional(get, "OPENAIP_PREFETCH_RADIUS_KM") ?? 300.0,
             VfrmapChartDate = Str(get, "VFRMAP_CHART_DATE", ""),
             BlackspotsEnabled = Bool(get, "BLACKSPOTS_ENABLED", true),
             BlackspotsAntennaAglM = antennaAgl,

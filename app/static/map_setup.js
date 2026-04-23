@@ -78,6 +78,29 @@ export function initMap({ config = {}, ...overlayHandlers } = {}) {
       subdomains: 'abc', maxZoom: 17,
     }),
   };
+  // OpenAIP's aeronautical tiles are a semi-transparent chart layer — on
+  // their own there's no ground reference, so the Aeronautical base
+  // layer is a composite of OSM underneath + OpenAIP on top. Only
+  // offered when an API key is configured; otherwise the user gets a
+  // radio button for a layer that would just return 401s.
+  if (config.openaip_api_key) {
+    baseLayers['Aeronautical (OpenAIP)'] = L.layerGroup([
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        maxZoom: 19,
+      }),
+      L.tileLayer(
+        `https://api.tiles.openaip.net/api/data/openaip/{z}/{x}/{y}.png?apiKey=${encodeURIComponent(config.openaip_api_key)}`,
+        {
+          attribution:
+            '&copy; <a href="https://www.openaip.net/" target="_blank" rel="noopener">OpenAIP</a> (CC BY-NC-SA)',
+          maxZoom: 14,
+          minZoom: 4,
+          opacity: 0.85,
+        },
+      ),
+    ]);
+  }
   const savedBase = localStorage.getItem('flightjar.basemap');
   const defaultBaseName = savedBase && baseLayers[savedBase] ? savedBase : 'OpenStreetMap';
   baseLayers[defaultBaseName].addTo(map);
@@ -178,25 +201,9 @@ export function initMap({ config = {}, ...overlayHandlers } = {}) {
   // each entry has a `storageKey` we write on overlayadd/overlayremove.
   // An overlay with no valid config (missing key / date) is skipped so
   // the user isn't offered a toggle that would just yield broken tiles.
+  // The OpenAIP Aeronautical chart is now a base layer, not an overlay
+  // — see the `baseLayers` block above.
   const tileOverlays = [];
-  if (config.openaip_api_key) {
-    const openaipLayer = L.tileLayer(
-      `https://api.tiles.openaip.net/api/data/openaip/{z}/{x}/{y}.png?apiKey=${encodeURIComponent(config.openaip_api_key)}`,
-      {
-        attribution:
-          '&copy; <a href="https://www.openaip.net/" target="_blank" rel="noopener">OpenAIP</a> (CC BY-NC-SA)',
-        maxZoom: 14,
-        minZoom: 4,
-        opacity: 0.75,
-      },
-    );
-    tileOverlays.push({
-      label: 'Aeronautical (OpenAIP)',
-      layer: openaipLayer,
-      storageKey: 'flightjar.openaip',
-      initiallyOn: state.showOpenaip,
-    });
-  }
   if (config.vfrmap_chart_date) {
     // VFRMap tile URLs embed the 28-day FAA chart cycle date. When the
     // configured date falls off the back of vfrmap.com's retention the
@@ -264,7 +271,7 @@ export function initMap({ config = {}, ...overlayHandlers } = {}) {
   for (const o of PROXY_OVERLAYS) overlays[o.label] = o.proxy;
   for (const o of tileOverlays) overlays[o.label] = o.layer;
   overlays['Range rings'] = rangeRings;
-  L.control.layers(baseLayers, overlays, { position: 'topright' }).addTo(map);
+  const layersControl = L.control.layers(baseLayers, overlays, { position: 'topright' }).addTo(map);
 
   // Restore tile-overlay visibility from localStorage. Done after the
   // layers-control is built so its checkbox state reflects the layer.
@@ -311,6 +318,7 @@ export function initMap({ config = {}, ...overlayHandlers } = {}) {
   state.reportingProxy = reportingProxy;
   state.blackspotsProxy = blackspotsProxy;
   state.coverageProxy = coverageProxy;
+  state.layersControl = layersControl;
   state.syncOverlay = syncOverlay;
   state.buildRangeRings = buildRangeRings;
   state.renderAltLegend = renderAltLegend;
