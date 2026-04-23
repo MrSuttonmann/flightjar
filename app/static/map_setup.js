@@ -69,6 +69,14 @@ export function initMap({ config = {}, ...overlayHandlers } = {}) {
     'Satellite': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
       attribution: 'Tiles &copy; Esri', maxZoom: 19,
     }),
+    // OpenTopoMap: CC-BY-SA topographic tiles (contours + hillshade) built
+    // from OSM vector data + SRTM relief. Free and keyless; community-run
+    // so can be slower than the commercial tiles above. Caps at z17 per
+    // their tile server config.
+    'Topographic': L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+      attribution: 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, SRTM · Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)',
+      subdomains: 'abc', maxZoom: 17,
+    }),
   };
   const savedBase = localStorage.getItem('flightjar.basemap');
   const defaultBaseName = savedBase && baseLayers[savedBase] ? savedBase : 'OpenStreetMap';
@@ -90,6 +98,9 @@ export function initMap({ config = {}, ...overlayHandlers } = {}) {
   const airspacesLayer = L.layerGroup();
   const obstaclesLayer = L.layerGroup();
   const reportingLayer = L.layerGroup();
+  // Terrain blackspots — precomputed grid of rectangles coloured by
+  // required antenna height. Uses the shared airports canvas renderer.
+  const blackspotsLayer = L.layerGroup();
   const RANGE_RING_SETS = {
     nautical: { values: [50, 100, 200], metersPerUnit: 1852,    suffix: ' NM' },
     imperial: { values: [50, 100, 200], metersPerUnit: 1609.344, suffix: ' mi' },
@@ -130,6 +141,7 @@ export function initMap({ config = {}, ...overlayHandlers } = {}) {
   const airspacesProxy = L.layerGroup();
   const obstaclesProxy = L.layerGroup();
   const reportingProxy = L.layerGroup();
+  const blackspotsProxy = L.layerGroup();
   const coverageProxy = L.layerGroup();
   let syncingOverlays = false;
   function syncOverlay(proxy, on) {
@@ -156,6 +168,7 @@ export function initMap({ config = {}, ...overlayHandlers } = {}) {
     { label: 'Obstacles',       proxy: obstaclesProxy, handler: 'setObstacles' },
     { label: 'Reporting points', proxy: reportingProxy, handler: 'setReporting' },
     { label: 'Polar coverage',  proxy: coverageProxy, handler: 'setCoverage' },
+    { label: 'Terrain blackspots', proxy: blackspotsProxy, handler: 'setBlackspots' },
   ];
   const proxyToHandler = new Map(PROXY_OVERLAYS.map((o) => [o.proxy, o.handler]));
 
@@ -288,6 +301,7 @@ export function initMap({ config = {}, ...overlayHandlers } = {}) {
   state.airspacesLayer = airspacesLayer;
   state.obstaclesLayer = obstaclesLayer;
   state.reportingLayer = reportingLayer;
+  state.blackspotsLayer = blackspotsLayer;
   state.labelsProxy = labelsProxy;
   state.trailsProxy = trailsProxy;
   state.airportsProxy = airportsProxy;
@@ -295,6 +309,7 @@ export function initMap({ config = {}, ...overlayHandlers } = {}) {
   state.airspacesProxy = airspacesProxy;
   state.obstaclesProxy = obstaclesProxy;
   state.reportingProxy = reportingProxy;
+  state.blackspotsProxy = blackspotsProxy;
   state.coverageProxy = coverageProxy;
   state.syncOverlay = syncOverlay;
   state.buildRangeRings = buildRangeRings;

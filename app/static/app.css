@@ -69,6 +69,56 @@
   .follow-control svg { display: block; }
   .follow-control.active { color: #fff; background: var(--accent); }
   .follow-control.active:hover { background: #1d4ed8; }
+  /* Terrain-blackspots altitude slider. Sits below the layers-control on
+     the right edge of the map; visible only while the overlay is active.
+     Vertical orientation so altitude reads bottom-to-top. */
+  .blackspots-slider {
+    width: 60px; padding: 8px 6px 6px; background: #fff;
+    display: flex; flex-direction: column; align-items: center;
+    font-size: 11px; line-height: 1.15; color: #1f2937;
+    box-shadow: 0 1px 5px rgba(0,0,0,0.4); border-radius: 4px;
+  }
+  .blackspots-slider-title {
+    font-weight: 600; font-size: 10px; text-transform: uppercase;
+    letter-spacing: 0.04em; color: #6b7280; margin-bottom: 4px;
+    text-align: center;
+  }
+  .blackspots-slider-label {
+    font-weight: 700; font-size: 13px; color: var(--accent);
+    font-variant-numeric: tabular-nums; margin-bottom: 6px;
+  }
+  .blackspots-slider input[type="range"] {
+    -webkit-appearance: slider-vertical;
+    appearance: slider-vertical;
+    writing-mode: vertical-lr; direction: rtl;
+    width: 24px; height: 160px;
+    margin: 0;
+  }
+  .blackspots-slider-status {
+    margin-top: 6px; min-height: 16px; display: flex;
+    flex-direction: column; align-items: center;
+    justify-content: center; gap: 2px;
+  }
+  .blackspots-slider-spinner {
+    width: 14px; height: 14px; border-radius: 50%;
+    border: 2px solid #e5e7eb; border-top-color: var(--accent);
+    visibility: hidden;
+  }
+  .blackspots-slider-status.busy .blackspots-slider-spinner {
+    visibility: visible;
+    animation: blackspots-spin 0.9s linear infinite;
+  }
+  .blackspots-slider-progress {
+    font-size: 10px; font-variant-numeric: tabular-nums;
+    color: #6b7280; min-height: 12px;
+  }
+  .blackspots-slider-warning {
+    margin-top: 6px; font-size: 10px; line-height: 1.2;
+    color: #b45309; text-align: center; cursor: help;
+  }
+  @keyframes blackspots-spin {
+    to { transform: rotate(360deg); }
+  }
   .airport-icon { background: transparent !important; border: none !important; }
   .airport-dot { width: 8px; height: 8px; border-radius: 50%;
                  background: #fbbf24; border: 1.5px solid #0e1116;

@@ -20,6 +20,7 @@ using FlightJar.Notifications.Alerts;
 using FlightJar.Persistence.Notifications;
 using FlightJar.Persistence.State;
 using FlightJar.Persistence.Watchlist;
+using FlightJar.Terrain.Srtm;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -166,6 +167,14 @@ builder.Services.AddSingleton(sp => new OpenAipClient(
     openaipPath,
     apiKey: sp.GetRequiredService<AppOptions>().OpenAipApiKey));
 
+// SRTM terrain tile store (AWS Open Data — no auth). Backs the blackspots
+// worker below.
+builder.Services.AddHttpClient<SrtmTileStore>();
+builder.Services.AddSingleton(sp => new SrtmTileStore(
+    sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(SrtmTileStore)),
+    cacheDir: sp.GetRequiredService<AppOptions>().TerrainCacheDir,
+    logger: sp.GetRequiredService<ILogger<SrtmTileStore>>()));
+
 // HttpClient for the three notifier types — reused across dispatches.
 builder.Services.AddHttpClient<TelegramNotifier>();
 builder.Services.AddHttpClient<NtfyNotifier>();
@@ -183,6 +192,15 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<BeastConsumerServi
 builder.Services.AddSingleton<RegistryWorker>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<RegistryWorker>());
 builder.Services.AddHostedService<VfrmapCycleRefresher>();
+
+var blackspotsPath = !string.IsNullOrEmpty(dataDir) ? Path.Combine(dataDir, "blackspots.json.gz") : null;
+builder.Services.AddSingleton(sp => new BlackspotsWorker(
+    sp.GetRequiredService<AppOptions>(),
+    sp.GetRequiredService<SrtmTileStore>(),
+    sp.GetRequiredService<TimeProvider>(),
+    sp.GetRequiredService<ILogger<BlackspotsWorker>>(),
+    blackspotsPath));
+builder.Services.AddHostedService(sp => sp.GetRequiredService<BlackspotsWorker>());
 
 var app = builder.Build();
 
@@ -449,6 +467,63 @@ app.MapPost("/api/polar_heatmap/reset", (PolarHeatmap ph) =>
 {
     ph.Reset();
     return Results.Ok(new { ok = true });
+});
+
+// ----- Blackspots (terrain LOS) -----
+
+// Target altitude comes from the frontend slider; unset means "use the
+// default the worker prewarmed at startup" (FL100 / 3048 m MSL). Bounds
+// are wide enough for anything from surface GA to high-level airliners.
+app.MapGet("/api/blackspots", async (
+    BlackspotsWorker worker, double? target_alt_m, CancellationToken ct) =>
+{
+    if (!worker.Enabled)
+    {
+        return Results.Json(new { enabled = false, cells = Array.Empty<object>() });
+    }
+    var alt = target_alt_m ?? BlackspotsWorker.DefaultTargetAltitudeM;
+    if (alt <= 0 || alt > 20_000)
+    {
+        return Results.BadRequest(new { error = "target_alt_m out of range (0, 20000]" });
+    }
+    try
+    {
+        var grid = await worker.GetOrComputeAsync(alt, ct);
+        if (grid is null)
+        {
+            return Results.Json(new { enabled = true, computing = true, cells = Array.Empty<object>() });
+        }
+        return Results.Json(grid.SnapshotView());
+    }
+    catch (OperationCanceledException) when (ct.IsCancellationRequested)
+    {
+        return Results.Empty;
+    }
+});
+
+app.MapPost("/api/blackspots/recompute", (BlackspotsWorker worker) =>
+{
+    if (!worker.Enabled)
+    {
+        return Results.Json(new { enabled = false });
+    }
+    worker.TriggerRecompute();
+    return Results.Ok(new { ok = true });
+});
+
+// Live progress poll for the currently-running compute at a given altitude.
+// Designed to be hit every ~300 ms by the frontend while awaiting a fresh
+// grid; returns {active: false} when the altitude is cached / queued /
+// disabled so the caller can stop polling.
+app.MapGet("/api/blackspots/progress", (BlackspotsWorker worker, double? target_alt_m) =>
+{
+    if (!worker.Enabled)
+    {
+        return Results.Json(new { active = false });
+    }
+    var alt = target_alt_m ?? BlackspotsWorker.DefaultTargetAltitudeM;
+    var (active, progress) = worker.GetProgress(alt);
+    return Results.Json(new { active, progress });
 });
 
 // ----- Flight route + aircraft details (adsbdb + planespotters) -----

@@ -121,3 +121,24 @@ test('Keyboard shortcut U cycles unit systems', async ({ page }) => {
     page.locator('#unit-switch .unit-btn[data-unit="metric"]'),
   ).toHaveClass(/active/);
 });
+
+test('Terrain blackspots overlay is wired into the layers control', async ({ page }) => {
+  // The backend defaults BLACKSPOTS_ENABLED=1, but the harness doesn't
+  // set LAT_REF so the feature reports disabled. Regardless, the layer
+  // entry must appear in the layers-control menu — its absence would
+  // mean the frontend module never loaded.
+  const layersControl = page.locator('.leaflet-control-layers');
+  await layersControl.hover();
+  await expect(page.locator('.leaflet-control-layers-overlays label'))
+    .toContainText(['Terrain blackspots']);
+});
+
+test('/api/blackspots endpoint responds', async ({ request }) => {
+  const r = await request.get('/api/blackspots');
+  expect(r.ok()).toBeTruthy();
+  const body = await r.json();
+  // Feature disabled (no LAT_REF set in harness), so shape is
+  // {enabled:false, cells:[]}.
+  expect(body.enabled).toBe(false);
+  expect(Array.isArray(body.cells)).toBe(true);
+});

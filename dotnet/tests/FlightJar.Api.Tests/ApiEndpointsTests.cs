@@ -122,4 +122,29 @@ public class ApiEndpointsTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.Equal(JsonValueKind.Array, doc.RootElement.ValueKind);
         Assert.Equal(0, doc.RootElement.GetArrayLength());
     }
+
+    [Fact]
+    public async Task Blackspots_Disabled_WhenLatRefNotSet()
+    {
+        // Test harness leaves LAT_REF / LON_REF unset, so the feature is
+        // disabled and the endpoint reports it (rather than 500-ing).
+        var client = _factory.CreateClient();
+        var resp = await client.GetAsync("/api/blackspots");
+        resp.EnsureSuccessStatusCode();
+        var body = await resp.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(body);
+        Assert.False(doc.RootElement.GetProperty("enabled").GetBoolean());
+        Assert.Equal(JsonValueKind.Array, doc.RootElement.GetProperty("cells").ValueKind);
+    }
+
+    [Fact]
+    public async Task Blackspots_Recompute_NoopWhenDisabled()
+    {
+        var client = _factory.CreateClient();
+        var resp = await client.PostAsync("/api/blackspots/recompute", content: null);
+        resp.EnsureSuccessStatusCode();
+        var body = await resp.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(body);
+        Assert.False(doc.RootElement.GetProperty("enabled").GetBoolean());
+    }
 }

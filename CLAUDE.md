@@ -38,6 +38,7 @@ dotnet/                 # Backend solution
     FlightJar.Clients/          # Typed HTTP clients: adsbdb, planespotters, metar, vfrmap, openaip
     FlightJar.Notifications/    # INotifier + Telegram/Ntfy/Webhook + dispatcher + AlertWatcher
     FlightJar.Persistence/      # Gzipped JSON state, watchlist, notifications config
+    FlightJar.Terrain/          # SRTM tile store + line-of-sight solver (no framework deps)
   tests/
     FlightJar.Api.Tests/        # WebApplicationFactory integration + BEAST-replay E2E
     FlightJar.Core.Tests/
@@ -45,6 +46,7 @@ dotnet/                 # Backend solution
     FlightJar.Clients.Tests/
     FlightJar.Notifications.Tests/
     FlightJar.Persistence.Tests/
+    FlightJar.Terrain.Tests/
   FlightJar.slnx              # Solution (slnx format)
   Directory.Build.props       # Shared compiler settings
   global.json                 # SDK pin
@@ -133,6 +135,15 @@ locks.
 - `GET /api/map_config` — `openaip_api_key` + VFRMap chart cycle date.
 - `GET /api/coverage` / `POST /api/coverage/reset` — polar coverage polygon.
 - `GET /api/heatmap` / `POST /api/heatmap/reset` — weekday × hour traffic grid.
+- `GET /api/blackspots?target_alt_m=N` / `POST /api/blackspots/recompute` —
+  terrain-shadow grid + required-antenna-height per blocked cell. The
+  `target_alt_m` query param is the altitude (MSL metres) the frontend
+  slider drives, valid range (0, 20000]; omitting it uses the startup
+  default (FL100 / 3048 m). Returns `{enabled:false}` when
+  `BLACKSPOTS_ENABLED=0` or `LAT_REF`/`LON_REF` not set;
+  `{enabled:true, computing:true}` while the initial preload is running.
+  Driven by `BlackspotsWorker`, which keeps an LRU memory cache keyed on
+  altitude and persists only the default-altitude grid to disk.
 - `GET /api/watchlist` / `POST /api/watchlist` — server-side watchlist
   mirrored from the browser so alerts can fire with no tab open.
 - `GET /api/notifications/config` / `POST /api/notifications/config` /
@@ -219,6 +230,34 @@ Registry exposes two callback hooks used by `RegistryWorker`:
 - `OnNewAircraft(icao, ts)` → `TrafficHeatmap.Observe`.
 - `OnPosition(lat, lon)` → `PolarCoverage.Observe`.
 
+### Blackspots (terrain LOS)
+
+Feature enabled when `BLACKSPOTS_ENABLED` is true (default) and
+`LAT_REF`/`LON_REF` are set. Two moving parts:
+
+- **`FlightJar.Terrain`** — framework-free library with three pieces:
+  `SrtmTileKey` (skadi naming: `N52W002` etc.), `SrtmTile` (3601×3601
+  int16 big-endian samples + bilinear interp), `SrtmTileStore` (lazy
+  download from `https://elevation-tiles-prod.s3.amazonaws.com/skadi/...`,
+  persists to `/data/terrain/*.hgt.gz`; empty-file sentinel for ocean
+  tiles avoids 404 retries). `LineOfSightSolver.Solve(...)` walks the
+  great-circle path every 100 m, applies a 4/3-Earth refraction bulge,
+  and bisects on antenna MSL altitude to find the minimum that clears
+  (the caller passes a `ceilingMslM` upper bound — typically
+  `ground_elev + MAX_AGL`).
+- **`BlackspotsWorker : BackgroundService`** + **`BlackspotsGrid`** —
+  at startup, load `/data/blackspots.json.gz`; if the persisted non-
+  altitude params match live `AppOptions` (receiver coords, antenna h,
+  radius, grid deg, max AGL), seed the LRU cache with it; else recompute
+  the default altitude (`DefaultTargetAltitudeM` = FL100). SRTM tiles +
+  ground elevation are preloaded once per session and reused across
+  altitudes. `GetOrComputeAsync(altM)` is the hot path for the
+  `/api/blackspots` endpoint: serves from memory when the altitude has
+  been computed this session, else runs `BlackspotsGrid.Compute` synchron-
+  ously on a `Task.Run` thread (~1-2 s on decent hardware). Cache cap is
+  8 altitudes with standard LRU eviction; only the startup default is
+  persisted to disk.
+
 ### External-API clients
 
 All live under `FlightJar.Clients.*` and share a common pattern via
@@ -301,8 +340,13 @@ Handled in `FlightJar.Api.Configuration.AppOptionsBinder` against the
 `SITE_NAME`, `BEAST_OUTFILE`, `BEAST_ROTATE` (`none|hourly|daily`),
 `BEAST_ROTATE_KEEP`, `BEAST_STDOUT`, `BEAST_NO_DECODE`,
 `SNAPSHOT_INTERVAL`, `AIRCRAFT_DB_REFRESH_HOURS`, `FLIGHT_ROUTES`,
-`METAR_WEATHER`, `OPENAIP_API_KEY`, `VFRMAP_CHART_DATE`. The README has
-the full reference table.
+`METAR_WEATHER`, `OPENAIP_API_KEY`, `VFRMAP_CHART_DATE`,
+`BLACKSPOTS_ENABLED`, `BLACKSPOTS_ANTENNA_AGL_M`,
+`BLACKSPOTS_ANTENNA_MSL_M` (optional override; preferred when known),
+`BLACKSPOTS_RADIUS_KM`, `BLACKSPOTS_GRID_DEG`,
+`BLACKSPOTS_MAX_AGL_M`, `TERRAIN_CACHE_DIR`. Target altitude is UI-only
+(slider on the map), not env-driven. The README has the full reference
+table.
 
 Notification channels are **not** env-driven — they're user-managed via
 the Alerts dialog and persisted to `/data/notifications.json`.
@@ -335,6 +379,8 @@ throughput ceiling on CI and build boxes):
 | `notifications.json` | `NotificationsConfigStore` | UI-managed alert channels. |
 | `vfrmap_cycle.json` | `VfrmapCycle` | Auto-discovered FAA chart cycle date. |
 | `openaip.json.gz` | `OpenAipClient` | Cached OpenAIP airspaces / obstacles / reporting points per 2° bbox tile (schema v1, 7-day TTL). |
+| `blackspots.json.gz` | `BlackspotsGrid` | Precomputed terrain-shadow grid: blocked cells + required antenna height per cell (schema v1). Recomputed when receiver params change. |
+| `terrain/*.hgt.gz` | `SrtmTileStore` | SRTM1 elevation tiles downloaded on demand from AWS's public `elevation-tiles-prod` bucket (skadi layout). Zero-byte file = ocean / no-data sentinel, so we don't retry. |
 | `aircraft_db.csv.gz` | optional | Runtime override for the baked-in DB. |
 | `airports.csv` / `navaids.csv` / `airlines.dat` | optional | Runtime overrides for those DBs. |
 

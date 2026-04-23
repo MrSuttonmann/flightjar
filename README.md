@@ -216,7 +216,10 @@ for the dev loop.
   everything map-side: base tiles (OpenStreetMap, Carto Dark, Esri
   Satellite) plus the overlays — *Aircraft labels*, *Altitude trails*,
   *Airports*, *Navaids*, *Polar coverage* (your receiver's observed
-  max range per bearing), *Range rings* at 50/100/200 NM, plus
+  max range per bearing), *Terrain blackspots* (precomputed line-of-sight
+  shadow: areas where terrain or the Earth's curvature blocks the view to
+  a target altitude, with a hover tooltip showing the minimum antenna
+  height that would restore coverage), *Range rings* at 50/100/200 NM, plus
   *IFR Low (US)* / *IFR High (US)* FAA enroute charts (cycle date
   auto-discovered from vfrmap.com). When `OPENAIP_API_KEY` is set four
   additional worldwide overlays appear: *Aeronautical (OpenAIP)* (the
@@ -393,6 +396,13 @@ It shows up next to "Flightjar" in the sidebar and in the browser tab title
 | `METAR_WEATHER`       | `1`                 | Enable METAR lookups via aviationweather.gov. `0` disables.    |
 | `OPENAIP_API_KEY`     | (unset)             | Personal key from [openaip.net](https://www.openaip.net/) enabling five optional worldwide overlays: the combined **Aeronautical (OpenAIP)** raster tiles, plus interactive **Airspaces**, **Obstacles**, and **Reporting points** vector layers backed by the OpenAIP Core REST API. The key appears in browser tile URLs (for the raster layer) and is forwarded server-side (for the vector layers), so it's **not** a secret — scope it to your deployment's origin if OpenAIP supports referer restrictions. Vector-layer results are cached on disk at `/data/openaip.json.gz` (snapped to a 2° grid, 7-day TTL) so a typical session makes only a handful of upstream calls. OpenAIP is **CC BY-NC-SA**; don't use the free tier for commercial deployments. |
 | `VFRMAP_CHART_DATE`   | (unset — auto)      | Optional override pinning the [VFRMap.com](https://vfrmap.com/) IFR chart cycle to a specific `YYYYMMDD`. By default, the current cycle is discovered automatically at startup (scraped from vfrmap.com, cached to `/data/vfrmap_cycle.json`, refreshed every 6 h). Set this only for air-gapped deployments or to reproduce a bug against a historical cycle. The optional **IFR Low (US)** / **IFR High (US)** overlays are US only — they stay registered but render blank outside US airspace. |
+| `BLACKSPOTS_ENABLED`  | `1`                 | Master switch for the **Terrain blackspots** overlay — a map layer that shades areas where the radio line-of-sight to a given altitude is blocked by terrain or the Earth's curvature. Requires `LAT_REF` / `LON_REF` to be set; at startup the service downloads SRTM1 elevation tiles covering the receiver's area from the AWS Open Data `elevation-tiles-prod` bucket (cached to `/data/terrain/`, no API key required) and computes a grid of blocked cells with the minimum antenna height that would clear each one. |
+| `BLACKSPOTS_ANTENNA_AGL_M` | `5`             | Antenna tip height in metres above local ground level. Used when `BLACKSPOTS_ANTENNA_MSL_M` is not set — in that case the DEM-sampled ground elevation at the receiver + this AGL value gives the absolute antenna altitude. |
+| `BLACKSPOTS_ANTENNA_MSL_M` | (unset)         | Antenna tip height in metres MSL (absolute, above sea level). When set, takes precedence over the AGL fallback — a measured MSL value is typically more accurate than a guess at AGL + the DEM's 30 m-resolution ground estimate. Most ADS-B tools ask for MSL, so this is the preferred field to set. Target altitude itself is chosen interactively via the vertical slider on the right edge of the map when the layer is active; there's no env var for it. |
+| `BLACKSPOTS_RADIUS_KM` | `400`              | Grid radius around the receiver. Must be in (0, 1000]. |
+| `BLACKSPOTS_GRID_DEG` | `0.05`              | Cell size in degrees (≈ 5 km at UK latitudes). Smaller = finer detail + slower compute. Must be in (0, 1]. |
+| `BLACKSPOTS_MAX_AGL_M` | `100`              | Bisection ceiling when solving for required antenna height. Cells still blocked at this height are reported as "unreachable". |
+| `TERRAIN_CACHE_DIR`   | `/data/terrain`     | Directory for the downloaded SRTM tiles. |
 
 Notification channels aren't configured via env vars — they're
 managed in the **Alerts** dialog in the sidebar footer. See the

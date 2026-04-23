@@ -1,0 +1,73 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+
+import {
+  ALT_STOPS_M, DEFAULT_STOP_INDEX, bandFor, flLabel, tooltipFor,
+} from '../../app/static/blackspots_format.js';
+
+test('bandFor picks the right band by threshold', () => {
+  assert.equal(bandFor(0).fill, '#fde68a');
+  assert.equal(bandFor(20).fill, '#fde68a');
+  assert.equal(bandFor(21).fill, '#fdba74');
+  assert.equal(bandFor(50).fill, '#fdba74');
+  assert.equal(bandFor(51).fill, '#f87171');
+  assert.equal(bandFor(100).fill, '#f87171');
+  assert.equal(bandFor(101).fill, '#7c3aed');
+});
+
+test('bandFor treats null required-height as "unreachable"', () => {
+  assert.equal(bandFor(null).fill, '#7c3aed');
+});
+
+test('tooltipFor reports required MSL antenna and the AGL delta', () => {
+  // Receiver at 40 m ground + 10 m AGL antenna = 50 m MSL. Required 82 m MSL.
+  const cell = { lat: 51.5, lon: -0.1, required_antenna_msl_m: 82.4 };
+  const params = {
+    target_altitude_m: 3048, antenna_msl_m: 50, ground_elevation_m: 40, max_agl_m: 100,
+  };
+  const tip = tooltipFor(cell, params);
+  assert.match(tip, /Blind spot/);
+  assert.match(tip, /FL100/);
+  assert.match(tip, /≥ 82 m MSL/);
+  assert.match(tip, /\+32 m/);
+  assert.match(tip, /50 m MSL \(10 m AGL\)/);
+});
+
+test('tooltipFor describes unreachable cells with the absolute ceiling', () => {
+  const cell = { lat: 51.5, lon: -0.1, required_antenna_msl_m: null };
+  const params = {
+    target_altitude_m: 3048, antenna_msl_m: 50, ground_elevation_m: 40, max_agl_m: 100,
+  };
+  const tip = tooltipFor(cell, params);
+  assert.match(tip, /Unreachable/);
+  assert.match(tip, /FL100/);
+  // Ceiling is ground + max_agl = 40 + 100 = 140 m MSL.
+  assert.match(tip, /≤ 140 m MSL/);
+});
+
+test('tooltipFor handles non-FL100 altitudes', () => {
+  // 5000 m MSL ≈ 16404 ft ≈ FL164
+  const cell = { lat: 51.5, lon: -0.1, required_antenna_msl_m: 10 };
+  const params = {
+    target_altitude_m: 5000, antenna_msl_m: 5, ground_elevation_m: 0, max_agl_m: 100,
+  };
+  const tip = tooltipFor(cell, params);
+  assert.match(tip, /FL164/);
+});
+
+test('flLabel renders metres as a zero-padded flight level', () => {
+  assert.equal(flLabel(914), 'FL030');
+  assert.equal(flLabel(3048), 'FL100');
+  assert.equal(flLabel(12192), 'FL400');
+});
+
+test('ALT_STOPS_M default index maps to FL100', () => {
+  assert.equal(flLabel(ALT_STOPS_M[DEFAULT_STOP_INDEX]), 'FL100');
+});
+
+test('ALT_STOPS_M is strictly increasing', () => {
+  for (let i = 1; i < ALT_STOPS_M.length; i++) {
+    assert.ok(ALT_STOPS_M[i] > ALT_STOPS_M[i - 1],
+      `stop ${i} (${ALT_STOPS_M[i]}) should exceed stop ${i - 1} (${ALT_STOPS_M[i - 1]})`);
+  }
+});

@@ -32,4 +32,21 @@ public sealed record AppOptions
 
     public string OpenAipApiKey { get; init; } = "";
     public string VfrmapChartDate { get; init; } = "";
+
+    public bool BlackspotsEnabled { get; init; } = true;
+
+    /// <summary>Antenna tip height in metres above local ground level. Used when
+    /// <see cref="BlackspotsAntennaMslM"/> is not provided.</summary>
+    public double BlackspotsAntennaAglM { get; init; } = 5.0;
+
+    /// <summary>Antenna tip height in metres MSL. When set, takes precedence
+    /// over <see cref="BlackspotsAntennaAglM"/> — a measured MSL value is
+    /// typically more accurate than guessing at AGL + the DEM's 30 m-resolution
+    /// ground estimate. Null = fall back to AGL.</summary>
+    public double? BlackspotsAntennaMslM { get; init; }
+
+    public double BlackspotsRadiusKm { get; init; } = 400.0;
+    public double BlackspotsGridDeg { get; init; } = 0.05;
+    public double BlackspotsMaxAglM { get; init; } = 100.0;
+    public string TerrainCacheDir { get; init; } = "/data/terrain";
 }

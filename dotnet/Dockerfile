@@ -27,6 +27,7 @@ COPY dotnet/src/FlightJar.Decoder/FlightJar.Decoder.csproj src/FlightJar.Decoder
 COPY dotnet/src/FlightJar.Clients/FlightJar.Clients.csproj src/FlightJar.Clients/
 COPY dotnet/src/FlightJar.Notifications/FlightJar.Notifications.csproj src/FlightJar.Notifications/
 COPY dotnet/src/FlightJar.Persistence/FlightJar.Persistence.csproj src/FlightJar.Persistence/
+COPY dotnet/src/FlightJar.Terrain/FlightJar.Terrain.csproj src/FlightJar.Terrain/
 RUN dotnet restore src/FlightJar.Api/FlightJar.Api.csproj
 
 COPY dotnet/src ./src
