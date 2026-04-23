@@ -11,20 +11,28 @@ function labelText(a) {
 }
 
 export function updateLabelFor(entry) {
-  const text = labelText(entry.data);
   if (state.showLabels) {
+    const text = labelText(entry.data);
     if (entry.label) {
-      entry.marker.setTooltipContent(text);
+      // setTooltipContent re-renders the tooltip DOM, so skip it when
+      // the text (callsign or icao fallback) hasn't actually changed —
+      // which is every tick for virtually every aircraft.
+      if (entry.labelText !== text) {
+        entry.marker.setTooltipContent(text);
+        entry.labelText = text;
+      }
     } else {
       entry.marker.bindTooltip(text, {
         permanent: true, direction: 'right', offset: [10, 0],
         className: 'plane-label',
       });
       entry.label = true;
+      entry.labelText = text;
     }
   } else if (entry.label) {
     entry.marker.unbindTooltip();
     entry.label = false;
+    entry.labelText = null;
   }
 }
 

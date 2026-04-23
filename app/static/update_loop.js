@@ -80,8 +80,12 @@ export function update(snap) {
     // Icon fingerprint deliberately excludes `track` — see the
     // track-only branch below for why. Building the SVG is the
     // expensive step, so we defer it until we know setIcon will
-    // actually be called.
-    const iconFp = `${color}|${isSelected ? 1 : 0}|${a.emergency ? 1 : 0}|${a.type_icao || ''}`;
+    // actually be called. Quantize altitude to 500 ft bands so the
+    // continuous altColor ramp doesn't force a setIcon() every tick
+    // for every climbing / descending plane — paint still uses the
+    // exact altColor when we do rebuild.
+    const altBand = a.altitude == null ? 'n' : Math.round(a.altitude / 500);
+    const iconFp = `${altBand}|${isSelected ? 1 : 0}|${a.emergency ? 1 : 0}|${a.type_icao || ''}`;
     let entry = state.aircraft.get(a.icao);
     if (!entry) {
       const icon = planeIcon(a.track, color, isSelected, !!a.emergency, a.type_icao);
