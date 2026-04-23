@@ -64,6 +64,29 @@ RUN echo "data fetch ${DATA_CACHEBUST}" \
  && TAR1090_SHAPES_DEST=/out/static/tar1090_shapes.js \
     python3 /tmp/fetch_plane_shapes.py
 
+# esbuild is a standalone Go binary; we pull it straight from npm's
+# registry (no Node runtime required) to minify the static JS + CSS at
+# build time. Version-pinned for reproducible output. Runs AFTER the
+# tar1090 shapes fetcher so the generated bundle is minified too.
+# Tests + local `dotnet run` work against the unminified source tree,
+# so this is strictly a runtime-image optimisation. IndexHtmlRenderer
+# re-hashes the minified content at startup so browsers pick it up.
+ARG ESBUILD_VERSION=0.24.0
+RUN python3 -c "import platform, urllib.request, tarfile, shutil, os; \
+arch={'x86_64':'x64','amd64':'x64','aarch64':'arm64','arm64':'arm64'}[platform.machine()]; \
+url=f'https://registry.npmjs.org/@esbuild/linux-{arch}/-/linux-{arch}-${ESBUILD_VERSION}.tgz'; \
+urllib.request.urlretrieve(url, '/tmp/esbuild.tgz'); \
+tarfile.open('/tmp/esbuild.tgz').extractall('/tmp/esbuild'); \
+shutil.move('/tmp/esbuild/package/bin/esbuild', '/usr/local/bin/esbuild'); \
+os.chmod('/usr/local/bin/esbuild', 0o755)"
+RUN set -eu; \
+    for f in /out/static/*.js; do \
+      esbuild --minify --target=es2020 --allow-overwrite --outfile="$f" "$f"; \
+    done; \
+    for f in /out/static/*.css; do \
+      esbuild --minify --allow-overwrite --outfile="$f" "$f"; \
+    done
+
 
 # ---- runtime ----
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime

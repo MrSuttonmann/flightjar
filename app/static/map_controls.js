@@ -12,6 +12,7 @@ import { lucide } from './icons_lib.js';
 import { getUnitSystem, setUnitSystem, uconv } from './units.js';
 import { initBlackspotsOverlay } from './blackspots.js';
 import { initOpenaipOverlays } from './openaip.js';
+import { iconForAirport, iconForNavaid } from './point_icons.js';
 import { renderSidebar } from './sidebar.js';
 import { state } from './state.js';
 import { updatePopupContent } from './detail_panel.js';
@@ -64,12 +65,7 @@ function refreshAirports() {
       if (!state.showAirports) return;
       state.airportsLayer.clearLayers();
       for (const a of rows) {
-        const m = L.circleMarker([a.lat, a.lon], {
-          renderer: state.airportsCanvas,
-          radius: a.type === 'large_airport' ? 4 : a.type === 'medium_airport' ? 3 : 2,
-          color: '#0e1116', weight: 1,
-          fillColor: '#fbbf24', fillOpacity: 0.9,
-        });
+        const m = L.marker([a.lat, a.lon], { icon: iconForAirport(a), keyboard: false });
         m.bindTooltip(`${escapeHtml(a.name)} (${escapeHtml(a.icao)})`,
           { direction: 'top', sticky: true });
         m.addTo(state.airportsLayer);
@@ -102,20 +98,6 @@ export function setAirports(value) {
 
 // ---- navaids overlay ----
 
-// Colour + radius per navaid type. VOR family gets the most visual weight
-// (biggest, green) because they anchor airways; DME/TACAN and NDBs are
-// secondary. Any unknown type falls through to the default.
-const NAVAID_STYLE = {
-  VORTAC:    { color: '#16a34a', radius: 4 },
-  'VOR-DME': { color: '#16a34a', radius: 4 },
-  VOR:       { color: '#16a34a', radius: 4 },
-  DME:       { color: '#3b82f6', radius: 3 },
-  TACAN:     { color: '#3b82f6', radius: 3 },
-  'NDB-DME': { color: '#f97316', radius: 3 },
-  NDB:       { color: '#f97316', radius: 3 },
-};
-const NAVAID_STYLE_DEFAULT = { color: '#9ca3af', radius: 2 };
-
 function formatNavaidFrequency(khz, type) {
   if (khz == null) return '';
   // VOR/DME/TACAN broadcast in MHz; NDBs in kHz. The CSV stores everything
@@ -144,13 +126,7 @@ function refreshNavaids() {
       if (!state.showNavaids) return;
       state.navaidsLayer.clearLayers();
       for (const n of rows) {
-        const style = NAVAID_STYLE[n.type] || NAVAID_STYLE_DEFAULT;
-        const m = L.circleMarker([n.lat, n.lon], {
-          renderer: state.airportsCanvas,
-          radius: style.radius,
-          color: '#0e1116', weight: 1,
-          fillColor: style.color, fillOpacity: 0.9,
-        });
+        const m = L.marker([n.lat, n.lon], { icon: iconForNavaid(n), keyboard: false });
         const freq = formatNavaidFrequency(n.frequency_khz, n.type);
         const tip = `<b>${escapeHtml(n.ident)}</b> · ${escapeHtml(n.type)}`
           + (freq ? ` · ${escapeHtml(freq)}` : '')
@@ -390,6 +366,22 @@ export function initMapControls() {
     },
   });
   state.map.addControl(new HomeControl());
+
+  // Map-key control — opens the legend dialog. Lives in the top-right
+  // alongside Follow so it's reachable in compact mode (the sidebar
+  // footer is hidden there, so a sidebar button wouldn't be).
+  const MapKeyControl = makeIconControl({
+    className: 'map-key-control',
+    title: 'Map key',
+    iconHtml: lucide('list', { size: 16, strokeWidth: 1.8 }),
+    onClick: () => {
+      const dialog = document.getElementById('map-key-dialog');
+      if (!dialog) return;
+      if (typeof dialog.showModal === 'function') dialog.showModal();
+      else dialog.setAttribute('open', '');
+    },
+  });
+  state.map.addControl(new MapKeyControl());
 
   // Filters panel — collapsed by default on narrow viewports.
   const narrowMQ = window.matchMedia('(max-width: 600px)');

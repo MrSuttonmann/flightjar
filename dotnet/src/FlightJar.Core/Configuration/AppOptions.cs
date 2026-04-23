@@ -31,6 +31,13 @@ public sealed record AppOptions
     public bool MetarEnabled { get; init; } = true;
 
     public string OpenAipApiKey { get; init; } = "";
+
+    /// <summary>Radius (km) around the receiver to pre-fetch OpenAIP tiles at
+    /// startup. Fills the on-disk cache so the first map pan doesn't stall
+    /// on upstream HTTP + pagination. Set to 0 to disable prewarming and
+    /// fetch entirely on demand.</summary>
+    public double OpenAipPrefetchRadiusKm { get; init; } = 300.0;
+
     public string VfrmapChartDate { get; init; } = "";
 
     public bool BlackspotsEnabled { get; init; } = true;

@@ -27,7 +27,10 @@ public sealed class OpenAipClient : IAsyncDisposable
 {
     public const string BaseUrl = "https://api.core.openaip.net/api";
     public const string ApiKeyHeader = "x-openaip-api-key";
-    public const int CacheSchemaVersion = 1;
+    // v2: BboxKey changed from (MinLat, MinLon, MaxLat, MaxLon) snapped
+    // outer bbox to single 2° tile (MinLat, MinLon). On-disk v1 data is
+    // discarded by LoadCacheAsync's version check.
+    public const int CacheSchemaVersion = 2;
     public const int PageSize = 500;
     public const int MaxPagesPerRequest = 8;
 
@@ -119,33 +122,53 @@ public sealed class OpenAipClient : IAsyncDisposable
     {
         if (!Enabled)
         {
+            _logger.LogInformation(
+                "openaip {Endpoint} skipped — OPENAIP_API_KEY not set", endpoint);
             return Array.Empty<T>();
         }
-        var key = BboxKey.Snap(minLat, minLon, maxLat, maxLon);
         var now = _time.GetUtcNow();
-        if (cache.TryGetValue(key, out var entry) && entry.IsFresh(now))
+        var tiles = BboxKey.TilesForBbox(minLat, minLon, maxLat, maxLon).ToList();
+        var accumulated = new List<T>();
+        int hits = 0, fetched = 0, stale = 0;
+
+        foreach (var tile in tiles)
         {
-            // Still filter to exact bbox — the snapped bbox is wider.
-            return Filter(entry.Data?.Items ?? Array.Empty<T>(), minLat, minLon, maxLat, maxLon);
+            if (ct.IsCancellationRequested) break;
+            IReadOnlyList<T> tileItems;
+            if (cache.TryGetValue(tile, out var entry) && entry.IsFresh(now))
+            {
+                tileItems = entry.Data?.Items ?? Array.Empty<T>();
+                hits++;
+            }
+            else if (_throttle.IsInCooldown(now))
+            {
+                // Throttle in cooldown: serve whatever stale entry we have
+                // for this tile (possibly empty) rather than blocking.
+                tileItems = entry?.Data?.Items ?? Array.Empty<T>();
+                stale++;
+            }
+            else
+            {
+                // Share in-flight fetches across concurrent callers that
+                // want the same tile. OCE propagation still applies — the
+                // ServeOpenAip handler swallows it uniformly.
+                var task = inflight.GetOrAdd(tile,
+                    k => FetchTileAsync(k, endpoint, cache, parseItem, ct));
+                try { tileItems = await task; }
+                finally { inflight.TryRemove(tile, out _); }
+                fetched++;
+            }
+            accumulated.AddRange(tileItems);
         }
-        if (_throttle.IsInCooldown(now))
-        {
-            return Filter(entry?.Data?.Items ?? Array.Empty<T>(), minLat, minLon, maxLat, maxLon);
-        }
-        var task = inflight.GetOrAdd(key,
-            k => FetchAndCacheAsync(k, endpoint, cache, parseItem, ct));
-        try
-        {
-            var all = await task;
-            return Filter(all, minLat, minLon, maxLat, maxLon);
-        }
-        finally
-        {
-            inflight.TryRemove(key, out _);
-        }
+
+        var filtered = Filter(accumulated, minLat, minLon, maxLat, maxLon);
+        _logger.LogInformation(
+            "openaip {Endpoint} {Tiles} tiles ({Hits} hit, {Fetched} fetched, {Stale} stale), {Total} items, {Filtered} in bbox",
+            endpoint, tiles.Count, hits, fetched, stale, accumulated.Count, filtered.Count);
+        return filtered;
     }
 
-    private async Task<IReadOnlyList<T>> FetchAndCacheAsync<T, TList>(
+    private async Task<IReadOnlyList<T>> FetchTileAsync<T, TList>(
         BboxKey key,
         string endpoint,
         ConcurrentDictionary<BboxKey, CacheEntry<TList>> cache,
@@ -155,6 +178,7 @@ public sealed class OpenAipClient : IAsyncDisposable
     {
         var items = new List<T>();
         bool fetched = false;
+        bool partial = false;
         CacheEntry<TList>? existing = cache.TryGetValue(key, out var e) ? e : null;
         try
         {
@@ -164,9 +188,12 @@ public sealed class OpenAipClient : IAsyncDisposable
                 var now = _time.GetUtcNow();
                 if (_throttle.IsInCooldown(now))
                 {
+                    partial = true;
                     break;
                 }
                 var url = BuildUrl(endpoint, key, page);
+                _logger.LogInformation(
+                    "openaip GET {Endpoint} page {Page} for {Key}", endpoint, page, key);
                 using var req = new HttpRequestMessage(HttpMethod.Get, url);
                 if (_apiKey is not null)
                 {
@@ -180,14 +207,16 @@ public sealed class OpenAipClient : IAsyncDisposable
                     _logger.LogWarning(
                         "openaip {Endpoint} 429 — cooling down until {Until:O}",
                         endpoint, _throttle.CooldownUntil);
-                    return existing?.Data?.Items ?? Array.Empty<T>();
+                    partial = true;
+                    break;
                 }
                 if (!resp.IsSuccessStatusCode)
                 {
                     _logger.LogWarning(
                         "openaip {Endpoint} HTTP {Status} for {Key}",
                         endpoint, (int)resp.StatusCode, key);
-                    return existing?.Data?.Items ?? Array.Empty<T>();
+                    partial = true;
+                    break;
                 }
                 using var doc = await JsonDocument.ParseAsync(
                     await resp.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
@@ -215,22 +244,31 @@ public sealed class OpenAipClient : IAsyncDisposable
         catch (HttpRequestException ex)
         {
             _logger.LogWarning(ex, "openaip {Endpoint} HTTP error for {Key}", endpoint, key);
-            return existing?.Data?.Items ?? Array.Empty<T>();
+            partial = true;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogWarning(ex, "openaip {Endpoint} fetch failed for {Key}", endpoint, key);
-            return existing?.Data?.Items ?? Array.Empty<T>();
+            partial = true;
         }
 
-        if (fetched)
+        if (!fetched)
         {
-            var ttl = items.Count > 0 ? PositiveTtl : NegativeTtl;
-            var list = new TList { Items = items };
-            cache[key] = new CacheEntry<TList>(list, _time.GetUtcNow().Add(ttl));
-            Prune(cache);
-            await PersistCacheAsync(ct);
+            // Nothing parsed at all (first page failed) — serve whatever
+            // was previously cached rather than poisoning the cache with
+            // an empty result.
+            return existing?.Data?.Items ?? Array.Empty<T>();
         }
+        // Partial success: keep the items we did get, but cache short so
+        // the next call retries the missing pages rather than waiting a
+        // week for the positive TTL to expire.
+        var ttl = partial
+            ? NegativeTtl
+            : (items.Count > 0 ? PositiveTtl : NegativeTtl);
+        var list = new TList { Items = items };
+        cache[key] = new CacheEntry<TList>(list, _time.GetUtcNow().Add(ttl));
+        Prune(cache);
+        await PersistCacheAsync(ct);
         return items;
     }
 
@@ -616,36 +654,56 @@ public sealed class OpenAipClient : IAsyncDisposable
     }
 }
 
-/// <summary>Snapped bbox key. The requested bbox is widened outward to the
-/// nearest <see cref="OpenAipClient.BboxGridDegrees"/>° grid so small pans
-/// hit the same cache entry.</summary>
-public readonly record struct BboxKey(double MinLat, double MinLon, double MaxLat, double MaxLon)
+/// <summary>
+/// Cache key for a single <see cref="OpenAipClient.BboxGridDegrees"/>° tile.
+/// The earlier design used one key per snapped <em>outer</em> bbox (a
+/// request-shaped multi-tile rectangle), which turned out to miss the cache
+/// every time a user pan nudged the viewport across a tile boundary — even
+/// when every tile the new viewport touched was already cached under a
+/// different outer-bbox key. Keying by individual tile instead lets two
+/// different-shaped viewports that overlap the same tiles share cache
+/// entries.
+/// </summary>
+public readonly record struct BboxKey(double MinLat, double MinLon)
 {
-    public static BboxKey Snap(double minLat, double minLon, double maxLat, double maxLon)
+    public double MaxLat => MinLat + OpenAipClient.BboxGridDegrees;
+    public double MaxLon => MinLon + OpenAipClient.BboxGridDegrees;
+
+    /// <summary>Enumerate every tile whose 2° cell intersects the requested
+    /// bbox. Lat is clamped to world bounds; longitude wrapping across the
+    /// antimeridian is not handled — requests that straddle it are
+    /// vanishingly rare for our use case and filtered to the exact user
+    /// bbox downstream anyway.</summary>
+    public static IEnumerable<BboxKey> TilesForBbox(
+        double minLat, double minLon, double maxLat, double maxLon)
     {
         var g = OpenAipClient.BboxGridDegrees;
         static double Floor(double v, double g) => Math.Floor(v / g) * g;
         static double Ceil(double v, double g) => Math.Ceiling(v / g) * g;
-        return new BboxKey(
-            Math.Max(-90, Floor(minLat, g)),
-            Math.Max(-180, Floor(minLon, g)),
-            Math.Min(90, Ceil(maxLat, g)),
-            Math.Min(180, Ceil(maxLon, g)));
+        var startLat = Math.Max(-90, Floor(minLat, g));
+        var endLat = Math.Min(90, Ceil(maxLat, g));
+        var startLon = Floor(minLon, g);
+        var endLon = Ceil(maxLon, g);
+        for (var lat = startLat; lat < endLat; lat += g)
+        {
+            for (var lon = startLon; lon < endLon; lon += g)
+            {
+                yield return new BboxKey(lat, lon);
+            }
+        }
     }
 
     public override string ToString()
-        => FormattableString.Invariant($"{MinLat:0.###},{MinLon:0.###},{MaxLat:0.###},{MaxLon:0.###}");
+        => FormattableString.Invariant($"{MinLat:0.###},{MinLon:0.###}");
 
     public static bool TryParse(string s, out BboxKey key)
     {
         key = default;
         var parts = s.Split(',');
-        if (parts.Length != 4) return false;
+        if (parts.Length != 2) return false;
         if (!double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var minLat)) return false;
         if (!double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var minLon)) return false;
-        if (!double.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out var maxLat)) return false;
-        if (!double.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out var maxLon)) return false;
-        key = new BboxKey(minLat, minLon, maxLat, maxLon);
+        key = new BboxKey(minLat, minLon);
         return true;
     }
 }

@@ -69,6 +69,61 @@
   .follow-control svg { display: block; }
   .follow-control.active { color: #fff; background: var(--accent); }
   .follow-control.active:hover { background: #1d4ed8; }
+  /* Zoom-gated overlays (airspaces / obstacles / reporting) get their
+     layers-control row dimmed when the current map zoom is below the
+     overlay's threshold. The checkbox stays clickable so a user can
+     pre-enable the layer before zooming in. */
+  .leaflet-control-layers-overlays label.overlay-zoom-unavailable {
+    color: #9ca3af;
+    font-style: italic;
+  }
+  /* In-row loading spinner on the overlay's layers-control label while
+     an /api/openaip/* fetch is in flight. Pure CSS so it doesn't need a
+     DOM node per overlay; reuses the blackspots slider's keyframes. */
+  .leaflet-control-layers-overlays label.overlay-loading::after {
+    content: "";
+    display: inline-block;
+    width: 10px; height: 10px;
+    margin-left: 6px;
+    border: 2px solid rgba(0, 0, 0, 0.15);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: blackspots-spin 0.8s linear infinite;
+    vertical-align: -2px;
+  }
+  /* Non-aircraft point markers (airports / navaids / obstacles /
+     reporting points) are rendered as divIcon SVG glyphs. Leaflet's
+     default .leaflet-div-icon adds a white background + border we
+     don't want, so strip it. */
+  .fj-point-icon {
+    background: transparent;
+    border: none;
+  }
+  .fj-point-icon svg { display: block; overflow: visible; }
+  /* Map-key dialog — two-column grid per section, 16px glyph + label.
+     Re-uses the .about-close-form pattern for the close button so it
+     matches the other modals. */
+  #map-key-dialog { max-width: 480px; }
+  #map-key-dialog h2 { margin: 0 0 4px; font-size: 18px; }
+  #map-key-dialog h3 { margin: 14px 0 6px; font-size: 13px;
+                       text-transform: uppercase; letter-spacing: 0.04em;
+                       color: var(--muted); }
+  #map-key-dialog .map-key-section:first-of-type h3 { margin-top: 10px; }
+  .map-key-grid {
+    display: grid; grid-template-columns: 36px 1fr;
+    row-gap: 4px; column-gap: 10px; align-items: center;
+    font-size: 13px; line-height: 1.35;
+  }
+  .map-key-glyph { display: flex; align-items: center; justify-content: center; }
+  .map-key-footnote { margin-top: 16px; font-size: 12px; color: var(--muted); }
+  .map-key-control { /* map-key button — same sizing conventions as home/follow */
+    width: 26px; height: 26px; display: flex;
+    align-items: center; justify-content: center;
+    color: #333; background: #fff; cursor: pointer; text-decoration: none;
+  }
+  .leaflet-touch .map-key-control { width: 30px; height: 30px; }
+  .map-key-control:hover { background: #f4f4f4; }
+  .map-key-control svg { display: block; }
   /* Terrain-blackspots altitude slider. Sits below the layers-control on
      the right edge of the map; visible only while the overlay is active.
      Vertical orientation so altitude reads bottom-to-top. */
@@ -271,274 +326,6 @@
   #watchlist-btn:hover, #alerts-btn:hover {
     color: var(--text); background: rgba(255, 255, 255, 0.06);
   }
-  #about-dialog { max-width: 540px; width: 90vw; border: 1px solid var(--border);
-                  border-radius: 6px; background: var(--panel); color: var(--text);
-                  padding: 20px 24px 24px; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-                  font-size: 13px; line-height: 1.45; }
-  #about-dialog::backdrop { background: rgba(0,0,0,0.55); }
-  #about-dialog h2 { margin: 0 0 8px; font-size: 18px; font-weight: 600; }
-  #about-dialog h3 { margin: 16px 0 6px; font-size: 12px;
-                     text-transform: uppercase; letter-spacing: 0.5px;
-                     color: var(--muted); font-weight: 600; }
-  #about-dialog p { margin: 0 0 8px; color: var(--muted); }
-  #about-dialog a { color: var(--accent); text-decoration: none; }
-  #about-dialog a:hover { text-decoration: underline; }
-  #about-dialog .about-list { margin: 0; padding-left: 18px; }
-  #about-dialog .about-list li { margin-bottom: 4px; }
-  #about-dialog .about-close-form { margin: 0; padding: 0; display: flex;
-                                    justify-content: flex-end; }
-  #about-dialog .about-close { background: transparent; border: 0;
-                               color: var(--muted); cursor: pointer;
-                               padding: 2px 4px; margin: -6px -8px 0 0;
-                               display: inline-flex; align-items: center;
-                               justify-content: center; }
-  #about-dialog .about-close svg { display: block; }
-  #about-dialog .about-close:hover { color: var(--text); }
-  /* Version pill next to the title. Populated from /api/stats on open. */
-  .about-version {
-    font-size: 11px; font-family: ui-monospace, monospace;
-    font-weight: 500; color: var(--muted);
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid var(--border); border-radius: 10px;
-    padding: 1px 7px; margin-left: 6px;
-    vertical-align: 2px;
-  }
-  /* Github + Buy-Me-A-Coffee moved out of the footer and into the
-     About dialog header. */
-  #about-dialog .about-links {
-    display: flex; align-items: center; gap: 16px;
-    margin: 10px 0 4px;
-  }
-  #about-dialog .about-links a {
-    display: inline-flex; align-items: center; gap: 6px;
-    color: var(--muted);
-  }
-  #about-dialog .about-links a:hover { color: var(--text); text-decoration: none; }
-  #about-dialog .about-links svg {
-    width: 16px; height: 16px; fill: currentColor;
-  }
-  #about-dialog .about-links img { display: block; height: 28px; width: auto; }
-
-  /* Stats dialog — reuses the about-dialog visual shell but replaces
-     the bulleted lists with a responsive stat-card grid and a bigger
-     sparkline. Redraws live on each snapshot tick while the dialog is
-     open (see renderStats in app.js). */
-  #stats-dialog { max-width: 540px; width: 90vw;
-                  border: 1px solid var(--border); border-radius: 6px;
-                  background: var(--panel); color: var(--text);
-                  padding: 20px 24px 24px;
-                  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-                  font-size: 13px; line-height: 1.45; }
-  #stats-dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
-  #stats-dialog h2 { margin: 0 0 8px; font-size: 18px; font-weight: 600; }
-  #stats-dialog h3 { margin: 16px 0 6px; font-size: 11px;
-                     text-transform: uppercase; letter-spacing: 0.6px;
-                     color: var(--muted); font-weight: 600; }
-  #stats-dialog .about-close-form { margin: 0; padding: 0; display: flex;
-                                    justify-content: flex-end; }
-  #stats-dialog .about-close { background: transparent; border: 0;
-                               color: var(--muted); cursor: pointer;
-                               padding: 2px 4px; margin: -6px -8px 0 0;
-                               display: inline-flex; align-items: center;
-                               justify-content: center; }
-  #stats-dialog .about-close svg { display: block; }
-  #stats-dialog .about-close:hover { color: var(--text); }
-  .stats-grid { display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-                gap: 6px; }
-  .stats-grid .stat-card {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid var(--border); border-radius: 4px;
-    padding: 6px 10px; overflow: hidden;
-    font-variant-numeric: tabular-nums;
-  }
-  .stats-grid .stat-card.wide { grid-column: span 2; }
-  .stats-grid .stat-label { font-size: 9px; color: var(--muted);
-                            text-transform: uppercase; letter-spacing: 0.6px; }
-  .stats-grid .stat-val { font-size: 14px; margin-top: 2px;
-                          white-space: nowrap; overflow: hidden;
-                          text-overflow: ellipsis; }
-  .stats-grid .stat-val.stat-ok { color: #4ade80; }
-  .stats-grid .stat-val.stat-bad { color: #ef4444; }
-  #stats-sparkline { display: block; width: 100%; height: 80px;
-                     background: rgba(255, 255, 255, 0.03);
-                     border: 1px solid var(--border); border-radius: 4px;
-                     padding: 0; color: var(--muted); }
-  #stats-sparkline svg { display: block; width: 100%; height: 100%; }
-  #stats-heatmap { display: block; width: 100%;
-                   background: rgba(255, 255, 255, 0.03);
-                   border: 1px solid var(--border); border-radius: 4px;
-                   padding: 6px 8px; color: var(--text); }
-  #stats-heatmap svg { display: block; width: 100%; height: auto; }
-  #stats-heatmap .heatmap-empty {
-    text-align: center; font-size: 11px; color: var(--muted);
-    padding: 20px 0; font-style: italic;
-  }
-  #stats-polar-heatmap { display: block; width: 100%;
-                         background: rgba(255, 255, 255, 0.03);
-                         border: 1px solid var(--border); border-radius: 4px;
-                         padding: 8px; color: var(--text); }
-  #stats-polar-heatmap svg { display: block; width: 100%; height: auto;
-                             max-width: 360px; margin: 0 auto; }
-  #stats-polar-heatmap .heatmap-empty {
-    text-align: center; font-size: 11px; color: var(--muted);
-    padding: 20px 0; font-style: italic;
-  }
-
-  /* Watchlist dialog — same modal shell as about/stats, with a
-     dedicated list of entries + add-by-hex row. */
-  #watchlist-dialog { max-width: 480px; width: 90vw;
-                      border: 1px solid var(--border); border-radius: 6px;
-                      background: var(--panel); color: var(--text);
-                      padding: 20px 24px 24px;
-                      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-                      font-size: 13px; line-height: 1.45; }
-  #watchlist-dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
-  #watchlist-dialog h2 { margin: 0 0 8px; font-size: 18px; font-weight: 600; }
-  #watchlist-dialog h3 { margin: 16px 0 6px; font-size: 11px;
-                         text-transform: uppercase; letter-spacing: 0.6px;
-                         color: var(--muted); font-weight: 600; }
-  #watchlist-dialog p { margin: 0 0 8px; color: var(--muted); }
-  #watchlist-dialog .about-close-form { margin: 0; padding: 0; display: flex;
-                                        justify-content: flex-end; }
-  #watchlist-dialog .about-close { background: transparent; border: 0;
-                                   color: var(--muted); cursor: pointer;
-                                   padding: 2px 4px; margin: -6px -8px 0 0;
-                                   display: inline-flex; align-items: center;
-                                   justify-content: center; }
-  #watchlist-dialog .about-close svg { display: block; }
-  #watchlist-dialog .about-close:hover { color: var(--text); }
-  .watchlist-count { color: var(--muted); font-weight: 400;
-                     text-transform: none; letter-spacing: 0; }
-  .watchlist-notify-row { display: flex; align-items: center; gap: 8px;
-                          margin: 4px 0 0; cursor: pointer; color: var(--text); }
-  .watchlist-notify-row input { accent-color: var(--accent); }
-  .watchlist-add-form { display: flex; gap: 6px; margin: 0 0 4px; }
-  .watchlist-add-form input[type="text"] {
-    flex: 1; padding: 5px 8px; font-family: ui-monospace, monospace;
-    font-size: 12px; letter-spacing: 1px;
-    background: var(--bg); color: var(--text);
-    border: 1px solid var(--border); border-radius: 3px;
-  }
-  .watchlist-add-form input:focus { outline: none; border-color: var(--accent); }
-  .watchlist-add-form button { padding: 5px 12px; font-size: 12px;
-                               font-family: inherit; cursor: pointer;
-                               background: var(--accent); color: #fff;
-                               border: 0; border-radius: 3px; }
-  .watchlist-add-form button:hover { background: #1d4ed8; }
-  .watchlist-error { color: #fca5a5; font-size: 11px; margin: 2px 0 0; }
-  .watchlist-entries { list-style: none; margin: 0; padding: 0;
-                       max-height: 320px; overflow-y: auto; }
-  .watchlist-entry { display: grid;
-                     grid-template-columns: 10px auto 1fr auto auto;
-                     gap: 8px; align-items: center;
-                     padding: 7px 4px; border-bottom: 1px solid var(--border);
-                     font-size: 12px; }
-  .watchlist-entry:last-child { border-bottom: 0; }
-  .watchlist-entry.in-range { cursor: pointer; }
-  .watchlist-entry.in-range:hover { background: #1d222b; }
-  .wl-range { width: 8px; height: 8px; border-radius: 50%;
-              background: var(--border); }
-  .wl-range.wl-range-on { background: #4ade80;
-                          box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.25); }
-  .wl-icao { font-family: ui-monospace, monospace; font-weight: 600;
-             font-size: 12px; color: var(--text); letter-spacing: 0.5px; }
-  .wl-label { color: var(--muted); white-space: nowrap; overflow: hidden;
-              text-overflow: ellipsis; }
-  .wl-last-seen { font-size: 10px; color: var(--muted);
-                  font-variant-numeric: tabular-nums;
-                  white-space: nowrap; letter-spacing: 0.3px; }
-  .wl-last-seen.wl-live { color: #6ee7b7; font-weight: 600;
-                          text-transform: uppercase; }
-  .wl-last-seen.wl-last-seen-none { color: rgba(138, 148, 163, 0.6); }
-  .wl-remove { background: transparent; border: 0;
-               color: var(--muted); font-size: 18px; line-height: 1;
-               cursor: pointer; padding: 2px 6px; border-radius: 3px; }
-  .wl-remove:hover { color: #fca5a5; background: rgba(248, 113, 113, 0.12); }
-
-  /* Alerts dialog — notification-channel CRUD. Same modal shell as
-     about/stats/watchlist; per-channel sections stack vertically, each
-     with name/fields/toggles/Test row. */
-  #alerts-dialog { max-width: 560px; width: 90vw;
-                   border: 1px solid var(--border); border-radius: 6px;
-                   background: var(--panel); color: var(--text);
-                   padding: 20px 24px 24px;
-                   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-                   font-size: 13px; line-height: 1.45; }
-  #alerts-dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
-  #alerts-dialog h2 { margin: 0 0 8px; font-size: 18px; font-weight: 600; }
-  #alerts-dialog h3 { margin: 16px 0 6px; font-size: 11px;
-                      text-transform: uppercase; letter-spacing: 0.6px;
-                      color: var(--muted); font-weight: 600; }
-  #alerts-dialog p { margin: 0 0 8px; color: var(--muted); }
-  #alerts-dialog .about-close-form { margin: 0; padding: 0; display: flex;
-                                     justify-content: flex-end; }
-  #alerts-dialog .about-close { background: transparent; border: 0;
-                                color: var(--muted); cursor: pointer;
-                                padding: 2px 4px; margin: -6px -8px 0 0;
-                                display: inline-flex; align-items: center;
-                                justify-content: center; }
-  #alerts-dialog .about-close svg { display: block; }
-  #alerts-dialog .about-close:hover { color: var(--text); }
-  .alerts-section { margin-bottom: 10px; }
-  .alerts-entry { background: rgba(255, 255, 255, 0.03);
-                  border: 1px solid var(--border); border-radius: 4px;
-                  padding: 10px 12px; margin-bottom: 8px; }
-  .alerts-entry.disabled { opacity: 0.55; }
-  .alerts-entry-head { display: flex; gap: 8px; align-items: center;
-                       margin-bottom: 6px; }
-  .alerts-name { flex: 1; font-size: 13px; font-weight: 600;
-                 background: var(--bg); color: var(--text);
-                 border: 1px solid var(--border); border-radius: 3px;
-                 padding: 4px 7px; font-family: inherit; }
-  .alerts-name:focus { outline: none; border-color: var(--accent); }
-  .alerts-remove { background: transparent; border: 0;
-                   color: var(--muted); font-size: 18px; line-height: 1;
-                   cursor: pointer; padding: 2px 6px; border-radius: 3px;
-                   min-width: 24px; text-align: center;
-                   transition: background 0.12s ease, color 0.12s ease; }
-  .alerts-remove:hover { color: #fca5a5; background: rgba(248, 113, 113, 0.12); }
-  /* Armed state after the first click — a red pill with a checkmark
-     prompts the user to click again to confirm. Resets after ~3.5 s
-     or when the confirmation fires. */
-  .alerts-remove.confirming {
-    background: #ef4444; color: #fff; font-size: 14px; font-weight: 700;
-  }
-  .alerts-remove.confirming:hover { background: #dc2626; color: #fff; }
-  .alerts-fields { display: grid; gap: 5px; margin-bottom: 6px; }
-  .alerts-field { display: grid;
-                  grid-template-columns: 110px 1fr;
-                  gap: 8px; align-items: center; }
-  .alerts-field-label { font-size: 11px; color: var(--muted); }
-  .alerts-field-input { position: relative; display: flex; align-items: center; }
-  .alerts-field-input input { flex: 1; font-family: ui-monospace, monospace;
-                              font-size: 12px;
-                              background: var(--bg); color: var(--text);
-                              border: 1px solid var(--border); border-radius: 3px;
-                              padding: 4px 7px; }
-  .alerts-field-input input:focus { outline: none; border-color: var(--accent); }
-  .alerts-show { position: absolute; right: 3px; background: transparent;
-                 border: 0; color: var(--muted); cursor: pointer;
-                 font-size: 13px; padding: 2px 5px; line-height: 1; }
-  .alerts-show:hover { color: var(--text); }
-  .alerts-toggles { display: flex; gap: 14px; align-items: center;
-                    font-size: 11px; color: var(--muted); flex-wrap: wrap; }
-  .alerts-toggles input[type="checkbox"] { accent-color: var(--accent);
-                                           margin-right: 4px; }
-  .alerts-toggles label { cursor: pointer; color: var(--text); }
-  .alerts-test { margin-left: auto; font-size: 11px; font-family: inherit;
-                 cursor: pointer; background: transparent;
-                 color: var(--accent); border: 1px solid var(--accent);
-                 border-radius: 3px; padding: 2px 10px; }
-  .alerts-test:hover { background: rgba(93, 168, 255, 0.12); }
-  .alerts-test:disabled { color: var(--muted); border-color: var(--border);
-                          cursor: default; background: transparent; }
-  .alerts-add-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
-  .alerts-add { background: transparent; color: var(--muted);
-                border: 1px dashed var(--border); border-radius: 3px;
-                padding: 5px 10px; font-size: 12px; font-family: inherit;
-                cursor: pointer; }
-  .alerts-add:hover { color: var(--text); border-color: var(--accent); }
   .ac-item { position: relative; padding: 8px 14px; border-bottom: 1px solid var(--border);
              cursor: pointer; font-size: 12px; line-height: 1.4; }
   .ac-item:hover, .ac-item.peek { background: #1d222b; }
@@ -627,6 +414,20 @@
   body.basemap-openstreetmap .leaflet-tile-pane {
     filter: brightness(0.8) saturate(0.35) contrast(1.05);
   }
+  /* Aeronautical base layer is an OSM ground reference + OpenAIP chart
+     stacked in one layer group. Desaturate the OSM underneath (first
+     .leaflet-layer child of the tile pane) but leave the OpenAIP chart
+     on top at full saturation so airspace colours + symbols still pop.
+     Resetting the pane-wide .leaflet-tile-pane filter is required —
+     browser filter chains multiply, so the ground layer would otherwise
+     end up darker than plain OSM mode and the chart above would be
+     dimmed too. */
+  body.basemap-aeronautical-openaip .leaflet-tile-pane {
+    filter: none;
+  }
+  body.basemap-aeronautical-openaip .leaflet-tile-pane > .leaflet-layer:first-child {
+    filter: brightness(0.8) saturate(0.35) contrast(1.05);
+  }
   .leaflet-popup-content-wrapper, .leaflet-popup-tip {
     background: var(--panel); color: var(--text); border: 1px solid var(--border);
   }
@@ -640,348 +441,6 @@
     background-repeat: no-repeat;
     border-radius: 1px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
   }
-  /* Photo slot: reserves a fixed 3:2 aspect ratio so the layout settles
-     the moment the panel opens; a subtle shimmer hints that something is
-     loading, and either the <img> paints in over the top (fade-in below)
-     or JS sets .no-photo to collapse the slot when adsbdb has no
-     thumbnail for this tail. */
-  .ac-photo {
-    aspect-ratio: 3 / 2; width: 100%;
-    border-radius: 4px; border: 1px solid var(--border);
-    overflow: hidden; position: relative;
-    background: linear-gradient(90deg,
-      rgba(255, 255, 255, 0.03),
-      rgba(255, 255, 255, 0.08),
-      rgba(255, 255, 255, 0.03));
-    background-size: 200% 100%;
-    animation: ac-photo-skel 1.4s linear infinite;
-  }
-  /* "No photo available" placeholder — keeps the reserved aspect ratio
-     but stops the loading shimmer and shows a muted camera-off icon
-     plus a label, so the panel doesn't feel broken for aircraft adsbdb
-     has no photograph of. */
-  .ac-photo.no-photo {
-    animation: none;
-    background: rgba(255, 255, 255, 0.03);
-    display: flex; align-items: center; justify-content: center;
-    color: var(--muted);
-  }
-  .ac-photo .no-photo-inner {
-    display: flex; flex-direction: column; align-items: center;
-    gap: 4px; font-size: 11px; letter-spacing: 0.3px;
-  }
-  .ac-photo .no-photo-inner svg { opacity: 0.7; }
-  .ac-photo img {
-    display: block; width: 100%; height: 100%;
-    object-fit: cover; background: #0a0c10;
-    animation: ac-photo-fade 0.25s ease;
-  }
-  .ac-photo a { position: relative; display: block;
-                width: 100%; height: 100%; }
-  /* Photographer credit chip in the bottom-right corner — planespotters
-     ToS requires the attribution be visible alongside the photo. */
-  .ac-photo .photo-credit {
-    position: absolute; bottom: 4px; right: 4px;
-    background: rgba(0, 0, 0, 0.6); color: #eee;
-    font-size: 9px; letter-spacing: 0.3px;
-    padding: 1px 5px; border-radius: 2px;
-    pointer-events: none;
-  }
-  @keyframes ac-photo-skel {
-    0% { background-position: 200% 0; }
-    100% { background-position: -200% 0; }
-  }
-  @keyframes ac-photo-fade { from { opacity: 0; } to { opacity: 1; } }
-  .airport-code[data-title] { border-bottom: 1px dotted currentColor; cursor: help; }
-  #airport-tooltip {
-    position: fixed; z-index: 10000;
-    background: var(--panel); color: var(--text);
-    border: 1px solid var(--border); border-radius: 3px;
-    padding: 4px 8px; font-size: 11px; line-height: 1.3;
-    max-width: 240px; pointer-events: none;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
-  }
-  .alt-tag { font-size: 10px; color: var(--muted); font-weight: 400; }
-  .plane-icon { background: transparent !important; border: none !important; }
-  .receiver-icon { background: transparent !important; border: none !important; }
-  .receiver-dot { width: 10px; height: 10px; border-radius: 50%;
-                  background: var(--accent); border: 2px solid #0e1116;
-                  box-shadow: 0 0 0 1px var(--accent); margin: 1px; }
-  .plane-label { background: rgba(14,17,22,0.8); color: #fff; font-size: 10px;
-                 padding: 1px 4px; border-radius: 2px; white-space: nowrap;
-                 font-family: ui-monospace, monospace;
-                 border: 1px solid var(--border); }
-  /* Detail panel — replaces the Leaflet popup for aircraft details. On
-     desktop it floats as a rounded card between the sidebar and the map
-     (margin around gives it a "detached" feel, matching the sidebar
-     surface but visibly separate). On mobile it overlays the whole app
-     so photos have room to breathe.
-     The panel content is a dedicated DOM element mutated in place on
-     snapshot ticks, so the photograph at the top doesn't flicker even
-     though text fields update every second. */
-  #detail-panel {
-    /* Floats over the map so opening the panel doesn't resize the map
-       out from under the user. Anchored to #app (position:relative),
-       top-right of the sidebar with a small gap.
-       Default state is hidden with a small slide-off offset; adding the
-       `.open` class slides it in. `visibility: hidden` (with a delayed
-       transition on close only) keeps it out of the a11y tree and blocks
-       pointer events when invisible. */
-    position: absolute; top: 10px; bottom: 10px;
-    left: 330px; width: 360px; z-index: 1000;
-    background: var(--panel);
-    border: 1px solid var(--border); border-radius: 8px;
-    overflow-y: auto;
-    font-size: 12px; line-height: 1.5;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
-    opacity: 0; visibility: hidden;
-    transform: translateX(-14px);
-    pointer-events: none;
-    transition: opacity 0.2s ease, transform 0.2s ease,
-                left 0.22s ease, visibility 0s linear 0.2s;
-  }
-  #detail-panel.open {
-    opacity: 1; visibility: visible;
-    transform: translateX(0);
-    pointer-events: auto;
-    transition: opacity 0.2s ease, transform 0.2s ease,
-                left 0.22s ease, visibility 0s;
-  }
-  #detail-header {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 6px 6px 0; position: sticky; top: 0;
-    background: var(--panel); z-index: 2;
-    border-top-left-radius: 8px; border-top-right-radius: 8px;
-  }
-  #detail-header::before { content: ""; flex: 1; }
-  #detail-watch {
-    width: 28px; height: 28px; padding: 0;
-    background: transparent; color: var(--muted);
-    border: 1px solid var(--border); border-radius: 4px;
-    cursor: pointer; font-family: inherit;
-    display: inline-flex; align-items: center; justify-content: center;
-    margin-right: 4px;
-  }
-  #detail-watch:hover { color: var(--text); background: #1d222b; }
-  #detail-watch.watched { color: #fbbf24; border-color: #fbbf24; }
-  #detail-watch.watched svg { fill: currentColor; }
-  #detail-content { padding: 2px 14px 14px; }
-  #detail-close {
-    width: 28px; height: 28px; padding: 0;
-    background: transparent; color: var(--muted);
-    border: 1px solid var(--border); border-radius: 4px;
-    cursor: pointer; font-family: inherit;
-    display: inline-flex; align-items: center; justify-content: center;
-  }
-  #detail-close svg { display: block; }
-  #detail-close:hover { color: var(--text); background: #1d222b; }
-
-  /* ---- panel content layout ---- */
-  .ac-panel { display: flex; flex-direction: column; gap: 10px; }
-  .ac-panel .ac-photo { margin: 0; }
-  .ac-panel .ac-photo img { border-radius: 4px; }
-
-  .panel-head { display: flex; flex-direction: column; gap: 3px; padding-right: 32px; }
-  .panel-title-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
-  .panel-title-row .pop-callsign { font-size: 16px; }
-  .panel-title-row .pop-icao { font-size: 11px; color: var(--muted); }
-  .panel-title-row .pop-flag { display: inline-flex; cursor: help;
-                               vertical-align: -2px; }
-  .panel-title-row .pop-flag:empty { display: none; }
-  .panel-title-row .pop-flag .flag-icon { width: 22px; height: 16px; }
-  .panel-subline { font-size: 11px; color: var(--muted); }
-  .panel-badges { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
-  /* Collapse the container when every badge inside is hidden — :has is
-     supported on Safari 15.4+ and anything evergreen. */
-  .panel-badges:not(:has(:not([hidden]))) { display: none; }
-  .badge {
-    font-size: 10px; font-family: ui-monospace, monospace;
-    padding: 1px 6px; border-radius: 10px;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid var(--border); color: var(--muted);
-    letter-spacing: 0.3px;
-  }
-  /* Wake-turbulence tint on the category badge. L = grey (default-ish),
-     M = faint accent, H = amber, J = deep purple. Applied by wakeClass()
-     in static/profile.js. */
-  .badge.wtc-m { background: rgba(93, 168, 255, 0.10); color: #a5c9ff;
-                 border-color: rgba(93, 168, 255, 0.35); }
-  .badge.wtc-h { background: rgba(245, 158, 11, 0.13); color: #fbbf24;
-                 border-color: rgba(245, 158, 11, 0.40); }
-  .badge.wtc-j { background: rgba(167, 139, 250, 0.15); color: #c4b5fd;
-                 border-color: rgba(167, 139, 250, 0.45); }
-  /* Flight-phase colouring. Climb green, descent amber, approach red-ish,
-     cruise neutral, taxi muted. Used on both the detail-panel badge and
-     the sidebar corner chip. */
-  /* Phase tints — applied to both the detail panel (on a .badge
-     pill) and the sidebar (on a .phase-chip). Each rule sets
-     background + text + border so the colour picks through the
-     badge's default border instead of clashing with it. */
-  .phase-taxi     { background: rgba(148, 163, 184, 0.14); color: #cbd5e1;
-                    border-color: rgba(148, 163, 184, 0.35); }
-  .phase-climb    { background: rgba(110, 231, 183, 0.15); color: #6ee7b7;
-                    border-color: rgba(110, 231, 183, 0.35); }
-  .phase-cruise   { background: rgba(93, 168, 255, 0.13);  color: #a5c9ff;
-                    border-color: rgba(93, 168, 255, 0.35); }
-  .phase-descent  { background: rgba(251, 191, 36, 0.13);  color: #fbbf24;
-                    border-color: rgba(251, 191, 36, 0.40); }
-  .phase-approach { background: rgba(248, 113, 113, 0.17); color: #fca5a5;
-                    border-color: rgba(248, 113, 113, 0.40); }
-  .pop-ground {
-    font-size: 9px; padding: 1px 5px; border-radius: 3px;
-    background: #374151; color: #e5e7eb; letter-spacing: 0.5px;
-    font-weight: 600;
-  }
-  /* Appears in the panel title row when the server has timed the
-     aircraft out but the panel is still showing its last-known data. */
-  .pop-signal-lost {
-    font-size: 9px; padding: 1px 5px; border-radius: 3px;
-    background: #4a1818; color: #fecaca; letter-spacing: 0.5px;
-    font-weight: 600;
-  }
-  /* Map markers for aircraft whose signal dropped. Desaturated + dimmed
-     so they visibly recede while the panel's still keeping their state
-     around. */
-  .leaflet-marker-icon.ac-stale { filter: grayscale(1) opacity(0.55); }
-
-  .panel-mini-label { font-size: 9px; color: var(--muted);
-                      text-transform: uppercase; letter-spacing: 0.6px;
-                      margin-bottom: 3px; }
-
-  .panel-route { background: rgba(255, 255, 255, 0.03);
-                 border: 1px solid var(--border); border-radius: 4px;
-                 padding: 7px 10px; font-size: 13px; }
-  .route-ticket { display: grid; grid-template-columns: 1fr auto 1fr; gap: 6px;
-                  align-items: center; }
-  .route-ticket .route-end { min-width: 0; }
-  .route-ticket .route-end:last-child { text-align: right; }
-  .route-ticket .route-code { font-size: 15px; font-weight: 600;
-                              font-family: ui-monospace, monospace;
-                              color: var(--text); }
-  .route-ticket .route-name { font-size: 10px; color: var(--muted);
-                              white-space: nowrap; overflow: hidden;
-                              text-overflow: ellipsis; }
-  .route-ticket .route-name:empty { display: none; }
-  .route-ticket .route-arrow { color: var(--muted); font-size: 16px;
-                               padding: 0 4px; align-self: start;
-                               padding-top: 2px; }
-
-  /* Flight progress bar sits under the route ticket. The track + fill
-     render a percentage of great-circle distance flown; the right-aligned
-     label shows current pct and ETA at the last known groundspeed.
-     Hidden entirely when speed/coords aren't sufficient to be meaningful
-     (on-ground, slow, airport coords missing — see flightProgress() in
-     static/geo.js). */
-  .pop-progress { margin-top: 8px; }
-  .pop-progress-track { position: relative; height: 3px; background: var(--border);
-                        border-radius: 2px; overflow: hidden; }
-  .pop-progress-fill { position: absolute; top: 0; left: 0; height: 100%;
-                       background: var(--accent); border-radius: 2px;
-                       transition: width 0.5s ease; }
-  .pop-progress-label { display: flex; justify-content: space-between;
-                        font-size: 10px; color: var(--muted);
-                        margin-top: 3px; font-variant-numeric: tabular-nums; }
-
-  /* Weather block under the route ticket — one line per end. The raw
-     METAR is in each line's title attribute so hovering a cell reveals
-     the unparsed string. */
-  .pop-wx { display: flex; flex-direction: column; gap: 3px; margin-top: 8px;
-            font-size: 11px; color: var(--muted); }
-  .pop-wx .wx-cell[hidden] { display: none; }
-  .pop-wx .wx-line { display: inline-flex; gap: 5px; align-items: center;
-                     font-variant-numeric: tabular-nums; cursor: help; }
-  /* Inline Lucide weather glyph between the airport tag and the wind /
-     visibility summary. Inherits stroke colour from the surrounding
-     .pop-wx muted text; sunny / clear picks up a warm amber tint. */
-  .pop-wx .wx-icon { flex: 0 0 auto; opacity: 0.9; }
-  .pop-wx .wx-clear { color: #f0b73a; }
-  .pop-wx .wx-partly { color: #e0c77a; }
-  .pop-wx .wx-thunder { color: #f7c945; }
-
-  /* "Live / Last known" freshness header above the telemetry grid.
-     Sits muted grey by default; picks up a green tint + pulsing dot
-     when updatePopupContent adds `.is-live` (message age < 5 s). */
-  .panel-live-indicator {
-    display: inline-flex; align-items: center; gap: 6px;
-    font-size: 10px; font-weight: 600; letter-spacing: 0.6px;
-    text-transform: uppercase; color: var(--muted);
-    /* Zero bottom margin so the indicator visually belongs to the
-       telemetry tiles below rather than floating between sections. */
-    margin: 10px 0 2px; padding: 0;
-  }
-  .live-dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    background: var(--muted);
-    transition: background 0.2s ease, box-shadow 0.2s ease;
-  }
-  .panel-live-indicator.is-live { color: #6ee7b7; }
-  .panel-live-indicator.is-live .live-dot {
-    background: #6ee7b7;
-    animation: live-pulse 1.8s ease-in-out infinite;
-  }
-  @keyframes live-pulse {
-    0%, 100% { box-shadow: 0 0 0 2px rgba(110, 231, 183, 0.30); }
-    50%      { box-shadow: 0 0 0 5px rgba(110, 231, 183, 0.12); }
-  }
-
-  .panel-meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-  .panel-meta .metric { background: rgba(255, 255, 255, 0.03);
-                        border: 1px solid var(--border); border-radius: 4px;
-                        padding: 6px 8px; overflow: hidden; }
-  .panel-meta .metric .label { font-size: 9px; color: var(--muted);
-                               text-transform: uppercase; letter-spacing: 0.6px; }
-  .panel-meta .metric .val { font-size: 13px; margin-top: 1px;
-                             white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
-
-  /* Altitude profile sparkline — stretches to the panel width and scales
-     with the panel. Drawn each tick by renderAltProfile() in app.js. */
-  .panel-profile {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid var(--border); border-radius: 4px;
-    padding: 6px 8px 4px;
-  }
-  .panel-profile .pop-alt-profile,
-  .panel-profile .pop-spd-profile {
-    display: block; width: 100%; color: var(--muted);
-  }
-  .panel-profile .pop-alt-profile { height: 40px; }
-  .panel-profile .pop-spd-profile {
-    height: 24px; margin-top: 2px;
-    border-top: 1px dashed rgba(255, 255, 255, 0.07);
-    padding-top: 2px;
-  }
-
-  /* External tracker links — compact row of pill-style buttons, each
-     paired with a small "opens in new tab" glyph. */
-  .panel-links { display: flex; flex-wrap: wrap; gap: 4px; }
-  .panel-links a {
-    flex: 1 1 auto; min-width: 0;
-    display: inline-flex; align-items: center; justify-content: center;
-    gap: 4px;
-    text-align: center; font-size: 10px; letter-spacing: 0.2px;
-    padding: 5px 6px; border-radius: 4px;
-    color: var(--muted); text-decoration: none;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid var(--border);
-  }
-  .panel-links a:hover { background: #1d222b; color: var(--text); }
-  .panel-links .link-icon { opacity: 0.7; flex-shrink: 0; }
-  .panel-links a:hover .link-icon { opacity: 1; }
-
-  /* Reception stats strip — same card style as the metric cells. */
-  .panel-stats {
-    display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
-    padding-top: 8px; border-top: 1px solid var(--border);
-  }
-  .panel-stats .stat {
-    display: flex; flex-direction: column; gap: 1px;
-    font-variant-numeric: tabular-nums;
-  }
-  .panel-stats .stat-label {
-    font-size: 9px; color: var(--muted);
-    text-transform: uppercase; letter-spacing: 0.6px;
-  }
-  .panel-stats .stat-val { font-size: 12px; color: var(--text); }
 
   /* ========== Easter eggs ========== */
 

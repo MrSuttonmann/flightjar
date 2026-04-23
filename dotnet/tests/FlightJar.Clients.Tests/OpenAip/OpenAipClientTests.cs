@@ -92,21 +92,45 @@ public class OpenAipClientTests
     }
 
     [Fact]
-    public async Task BboxKey_SnapsOutwardToGrid()
+    public void BboxKey_TilesForBbox_FullyInsideOneTile_ReturnsThatTile()
     {
-        var key = BboxKey.Snap(50.3, 0.2, 51.9, 1.7);
-        Assert.Equal(50.0, key.MinLat);
-        Assert.Equal(0.0, key.MinLon);
-        Assert.Equal(52.0, key.MaxLat);
-        Assert.Equal(2.0, key.MaxLon);
+        // A viewport entirely inside one 2° cell should map to a single
+        // key — the whole point of per-tile caching is that small pans
+        // within the same tile hit the same entry.
+        var tiles = BboxKey.TilesForBbox(50.3, 0.2, 51.9, 1.7).ToList();
+        var tile = Assert.Single(tiles);
+        Assert.Equal(50.0, tile.MinLat);
+        Assert.Equal(0.0, tile.MinLon);
+        Assert.Equal(52.0, tile.MaxLat);
+        Assert.Equal(2.0, tile.MaxLon);
     }
 
     [Fact]
-    public async Task BboxKey_ClampsToWorldBounds()
+    public void BboxKey_TilesForBbox_CrossingABoundary_YieldsMultipleTiles()
     {
-        var key = BboxKey.Snap(89.5, -179.5, 90, -178);
-        Assert.True(key.MinLat >= -90 && key.MaxLat <= 90);
-        Assert.True(key.MinLon >= -180 && key.MaxLon <= 180);
+        // Previously this case silently re-fetched from upstream because
+        // the snapped outer bbox produced a fresh key for each pan.
+        // Under per-tile caching, the viewport enumerates both tiles and
+        // the client looks each up independently.
+        var tiles = BboxKey.TilesForBbox(50.5, -0.5, 53.5, 1.5)
+            .OrderBy(t => t.MinLat).ThenBy(t => t.MinLon)
+            .ToList();
+        Assert.Equal(
+            new[]
+            {
+                new BboxKey(50.0, -2.0), new BboxKey(50.0, 0.0),
+                new BboxKey(52.0, -2.0), new BboxKey(52.0, 0.0),
+            },
+            tiles);
+    }
+
+    [Fact]
+    public void BboxKey_TilesForBbox_ClampsToPolarLatitude()
+    {
+        var tiles = BboxKey.TilesForBbox(89.5, -179.5, 90, -178).ToList();
+        Assert.NotEmpty(tiles);
+        Assert.All(tiles, t => Assert.InRange(t.MinLat, -90.0, 88.0));
+        Assert.All(tiles, t => Assert.InRange(t.MaxLat, -88.0, 90.0));
     }
 
     [Fact]
@@ -265,6 +289,42 @@ public class OpenAipClientTests
         var r = await c.GetObstaclesAsync(50, 0, 52, 2);
         Assert.Equal(3, r.Count);
         Assert.Equal(2, handler.CallCount);
+    }
+
+    [Fact]
+    public async Task Pagination_PreservesEarlierPagesOnMidRequestFailure()
+    {
+        var (c, handler, _) = MakeClient();
+        int call = 0;
+        handler.Handler = _ =>
+        {
+            call++;
+            if (call == 1)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(new
+                    {
+                        page = 1,
+                        limit = 2,
+                        totalCount = 3,
+                        totalPages = 2,
+                        nextPage = 2,
+                        items = new[]
+                        {
+                            new { _id = "o1", type = 4, geometry = new { type = "Point", coordinates = new[] { 0.5, 51.1 } } },
+                            new { _id = "o2", type = 4, geometry = new { type = "Point", coordinates = new[] { 0.6, 51.2 } } },
+                        },
+                    }),
+                };
+            }
+            return new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+        };
+        var r = await c.GetObstaclesAsync(50, 0, 52, 2);
+        // Page 1 succeeded; page 2 429'd. Must still return page 1's items.
+        Assert.Equal(2, r.Count);
+        Assert.Equal("o1", r[0].Id);
+        Assert.Equal("o2", r[1].Id);
     }
 
     [Fact]
