@@ -413,7 +413,9 @@ public sealed class MetarClient : IAsyncDisposable
         public string? Icao { get; set; }
         public string? RawOb { get; set; }
         public long? ObsTime { get; set; }
-        public double? Wdir { get; set; }
+        // wdir is "VRB" (string) for variable-wind stations, otherwise a
+        // number — JsonElement passes whichever token came in.
+        public System.Text.Json.JsonElement? Wdir { get; set; }
         public double? Wspd { get; set; }
         public double? Wgst { get; set; }
         public System.Text.Json.JsonElement? Visib { get; set; }

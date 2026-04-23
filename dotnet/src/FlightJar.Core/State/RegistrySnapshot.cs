@@ -19,6 +19,10 @@ public sealed record RegistrySnapshot(
     /// </summary>
     public IReadOnlyDictionary<string, SnapshotAirportRef>? Airports { get; init; }
 
+    /// <summary>Total BEAST frames ingested since startup. Let the frontend
+    /// compute the current frame rate from consecutive snapshots.</summary>
+    public long? Frames { get; init; }
+
     public static RegistrySnapshot Empty { get; } = new(
         Now: 0, Count: 0, Positioned: 0,
         Receiver: null, SiteName: null,
@@ -47,7 +51,8 @@ public sealed record SnapshotMetar
 {
     public string? Raw { get; init; }
     public long? ObsTime { get; init; }
-    public double? WindDir { get; init; }
+    /// <summary>Wind direction — number (degrees) or string ("VRB").</summary>
+    public System.Text.Json.JsonElement? WindDir { get; init; }
     public double? WindKt { get; init; }
     public double? GustKt { get; init; }
     public System.Text.Json.JsonElement? Visibility { get; init; }

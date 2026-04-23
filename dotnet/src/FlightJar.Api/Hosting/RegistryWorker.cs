@@ -183,7 +183,7 @@ public sealed class RegistryWorker : BackgroundService
         var nowSec = _time.GetUtcNow().ToUnixTimeMilliseconds() / 1000.0;
         _registry.Cleanup(nowSec);
         var snap = _registry.Snapshot(nowSec);
-        snap = EnrichSnapshot(snap);
+        snap = EnrichSnapshot(snap) with { Frames = FrameCount };
         var json = JsonSerializer.Serialize(snap, _jsonOpts);
         _current.Set(snap, json);
         _broadcaster.Broadcast(json);
