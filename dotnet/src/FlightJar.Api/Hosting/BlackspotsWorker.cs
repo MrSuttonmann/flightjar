@@ -219,8 +219,13 @@ public sealed class BlackspotsWorker : BackgroundService
                         // Stale invalid grid from a prior degenerate run — drop it.
                         continue;
                     }
-                    _groundElevM ??= grid.Params.GroundElevationM;
-                    _tileCount = Math.Max(_tileCount, grid.TileCount);
+                    // Seed the LRU cache only. _groundElevM and _tileCount are
+                    // deliberately NOT seeded from persisted data — they double
+                    // as the "tiles are loaded in memory" sentinel for
+                    // EnsurePreloadedAsync, and setting them here without
+                    // actually loading tiles would make every subsequent
+                    // altitude compute see TileLoadSummary() == (0,0) and hit
+                    // the degenerate-tiles guard.
                     Insert(AltitudeKey(grid.Params.TargetAltitudeM), grid);
                     kept++;
                 }
@@ -249,6 +254,21 @@ public sealed class BlackspotsWorker : BackgroundService
                 _logger.LogInformation(
                     "blackspots: default altitude ({Alt:F0} m MSL) served from persisted cache",
                     DefaultTargetAltitudeM);
+                // Default grid is already cached, so ComputeAtAsync never ran
+                // and tiles aren't in memory yet. Warm them in the background
+                // so the user's first non-default altitude pick doesn't block
+                // on reading ~100 SRTM tiles from disk.
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await EnsurePreloadedAsync(CancellationToken.None);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "blackspots: background tile preload failed");
+                    }
+                }, CancellationToken.None);
             }
         }
         finally
@@ -273,6 +293,26 @@ public sealed class BlackspotsWorker : BackgroundService
         }
         var fullParams = BuildParams(targetAltM, groundElev);
         var antennaAgl = fullParams.AntennaMslM - fullParams.GroundElevationM;
+        var (loaded, empty) = _tiles.TileLoadSummary();
+        var tilesWithData = loaded - empty;
+
+        // Skip the per-cell LOS solve when the tile preload came back
+        // degenerate — a multi-tile bbox with ≤1 tile returning elevation
+        // data almost always means SRTM downloads are blocked, and the
+        // compute would spend 1-2 s producing an earth-curvature-only
+        // "perfect circle" that's actively misleading. Emit an empty grid
+        // with the same tile-coverage stats so the frontend surfaces the
+        // warning banner; IsValid = false keeps it out of persistence.
+        if (_tileCount > 1 && tilesWithData <= 1)
+        {
+            _logger.LogWarning(
+                "blackspots: skipping compute at {Alt:F0} m MSL — only {DataTiles}/{Expected} SRTM tile(s) have elevation data (downloads likely blocked)",
+                targetAltM, tilesWithData, _tileCount);
+            return new BlackspotsGrid(
+                fullParams, _time.GetUtcNow(), _tileCount, tilesWithData,
+                Array.Empty<BlackspotCell>());
+        }
+
         _logger.LogInformation(
             "blackspots: computing grid — receiver ({Lat:F4}, {Lon:F4}), ground {Elev:F0} m MSL, antenna {AntMsl:F0} m MSL ({AntAgl:F1} m AGL), target {Alt:F0} m MSL, radius {Radius:F0} km",
             fullParams.ReceiverLat, fullParams.ReceiverLon,
@@ -281,8 +321,6 @@ public sealed class BlackspotsWorker : BackgroundService
 
         var altKey = AltitudeKey(targetAltM);
         SetProgress(altKey, 0);
-        var (loaded, empty) = _tiles.TileLoadSummary();
-        var tilesWithData = loaded - empty;
         try
         {
             return await Task.Run(() => BlackspotsGrid.Compute(
