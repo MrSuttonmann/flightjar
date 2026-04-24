@@ -137,4 +137,72 @@ public class NotificationsConfigStoreTests : IDisposable
         Assert.Equal("123:ABC", c.BotToken);
         Assert.Equal("42", c.ChatId);
     }
+
+    [Fact]
+    public async Task Load_AcceptsStringTypeField()
+    {
+        // Files written by the legacy Python backend (and by the .NET HTTP
+        // API serializer, which uses snake_case JsonStringEnumConverter)
+        // store the channel type as a string. The store must accept that
+        // shape on disk — otherwise an upgrade silently drops every
+        // configured channel and the user loses their notification setup.
+        var path = PathFor();
+        File.WriteAllText(path, """
+            {
+              "version": 1,
+              "channels": [
+                {
+                  "id": "tg1",
+                  "type": "telegram",
+                  "name": "Phone",
+                  "enabled": true,
+                  "watchlist_enabled": true,
+                  "emergency_enabled": true,
+                  "bot_token": "123:ABC",
+                  "chat_id": "42"
+                },
+                {
+                  "id": "wh1",
+                  "type": "webhook",
+                  "name": "HA bridge",
+                  "enabled": true,
+                  "watchlist_enabled": true,
+                  "emergency_enabled": false,
+                  "url": "https://hass.example/hook"
+                }
+              ]
+            }
+            """);
+
+        var store = new NotificationsConfigStore(path);
+        await store.LoadAsync();
+
+        Assert.Equal(2, store.Channels.Count);
+        var tg = store.Channels.Single(c => c.Id == "tg1");
+        Assert.Equal(NotificationChannelType.Telegram, tg.Type);
+        Assert.Equal("123:ABC", tg.BotToken);
+        Assert.Equal("42", tg.ChatId);
+        var wh = store.Channels.Single(c => c.Id == "wh1");
+        Assert.Equal(NotificationChannelType.Webhook, wh.Type);
+        Assert.Equal("https://hass.example/hook", wh.Url);
+        Assert.False(wh.EmergencyEnabled);
+    }
+
+    [Fact]
+    public void Persist_WritesTypeAsSnakeCaseString()
+    {
+        // Writer stays compatible with the legacy/HTTP shape: string-valued
+        // snake_case enum, not the default integer fallback. Locks in the
+        // round-trip so a future change to JsonOpts that drops the
+        // converter is caught here.
+        var store = new NotificationsConfigStore(PathFor());
+        store.Replace(new[]
+        {
+            new NotificationChannel { Id = "ntfy1", Type = NotificationChannelType.Ntfy, Url = "https://ntfy.sh/x" },
+        });
+
+        var raw = File.ReadAllText(PathFor());
+        Assert.Contains("\"type\":\"ntfy\"", raw);
+        Assert.DoesNotContain("\"type\":1", raw);
+    }
 }

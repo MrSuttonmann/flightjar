@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -186,9 +187,15 @@ public sealed class NotificationsConfigStore
         }
     }
 
+    // Matches the HTTP API's serializer (snake_case property names + snake_case
+    // string enums) so the on-disk shape is identical to what `/api/notifications/config`
+    // emits and accepts. The string-enum converter is also what the legacy
+    // Python writer produced, so existing /data/notifications.json files
+    // load without a migration.
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web)
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },
     };
 
     private sealed class PersistedPayload
