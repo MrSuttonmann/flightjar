@@ -43,6 +43,8 @@ public sealed class AlertWatcher
             return;
         }
         var now = _time.GetUtcNow();
+        PruneExpired(_watchlistCooldown, now - WatchlistCooldown);
+        PruneExpired(_emergencyCooldown, now - EmergencyCooldown);
         foreach (var ac in snap.Aircraft)
         {
             if (string.IsNullOrEmpty(ac.Icao))
@@ -130,4 +132,17 @@ public sealed class AlertWatcher
 
     private static string FlightAwareUrl(string icao) =>
         $"https://flightaware.com/live/modes/{icao}/redirect";
+
+    private static void PruneExpired(
+        ConcurrentDictionary<string, DateTimeOffset> cooldowns,
+        DateTimeOffset cutoff)
+    {
+        foreach (var (key, ts) in cooldowns)
+        {
+            if (ts < cutoff)
+            {
+                cooldowns.TryRemove(key, out _);
+            }
+        }
+    }
 }

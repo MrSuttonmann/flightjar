@@ -469,6 +469,7 @@ public class AircraftRegistry
         foreach (var icao in stale)
         {
             _aircraft.Remove(icao);
+            _trailCache.Remove(icao);
         }
     }
 
