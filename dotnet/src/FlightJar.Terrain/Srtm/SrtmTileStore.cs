@@ -42,6 +42,18 @@ public sealed class SrtmTileStore : ITerrainSampler
     public SrtmTile? TryGet(SrtmTileKey key) =>
         _loaded.TryGetValue(key, out var t) ? t : null;
 
+    /// <summary>Number of tiles currently held in memory. Disk-cached tiles
+    /// that haven't been read since the last eviction don't count.</summary>
+    public int LoadedCount => _loaded.Count;
+
+    /// <summary>Drop every tile from the in-memory cache. The on-disk
+    /// <c>.hgt.gz</c> files are left alone so the next
+    /// <see cref="EnsureLoadedAsync"/> reads them back without a network
+    /// round-trip. Used by <c>BlackspotsWorker</c>'s idle-eviction sweep
+    /// to reclaim ~26 MB / tile when the feature hasn't been touched
+    /// for a while.</summary>
+    public void EvictAll() => _loaded.Clear();
+
     /// <summary>
     /// Snapshot of per-tile load state. Used by the worker to warn when most
     /// tiles came back empty — a strong signal that downloads are being

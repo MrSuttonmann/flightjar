@@ -77,6 +77,12 @@ public static class AppOptionsBinder
             throw new ConfigException(
                 $"BLACKSPOTS_MAX_AGL_M={maxAgl.ToString(CultureInfo.InvariantCulture)}: must be > 0");
         }
+        var idleTimeoutMin = FloatRequired(get, "BLACKSPOTS_IDLE_TIMEOUT_MIN", 15.0);
+        if (idleTimeoutMin < 0)
+        {
+            throw new ConfigException(
+                $"BLACKSPOTS_IDLE_TIMEOUT_MIN={idleTimeoutMin.ToString(CultureInfo.InvariantCulture)}: must be >= 0");
+        }
 
         return new AppOptions
         {
@@ -104,6 +110,7 @@ public static class AppOptionsBinder
             BlackspotsRadiusKm = radiusKm,
             BlackspotsGridDeg = gridDeg,
             BlackspotsMaxAglM = maxAgl,
+            BlackspotsIdleTimeoutMinutes = idleTimeoutMin,
             TerrainCacheDir = NullIfEmpty(Str(get, "TERRAIN_CACHE_DIR", "")) ?? "/data/terrain",
             TelemetryEnabled = Bool(get, "TELEMETRY_ENABLED", true),
             Password = Str(get, "FLIGHTJAR_PASSWORD", ""),
