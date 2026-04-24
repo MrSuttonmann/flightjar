@@ -593,7 +593,16 @@ function renderCommBSection(root, q, a, now) {
     .filter((t) => t != null);
   const freshestAt = ats.length ? Math.max(...ats) : null;
 
-  const set = (cls, value) => {
+  const setText = (cls, value) => {
+    const el = root.querySelector(cls);
+    if (value == null) {
+      el.hidden = true;
+    } else {
+      el.querySelector('.val').textContent = String(value);
+      el.hidden = false;
+    }
+  };
+  const setHtml = (cls, value) => {
     const el = root.querySelector(cls);
     if (value == null) {
       el.hidden = true;
@@ -604,11 +613,11 @@ function renderCommBSection(root, q, a, now) {
   };
 
   // BDS 4,0 — autopilot targets + QNH.
-  set('.pop-met-mcp', met.selected_altitude_mcp_ft != null
+  setText('.pop-met-mcp', met.selected_altitude_mcp_ft != null
     ? uconv('alt', met.selected_altitude_mcp_ft) : null);
-  set('.pop-met-fms', met.selected_altitude_fms_ft != null
+  setText('.pop-met-fms', met.selected_altitude_fms_ft != null
     ? uconv('alt', met.selected_altitude_fms_ft) : null);
-  set('.pop-met-qnh', met.qnh_hpa != null
+  setText('.pop-met-qnh', met.qnh_hpa != null
     ? `${met.qnh_hpa.toFixed(1)} hPa` : null);
 
   // BDS 4,4 — wind, temperature, pressure, humidity, turbulence.
@@ -618,21 +627,21 @@ function renderCommBSection(root, q, a, now) {
         ? ` <span class="met-sub">from ${met.wind_direction_deg.toFixed(0)}°</span>`
         : '')
     : null;
-  set('.pop-met-wind', wind);
+  setHtml('.pop-met-wind', wind);
   const satDerivedTag = met.static_air_temperature_source === 'derived'
     ? ' <span class="met-sub">derived</span>' : '';
-  set('.pop-met-oat', met.static_air_temperature_c != null
+  setHtml('.pop-met-oat', met.static_air_temperature_c != null
     ? `${met.static_air_temperature_c.toFixed(1)} °C${satDerivedTag}` : null);
   // TAT inherits the derived tag when SAT was derived — it's computed
   // off the same SAT, so it's no more accurate than its source.
-  set('.pop-met-tat', met.total_air_temperature_c != null
+  setHtml('.pop-met-tat', met.total_air_temperature_c != null
     ? `${met.total_air_temperature_c.toFixed(1)} °C${satDerivedTag}` : null);
-  set('.pop-met-spres', met.static_pressure_hpa != null
+  setText('.pop-met-spres', met.static_pressure_hpa != null
     ? `${met.static_pressure_hpa} hPa` : null);
-  set('.pop-met-humid', met.humidity_pct != null
+  setText('.pop-met-humid', met.humidity_pct != null
     ? `${met.humidity_pct.toFixed(0)}%` : null);
   const turbLabel = { 0: 'None', 1: 'Light', 2: 'Moderate', 3: 'Severe' };
-  set('.pop-met-turb', met.turbulence != null
+  setText('.pop-met-turb', met.turbulence != null
     ? (turbLabel[met.turbulence] || `L${met.turbulence}`) : null);
 
   // BDS 5,0 + 6,0 — flight data.
