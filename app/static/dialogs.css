@@ -288,6 +288,11 @@
                                           justify-content: center; }
   #airspace-filters-dialog .about-close svg { display: block; }
   #airspace-filters-dialog .about-close:hover { color: var(--text); }
+  .airspace-slice-row { display: flex; align-items: center; gap: 8px;
+                        padding: 6px 0 8px; margin: 0 0 8px;
+                        border-bottom: 1px solid var(--border);
+                        font-size: 12px; }
+  .airspace-slice-row input[type="checkbox"] { accent-color: var(--accent); }
   .airspace-filter-actions { display: flex; gap: 8px; margin: 0 0 8px; }
   .airspace-filter-action { font-size: 11px; font-family: inherit;
                             cursor: pointer; background: transparent;

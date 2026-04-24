@@ -12,6 +12,7 @@
 
 import { AIRSPACE_GROUPS, airspaceGroup } from './airspace_groups.js';
 import { escapeHtml } from './format.js';
+import { bboxOfGeometry } from './geo.js';
 import {
   OBSTACLE_ICON,
   REPORTING_COMPULSORY_ICON,
@@ -22,6 +23,14 @@ import { state } from './state.js';
 export { AIRSPACE_GROUPS, airspaceGroup };
 
 const FETCH_DEBOUNCE_MS = 300;
+
+// Optional listeners owned by other modules. The airspace vertical
+// slice tooltip subscribes to both: visibility flips show/hide it,
+// cache updates re-query the stack under a stationary cursor.
+let onAirspaceVisibilityChanged = null;
+let onAirspaceCacheUpdated = null;
+export function setAirspaceVisibilityListener(fn) { onAirspaceVisibilityChanged = fn; }
+export function setAirspaceCacheListener(fn) { onAirspaceCacheUpdated = fn; }
 
 // Airspace colour rules. OpenAIP `type_name` wins (prohibited/danger
 // should read red regardless of ICAO class); ICAO class is the
@@ -72,7 +81,7 @@ function airspaceLeafletStyle(a) {
   return style;
 }
 
-function formatLimit(ft, datum) {
+export function formatLimit(ft, datum) {
   if (ft == null) return '—';
   if (datum === 'FL') {
     const fl = Math.round(ft / 100).toString().padStart(3, '0');
@@ -98,6 +107,13 @@ function renderAirspaces(rows, layer) {
   // been excluded by the current group toggles — a user who re-enables a
   // group should see those features pop back instantly.
   state.airspacesCache = rows;
+  // Pre-compute axis-aligned bboxes so the airspace_slice mousemove
+  // handler can cheap-reject most polygons before the full ring scan.
+  // One pass per fetch (a few hundred polygons at most); cleared with
+  // the cache when a new fetch completes.
+  for (const a of rows) {
+    if (a && a.geometry && !a._bbox) a._bbox = bboxOfGeometry(a.geometry);
+  }
   const enabled = state.airspaceCategories;
   for (const a of rows) {
     if (!a.geometry) continue;
@@ -109,6 +125,7 @@ function renderAirspaces(rows, layer) {
     gj.bindTooltip(airspaceTooltip(a), { direction: 'top', sticky: true });
     gj.addTo(layer);
   }
+  onAirspaceCacheUpdated?.();
 }
 
 // Re-render airspaces from the in-memory cache without re-fetching.
@@ -307,6 +324,7 @@ function makeSetter(kind) {
     state[spec.visibleFlag] = value;
     try { localStorage.setItem(spec.storageKey, value ? '1' : '0'); } catch (_) {}
     applyToggle(kind);
+    if (kind === 'airspaces') onAirspaceVisibilityChanged?.(value);
   };
 }
 

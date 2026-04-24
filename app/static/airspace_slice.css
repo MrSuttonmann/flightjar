@@ -1,0 +1,82 @@
+/* Floating tooltip showing the vertical stack of airspaces under the
+   cursor when the Airspaces overlay is enabled. Mounted on <body> so
+   it can paint over Leaflet panes without z-index gymnastics, and
+   pointer-events disabled so hovering it doesn't break the underlying
+   mousemove stream that drives the contents. */
+#airspace-slice-tip {
+  position: fixed;
+  top: 0; left: 0;
+  z-index: 1500;
+  pointer-events: none;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+  padding: 6px 8px 4px;
+  font: 11px ui-monospace, monospace;
+  color: var(--text);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.12s ease, visibility 0s linear 0.12s;
+  will-change: transform;
+}
+#airspace-slice-tip.open {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.12s ease, visibility 0s;
+}
+#airspace-slice-tip .slice-head {
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#airspace-slice-tip svg { display: block; }
+#airspace-slice-tip .slice-tick {
+  fill: var(--muted);
+  font-size: 9px;
+}
+#airspace-slice-tip .slice-grid {
+  stroke: var(--border);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+#airspace-slice-tip .slice-col-label {
+  fill: var(--text);
+  font-size: 9px;
+  font-weight: 600;
+  text-anchor: middle;
+}
+#airspace-slice-tip .slice-col-edge {
+  fill: var(--muted);
+  font-size: 8px;
+  text-anchor: middle;
+}
+#airspace-slice-tip .slice-more {
+  fill: var(--muted);
+  font-size: 9px;
+  text-anchor: end;
+}
+/* Nearby-aircraft altitude markers — a dashed cross-chart line, a
+   triangle pointing back into the column area, and a callsign label. */
+#airspace-slice-tip .slice-plane-line {
+  stroke: var(--accent);
+  stroke-width: 1;
+  stroke-dasharray: 3 2;
+  opacity: 0.7;
+  shape-rendering: crispEdges;
+}
+#airspace-slice-tip .slice-plane-marker {
+  fill: var(--accent);
+  stroke: var(--accent);
+  stroke-width: 1;
+}
+#airspace-slice-tip .slice-plane-label {
+  fill: var(--text);
+  font-size: 9px;
+  font-weight: 600;
+}
