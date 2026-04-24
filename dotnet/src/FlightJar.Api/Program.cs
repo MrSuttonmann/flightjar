@@ -225,6 +225,9 @@ var app = builder.Build();
 // Load persisted state synchronously before the host kicks off background services.
 await app.Services.GetRequiredService<WatchlistStore>().LoadAsync();
 await app.Services.GetRequiredService<NotificationsConfigStore>().LoadAsync();
+// Eager-load the install ID so /api/telemetry_config can serve it
+// before TelemetryWorker has had a chance to run.
+await app.Services.GetRequiredService<InstanceIdStore>().LoadOrCreateAsync();
 
 // Warm the external-client disk caches in parallel so adsbdb / planespotters
 // / METAR lookups can skip the upstream round-trip on early snapshots.
@@ -378,6 +381,27 @@ app.MapGet("/api/map_config", (AppOptions opts, VfrmapCycle vfrmap) =>
         openaip_api_key = opts.OpenAipApiKey,
         vfrmap_chart_date = vfrmap.CurrentDate ?? opts.VfrmapChartDate,
     }));
+
+// Frontend telemetry init payload. Same opt-out as the backend ping
+// (TELEMETRY_ENABLED=0) and same destination (baked phc_* key). Returns
+// {enabled:false} when off so the frontend skips loading posthog-js
+// entirely; otherwise returns the distinct_id from the install's
+// InstanceIdStore so frontend events tie back to the same Person as
+// the backend ping.
+app.MapGet("/api/telemetry_config", (AppOptions opts, InstanceIdStore instance) =>
+{
+    if (!opts.TelemetryEnabled || string.IsNullOrWhiteSpace(TelemetryConfig.ApiKey))
+    {
+        return Results.Json(new { enabled = false });
+    }
+    return Results.Json(new
+    {
+        enabled = true,
+        host = TelemetryConfig.Host,
+        api_key = TelemetryConfig.ApiKey,
+        distinct_id = instance.InstanceId,
+    });
+});
 
 app.MapGet("/api/airports", (
     [Microsoft.AspNetCore.Mvc.FromServices] AirportsDb db,

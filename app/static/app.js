@@ -36,6 +36,7 @@ import {
 } from './openaip.js';
 import { initShortcuts } from './shortcuts.js';
 import { initSidebar, renderSidebar } from './sidebar.js';
+import { initTelemetry } from './telemetry.js';
 import { connect, startHeartbeat } from './websocket.js';
 import {
   getSessionStats,
@@ -105,6 +106,10 @@ async function boot() {
   // Kick the feed.
   startHeartbeat();
   connect();
+
+  // Telemetry init runs last + unawaited: failures or slow upstream
+  // can't delay the page becoming usable.
+  initTelemetry();
 }
 
 boot();
