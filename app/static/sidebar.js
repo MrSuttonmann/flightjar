@@ -6,6 +6,7 @@
 // steady-cruise tick doesn't touch DOM that didn't actually change.
 
 import { compassIcon, escapeHtml, flagIcon, fmt } from './format.js';
+import DOMPurify from 'dompurify';
 import { isNotable, militaryLabel } from './notable_aircraft.js';
 import { matchesActiveFilters } from './filters.js';
 import { routeLabel, selectAircraft } from './detail_panel.js';
@@ -59,7 +60,8 @@ let lastDocTitle = '';
 // their own detached node intact.
 const rowBuilder = document.createElement('div');
 function buildRowElement(html) {
-  rowBuilder.innerHTML = html;
+  const safeHtml = DOMPurify.sanitize(html);
+  rowBuilder.innerHTML = safeHtml;
   return rowBuilder.firstElementChild;
 }
 
