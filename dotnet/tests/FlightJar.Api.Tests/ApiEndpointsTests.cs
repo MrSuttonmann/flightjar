@@ -81,6 +81,24 @@ public class ApiEndpointsTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.Contains("flightjar_ws_clients", body);
     }
 
+    [Fact]
+    public async Task TelemetryConfig_ReturnsDisabled_WhenNoKeyBaked()
+    {
+        // Test builds don't pass `-p:PosthogApiKey=...`, so TelemetryConfig.ApiKey
+        // is empty. The endpoint must return {enabled:false} rather than
+        // exposing an empty key — otherwise the frontend would still try to
+        // load posthog-js with a blank api_key.
+        var client = _factory.CreateClient();
+        var resp = await client.GetAsync("/api/telemetry_config");
+        resp.EnsureSuccessStatusCode();
+        var body = await resp.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(body);
+        Assert.False(doc.RootElement.GetProperty("enabled").GetBoolean());
+        // No leak of host / api_key / distinct_id when disabled.
+        Assert.False(doc.RootElement.TryGetProperty("api_key", out _));
+        Assert.False(doc.RootElement.TryGetProperty("distinct_id", out _));
+    }
+
     [Theory]
     [InlineData("/api/openaip/airspaces")]
     [InlineData("/api/openaip/obstacles")]

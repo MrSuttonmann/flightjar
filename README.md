@@ -411,11 +411,13 @@ Notifications section below.
 
 ## Anonymous telemetry
 
-This build sends a small anonymous heartbeat once a day so we can see
-how many installs are actually running and which optional features are
-in use. Set `TELEMETRY_ENABLED=0` to turn it off entirely.
+This build sends a small anonymous heartbeat once a day, plus a
+pageview when you open the map UI in a browser, so we can see how
+many installs are actually running and which optional features are
+in use. Set `TELEMETRY_ENABLED=0` to turn it all off — backend ping
+and frontend pageview both check the same flag.
 
-What's included:
+What's included (backend heartbeat):
 
 - A random per-install ID (generated on first run, stored in
   `/data/telemetry.json`; not derived from anything that identifies
@@ -427,6 +429,12 @@ What's included:
   counts only.
 - A coarse 10°-rounded receiver region (only when `LAT_REF`/`LON_REF`
   are set) so we can spot rough geographic clustering.
+
+What's included (frontend):
+
+- A `$pageview` event when the map UI loads, tagged with the same
+  per-install ID so it ties back to the heartbeat above. No element
+  text, no clicks, no form data, no session recording, no cookies.
 
 What's never included: your exact coordinates, any aircraft positions
 or callsigns, your IP address, your `SITE_NAME`, any API keys or
