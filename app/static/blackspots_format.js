@@ -6,10 +6,12 @@
 import { escapeHtml } from './format.js';
 
 // Fixed slider stops in metres MSL (chosen to match standard flight levels
-// a pilot or spotter would scan through: low GA → low airway → airliner).
-// The backend is happy with any value in (0, 20000] so this table is
-// purely a UI concern; change it freely.
+// a pilot or spotter would scan through: surface → low GA → low airway →
+// airliner). The backend accepts any value in [0, 20000]; 0 is a sentinel
+// that makes the grid use each cell's DEM elevation + 2 m (ground-level
+// aircraft). Anything positive is treated as absolute MSL.
 export const ALT_STOPS_M = [
+  0,      // GND   — planes on the ground (per-cell DEM + 2 m)
   305,    // FL010 — approach / departure low pass
   610,    // FL020 — circuit / pattern altitude
   914,    // FL030 — low GA / training
@@ -18,14 +20,20 @@ export const ALT_STOPS_M = [
   3048,   // FL100 — default (backend prewarms this one)
   4572,   // FL150
   6096,   // FL200
+  7620,   // FL250
   9144,   // FL300
   12192,  // FL400 — top of typical airliner cruise
   15240,  // FL500 — business-jet / high-altitude ceiling
 ];
-export const DEFAULT_STOP_INDEX = 5;
+// Shifted up by one after inserting GND at the front so the default
+// still lands on FL100.
+export const DEFAULT_STOP_INDEX = 6;
 
 // Render an altitude in metres as an FL label (feet / 100, zero-padded).
+// 0 is the ground-level sentinel — surface the GND annotation pilots use
+// on charts rather than a meaningless FL000.
 export function flLabel(altM) {
+  if (altM <= 0) return 'GND';
   const ft = Math.round(altM * 3.28084);
   return `FL${Math.round(ft / 100).toString().padStart(3, '0')}`;
 }
