@@ -43,8 +43,19 @@ public sealed class RegistryWorker : BackgroundService
     public int PersistEveryNTicks { get; set; } = 30;
     private int _persistCounter;
 
-    private readonly Channel<Work> _work = Channel.CreateUnbounded<Work>(
-        new UnboundedChannelOptions { SingleReader = true });
+    // Bounded so a stalled work-loop (e.g. a slow enrichment tick) can't
+    // accumulate unbounded Work items and OOM the process. The frame
+    // channel ahead of this is already DropOldest-bounded at 16384, so
+    // matching that here keeps the two pipes symmetric — under sustained
+    // backpressure, the oldest pending work (frame or tick) is discarded
+    // rather than queued into RAM.
+    private readonly Channel<Work> _work = Channel.CreateBounded<Work>(
+        new BoundedChannelOptions(16384)
+        {
+            FullMode = BoundedChannelFullMode.DropOldest,
+            SingleReader = true,
+            SingleWriter = false,
+        });
 
     private long _frameCount;
     public long FrameCount => Volatile.Read(ref _frameCount);
