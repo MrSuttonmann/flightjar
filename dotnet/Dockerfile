@@ -34,8 +34,9 @@ COPY dotnet/src ./src
 
 # Telemetry destination, baked into the published assembly via
 # AssemblyMetadata. Empty default = no destination = telemetry no-ops.
-# CI sets this from a repo secret; local `docker build` can override
-# with `--build-arg POSTHOG_API_KEY=phc_xxx`.
+# CI sets this from a repo variable (PostHog phc_* project keys are
+# public client-side keys, not secrets); local `docker build` can
+# override with `--build-arg POSTHOG_API_KEY=phc_xxx`.
 ARG POSTHOG_API_KEY=""
 RUN dotnet publish src/FlightJar.Api/FlightJar.Api.csproj -c Release -o /out --no-restore \
     -p:PosthogApiKey="$POSTHOG_API_KEY"

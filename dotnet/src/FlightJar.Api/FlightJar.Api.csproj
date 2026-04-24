@@ -17,7 +17,7 @@
   </PropertyGroup>
 
   <!-- Telemetry destination, baked at build time. CI passes the PostHog
-       project key from a repo secret via `dotnet publish -p:PosthogApiKey=...`;
+       project key from a repo variable via `dotnet publish -p:PosthogApiKey=...`;
        local builds leave it empty so the worker silently no-ops. -->
   <PropertyGroup>
     <PosthogApiKey></PosthogApiKey>
