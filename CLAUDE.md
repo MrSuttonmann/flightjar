@@ -144,12 +144,14 @@ locks.
 - `GET /api/blackspots?target_alt_m=N` / `POST /api/blackspots/recompute` —
   terrain-shadow grid + required-antenna-height per blocked cell. The
   `target_alt_m` query param is the altitude (MSL metres) the frontend
-  slider drives, valid range (0, 20000]; omitting it uses the startup
-  default (FL100 / 3048 m). Returns `{enabled:false}` when
-  `BLACKSPOTS_ENABLED=0` or `LAT_REF`/`LON_REF` not set;
-  `{enabled:true, computing:true}` while the initial preload is running.
-  Driven by `BlackspotsWorker`, which keeps an LRU memory cache keyed on
-  altitude and persists only the default-altitude grid to disk.
+  slider drives, valid range (0, 20000]; omitting it uses the default
+  (FL100 / 3048 m). Returns `{enabled:false}` when `BLACKSPOTS_ENABLED=0`
+  or `LAT_REF`/`LON_REF` not set; `{enabled:true, computing:true}` while
+  a compute is in flight. Driven by `BlackspotsWorker`, which keeps an
+  LRU memory cache keyed on altitude and persists valid grids to disk.
+  No upfront load — the persisted grid + SRTM tiles are read on the
+  first request, and reclaimed after `BLACKSPOTS_IDLE_TIMEOUT_MIN` (15
+  min default) of inactivity.
 - `GET /api/watchlist` / `POST /api/watchlist` — server-side watchlist
   mirrored from the browser so alerts can fire with no tab open.
 - `GET /api/notifications/config` / `POST /api/notifications/config` /
@@ -291,17 +293,19 @@ Feature enabled when `BLACKSPOTS_ENABLED` is true (default) and
   (the caller passes a `ceilingMslM` upper bound — typically
   `ground_elev + MAX_AGL`).
 - **`BlackspotsWorker : BackgroundService`** + **`BlackspotsGrid`** —
-  at startup, load `/data/blackspots.json.gz`; if the persisted non-
-  altitude params match live `AppOptions` (receiver coords, antenna h,
-  radius, grid deg, max AGL), seed the LRU cache with it; else recompute
-  the default altitude (`DefaultTargetAltitudeM` = FL100). SRTM tiles +
-  ground elevation are preloaded once per session and reused across
-  altitudes. `GetOrComputeAsync(altM)` is the hot path for the
-  `/api/blackspots` endpoint: serves from memory when the altitude has
-  been computed this session, else runs `BlackspotsGrid.Compute` synchron-
-  ously on a `Task.Run` thread (~1-2 s on decent hardware). Cache cap is
-  8 altitudes with standard LRU eviction; only the startup default is
-  persisted to disk.
+  no upfront load. `GetOrComputeAsync(altM)` is the hot path for
+  `/api/blackspots`: on first call it lazily reads
+  `/data/blackspots.json.gz` (keeping persisted grids whose non-altitude
+  params match live `AppOptions`, dropping the rest), then either serves
+  the cached grid or runs `BlackspotsGrid.Compute` on a `Task.Run`
+  thread (~1-2 s). SRTM tiles + ground elevation are loaded into memory
+  on demand and reused across altitudes within an active session. The
+  worker also runs an idle sweep (every minute): if no request has hit
+  `GetOrComputeAsync` within `BLACKSPOTS_IDLE_TIMEOUT_MIN`, the SRTM
+  tile cache (~26 MB / tile) and the LRU grid cache are evicted while
+  the on-disk caches stay intact, so re-engaging the layer is just a
+  disk read away. Memory cache cap is 8 altitudes (LRU); valid grids
+  are persisted to disk so they survive restart.
 
 ### External-API clients
 
@@ -389,7 +393,7 @@ Handled in `FlightJar.Api.Configuration.AppOptionsBinder` against the
 `BLACKSPOTS_ENABLED`, `BLACKSPOTS_ANTENNA_AGL_M`,
 `BLACKSPOTS_ANTENNA_MSL_M` (optional override; preferred when known),
 `BLACKSPOTS_RADIUS_KM`, `BLACKSPOTS_GRID_DEG`,
-`BLACKSPOTS_MAX_AGL_M`, `TERRAIN_CACHE_DIR`. Target altitude is UI-only
+`BLACKSPOTS_MAX_AGL_M`, `BLACKSPOTS_IDLE_TIMEOUT_MIN`, `TERRAIN_CACHE_DIR`. Target altitude is UI-only
 (slider on the map), not env-driven. The README has the full reference
 table.
 

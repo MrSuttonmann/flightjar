@@ -57,6 +57,15 @@ public sealed record AppOptions
     public double BlackspotsMaxAglM { get; init; } = 100.0;
     public string TerrainCacheDir { get; init; } = "/data/terrain";
 
+    /// <summary>How long the blackspots feature can sit idle (no
+    /// <c>/api/blackspots</c> hits) before its in-memory state — SRTM
+    /// tiles (~26 MB each, ~12–15 tiles for the default radius) plus
+    /// the LRU grid cache — is evicted. Disk caches survive eviction,
+    /// so re-engaging the layer just pays a disk read instead of a
+    /// re-download. <c>0</c> disables eviction (keep everything
+    /// resident).</summary>
+    public double BlackspotsIdleTimeoutMinutes { get; init; } = 15.0;
+
     /// <summary>Anonymous usage telemetry. When enabled (and a destination
     /// is baked into the app — see TelemetryConfig), the service emits one
     /// event per interval with a stable random instance ID, version,

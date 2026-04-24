@@ -6,27 +6,42 @@ namespace FlightJar.Api.Hosting;
 
 /// <summary>
 /// Computes and caches <see cref="BlackspotsGrid"/>s on demand, keyed on
-/// target altitude. Startup:
+/// target altitude. Behaviour:
 ///   1. If disabled (master flag off or LAT_REF/LON_REF missing), stay idle.
-///   2. Otherwise load any previously-persisted default-altitude grid. If its
-///      non-altitude params still match the live config, seed the cache with
-///      it. Else kick off a fresh compute for the configured default.
+///   2. Otherwise: load nothing on startup. The first
+///      <see cref="GetOrComputeAsync"/> call lazily reads the persisted
+///      grid from disk (if present + config-compatible) and / or runs a
+///      fresh compute. SRTM tiles (~26 MB each, ~12–15 for the default
+///      radius) are loaded into memory only when a compute actually
+///      needs them.
+///   3. Background sweep: if no <c>/api/blackspots</c> request has hit
+///      <see cref="GetOrComputeAsync"/> within the configured idle timeout
+///      (<see cref="AppOptions.BlackspotsIdleTimeoutMinutes"/>, default
+///      15 min), evict the LRU grid cache, the SRTM tile cache, and the
+///      sampled ground elevation. Disk caches survive the eviction so
+///      re-engaging the layer just pays a disk read.
 /// <para>
 /// <see cref="GetOrComputeAsync"/> is the hot path: returns the cached grid
 /// for the requested altitude, or runs one synchronous LOS solve on a
 /// background thread and caches the result. The shared tile set + ground
-/// elevation are preloaded once; altitude changes reuse them.
+/// elevation are loaded once per "active session" and reused across
+/// altitudes until idle eviction reclaims them.
 /// </para>
 /// <para>
-/// Only the default altitude's grid persists to disk — the LRU memory cache
-/// covers the rest. This keeps the persisted schema small and survives
-/// antenna/radius/grid config changes cleanly (the full cache is invalidated
-/// and the default altitude recomputed).
+/// Only valid grids persist to disk — the LRU memory cache covers
+/// short-term hits. This keeps the persisted schema small and survives
+/// antenna/radius/grid config changes cleanly (mismatched persisted
+/// grids are simply skipped on next load).
 /// </para>
 /// </summary>
 public sealed class BlackspotsWorker : BackgroundService
 {
     private const int MaxCachedAltitudes = 8;
+
+    /// <summary>How often the idle-eviction sweep checks the timer.
+    /// Cheap (single comparison + occasional dictionary clear), so a
+    /// short interval is fine.</summary>
+    private static readonly TimeSpan IdleSweepInterval = TimeSpan.FromMinutes(1);
 
     /// <summary>
     /// Default target altitude used to prewarm one grid at startup so the
@@ -50,12 +65,22 @@ public sealed class BlackspotsWorker : BackgroundService
     private readonly LinkedList<BlackspotsGrid> _cacheOrder = new();
     private readonly Dictionary<int, LinkedListNode<BlackspotsGrid>> _nodes = new();
 
-    // Once-computed per-session tile set + ground elevation. Reused across
-    // altitudes since none of the altitude-independent inputs ever change
-    // mid-session.
+    // Once-loaded per-active-session tile set + ground elevation. Cleared
+    // by idle eviction so re-engaging the feature reloads from disk fresh
+    // (avoids stale state if the on-disk SRTM tiles changed underneath us).
     private double? _groundElevM;
     private int _tileCount;
     private readonly SemaphoreSlim _preloadGate = new(1, 1);
+
+    // Last time something exercised the feature — used to decide when to
+    // evict the in-memory caches. Updated by GetOrComputeAsync and
+    // TriggerRecompute; read by the idle-sweep loop.
+    private long _lastAccessTicks;
+
+    // Has the persisted-grid file been read into the LRU cache yet?
+    // First GetOrComputeAsync flips this so the load happens lazily
+    // rather than on startup.
+    private int _persistedLoaded;
 
     // Live-progress readout for the one compute that's active right now.
     // _computeGate already serialises computes, so there's never more than
@@ -95,16 +120,102 @@ public sealed class BlackspotsWorker : BackgroundService
             return;
         }
 
+        // No upfront load. Persisted grid + SRTM tiles are read on first
+        // /api/blackspots access (see GetOrComputeAsync). The worker just
+        // runs the idle-eviction sweep so memory gets reclaimed when the
+        // feature isn't being used.
+        _logger.LogInformation(
+            "blackspots: ready (lazy load on first request, idle eviction after {Idle:F0} min)",
+            _options.BlackspotsIdleTimeoutMinutes);
+
+        if (_options.BlackspotsIdleTimeoutMinutes <= 0)
+        {
+            // Eviction disabled — sleep until cancellation.
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, _time, stoppingToken);
+            }
+            catch (OperationCanceledException) { }
+            return;
+        }
+
+        var idleTimeout = TimeSpan.FromMinutes(_options.BlackspotsIdleTimeoutMinutes);
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(IdleSweepInterval, _time, stoppingToken);
+            }
+            catch (OperationCanceledException) { return; }
+
+            try
+            {
+                EvictIfIdle(idleTimeout);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "blackspots: idle eviction sweep failed");
+            }
+        }
+    }
+
+    /// <summary>
+    /// If the feature has been idle for at least <paramref name="idleTimeout"/>
+    /// (no <see cref="GetOrComputeAsync"/> hits since the last access) and
+    /// nothing is currently in the middle of a compute, drop the SRTM tile
+    /// cache, the LRU grid cache, and the sampled ground elevation. Returns
+    /// true when an eviction actually happened.
+    /// </summary>
+    public bool EvictIfIdle(TimeSpan idleTimeout)
+    {
+        if (idleTimeout <= TimeSpan.Zero)
+        {
+            return false;
+        }
+        var lastTicks = Interlocked.Read(ref _lastAccessTicks);
+        if (lastTicks == 0)
+        {
+            // Never been hit — nothing in memory to evict.
+            return false;
+        }
+        var lastAccess = new DateTimeOffset(lastTicks, TimeSpan.Zero);
+        if (_time.GetUtcNow() - lastAccess < idleTimeout)
+        {
+            return false;
+        }
+        // Don't yank tiles out from under a running compute — wait for
+        // it to finish on the next sweep tick.
+        if (!_computeGate.Wait(0))
+        {
+            return false;
+        }
         try
         {
-            await LoadOrComputeDefaultAsync(stoppingToken);
+            var (loaded, _) = _tiles.TileLoadSummary();
+            if (loaded == 0 && _groundElevM is null)
+            {
+                // Already evicted (or never loaded). Reset the timer so we
+                // don't re-log on every sweep when the feature stays idle.
+                Interlocked.Exchange(ref _lastAccessTicks, 0);
+                return false;
+            }
+            _logger.LogInformation(
+                "blackspots: idle for {Idle:F1} min — evicting {Tiles} SRTM tile(s) and grid cache",
+                (_time.GetUtcNow() - lastAccess).TotalMinutes, loaded);
+            _tiles.EvictAll();
+            InvalidateCache();
+            _groundElevM = null;
+            _tileCount = 0;
+            // Force the persisted-grid lazy load to re-run on the next
+            // request (in case the operator dropped a fresh file in /data
+            // while the feature was idle).
+            Interlocked.Exchange(ref _persistedLoaded, 0);
+            Interlocked.Exchange(ref _lastAccessTicks, 0);
+            return true;
         }
-        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        finally
         {
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "blackspots initial load/compute failed");
+            _computeGate.Release();
         }
     }
 
@@ -130,6 +241,26 @@ public sealed class BlackspotsWorker : BackgroundService
         {
             return null;
         }
+        // Stamp access on the way in so the idle sweep treats this
+        // request as activity even if it ends up being served from a
+        // cached grid (no compute path → no other place to update).
+        Interlocked.Exchange(ref _lastAccessTicks, _time.GetUtcNow().UtcTicks);
+
+        // First-touch lazy load of the persisted grid. Interlocked guards
+        // against a race between two simultaneous first-requests; the
+        // loser sees _persistedLoaded == 1 and skips. Reset by EvictIfIdle.
+        if (Interlocked.CompareExchange(ref _persistedLoaded, 1, 0) == 0)
+        {
+            try
+            {
+                await LoadPersistedAsync(ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "blackspots: persisted grid load failed");
+            }
+        }
+
         var key = AltitudeKey(targetAltM);
         if (TryGetCached(key) is BlackspotsGrid cached)
         {
@@ -168,6 +299,7 @@ public sealed class BlackspotsWorker : BackgroundService
         {
             return;
         }
+        Interlocked.Exchange(ref _lastAccessTicks, _time.GetUtcNow().UtcTicks);
         _ = Task.Run(async () =>
         {
             try
@@ -196,85 +328,39 @@ public sealed class BlackspotsWorker : BackgroundService
         });
     }
 
-    private async Task LoadOrComputeDefaultAsync(CancellationToken ct)
+    /// <summary>
+    /// Re-hydrate the LRU grid cache from <c>blackspots.json.gz</c>. Cheap
+    /// (one file read, no tile loads, no compute), so it's safe to run
+    /// inline on the first request. Mismatched-config + invalid grids are
+    /// dropped silently; persisted grids that survive the filter just
+    /// shortcut the next compute for that altitude.
+    /// </summary>
+    private async Task LoadPersistedAsync(CancellationToken ct)
     {
-        await _computeGate.WaitAsync(ct);
-        try
-        {
-            var wantParams = BuildParams(DefaultTargetAltitudeM, groundElevM: 0);
-            var seeded = 0;
+        if (_persistPath is null) return;
 
-            if (_persistPath is not null)
-            {
-                var loaded = await BlackspotsGrid.LoadAllAsync(_persistPath, _logger, ct);
-                var kept = 0;
-                foreach (var grid in loaded)
-                {
-                    if (!ParamsMatchIgnoringGround(grid.Params, wantParams))
-                    {
-                        continue;
-                    }
-                    if (!grid.IsValid)
-                    {
-                        // Stale invalid grid from a prior degenerate run — drop it.
-                        continue;
-                    }
-                    // Seed the LRU cache only. _groundElevM and _tileCount are
-                    // deliberately NOT seeded from persisted data — they double
-                    // as the "tiles are loaded in memory" sentinel for
-                    // EnsurePreloadedAsync, and setting them here without
-                    // actually loading tiles would make every subsequent
-                    // altitude compute see TileLoadSummary() == (0,0) and hit
-                    // the degenerate-tiles guard.
-                    Insert(AltitudeKey(grid.Params.TargetAltitudeM), grid);
-                    kept++;
-                }
-                if (loaded.Count > 0)
-                {
-                    _logger.LogInformation(
-                        "blackspots: loaded {Kept}/{Total} persisted grid(s) matching current config",
-                        kept, loaded.Count);
-                }
-                seeded = kept;
-            }
-
-            // Always ensure the default altitude is populated so the first
-            // frontend toggle-on doesn't pay a cold compute.
-            if (TryGetCached(AltitudeKey(DefaultTargetAltitudeM)) is null)
-            {
-                var grid = await ComputeAtAsync(DefaultTargetAltitudeM, ct);
-                if (grid is not null)
-                {
-                    Insert(AltitudeKey(DefaultTargetAltitudeM), grid);
-                    await PersistCacheAsync(ct);
-                }
-            }
-            else if (seeded > 0)
-            {
-                _logger.LogInformation(
-                    "blackspots: default altitude ({Alt:F0} m MSL) served from persisted cache",
-                    DefaultTargetAltitudeM);
-                // Default grid is already cached, so ComputeAtAsync never ran
-                // and tiles aren't in memory yet. Warm them in the background
-                // so the user's first non-default altitude pick doesn't block
-                // on reading ~100 SRTM tiles from disk.
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await EnsurePreloadedAsync(CancellationToken.None);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "blackspots: background tile preload failed");
-                    }
-                }, CancellationToken.None);
-            }
-        }
-        finally
+        var wantParams = BuildParams(DefaultTargetAltitudeM, groundElevM: 0);
+        var loaded = await BlackspotsGrid.LoadAllAsync(_persistPath, _logger, ct);
+        if (loaded.Count == 0)
         {
-            _computeGate.Release();
+            return;
         }
+        var kept = 0;
+        foreach (var grid in loaded)
+        {
+            if (!ParamsMatchIgnoringGround(grid.Params, wantParams)) continue;
+            if (!grid.IsValid) continue;
+            // _groundElevM / _tileCount stay null on purpose — they're
+            // the "tiles are in memory" sentinel for EnsurePreloadedAsync.
+            // Seeding them here without loading tiles would make every
+            // non-cached compute see TileLoadSummary() == (0,0) and hit
+            // the degenerate-tiles guard.
+            Insert(AltitudeKey(grid.Params.TargetAltitudeM), grid);
+            kept++;
+        }
+        _logger.LogInformation(
+            "blackspots: hydrated {Kept}/{Total} persisted grid(s) on first request",
+            kept, loaded.Count);
     }
 
     /// <summary>
