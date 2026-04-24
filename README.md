@@ -403,10 +403,34 @@ It shows up next to "Flightjar" in the sidebar and in the browser tab title
 | `BLACKSPOTS_GRID_DEG` | `0.05`              | Cell size in degrees (≈ 5 km at UK latitudes). Smaller = finer detail + slower compute. Must be in (0, 1]. |
 | `BLACKSPOTS_MAX_AGL_M` | `100`              | Bisection ceiling when solving for required antenna height. Cells still blocked at this height are reported as "unreachable". |
 | `TERRAIN_CACHE_DIR`   | `/data/terrain`     | Directory for the downloaded SRTM tiles. |
+| `TELEMETRY_ENABLED`   | `1`                 | Anonymous usage telemetry — see below.                         |
 
 Notification channels aren't configured via env vars — they're
 managed in the **Alerts** dialog in the sidebar footer. See the
 Notifications section below.
+
+## Anonymous telemetry
+
+This build sends a small anonymous heartbeat once a day so we can see
+how many installs are actually running and which optional features are
+in use. Set `TELEMETRY_ENABLED=0` to turn it off entirely.
+
+What's included:
+
+- A random per-install ID (generated on first run, stored in
+  `/data/telemetry.json`; not derived from anything that identifies
+  you).
+- App version, uptime, and the current count of tracked aircraft / WS
+  clients.
+- Which optional features are turned on (flight routes, METAR,
+  OpenAIP, blackspots, number of notification channels) — booleans /
+  counts only.
+- A coarse 10°-rounded receiver region (only when `LAT_REF`/`LON_REF`
+  are set) so we can spot rough geographic clustering.
+
+What's never included: your exact coordinates, any aircraft positions
+or callsigns, your IP address, your `SITE_NAME`, any API keys or
+notification tokens.
 
 ## The log file
 

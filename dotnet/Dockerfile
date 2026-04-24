@@ -31,7 +31,14 @@ COPY dotnet/src/FlightJar.Terrain/FlightJar.Terrain.csproj src/FlightJar.Terrain
 RUN dotnet restore src/FlightJar.Api/FlightJar.Api.csproj
 
 COPY dotnet/src ./src
-RUN dotnet publish src/FlightJar.Api/FlightJar.Api.csproj -c Release -o /out --no-restore
+
+# Telemetry destination, baked into the published assembly via
+# AssemblyMetadata. Empty default = no destination = telemetry no-ops.
+# CI sets this from a repo secret; local `docker build` can override
+# with `--build-arg POSTHOG_API_KEY=phc_xxx`.
+ARG POSTHOG_API_KEY=""
+RUN dotnet publish src/FlightJar.Api/FlightJar.Api.csproj -c Release -o /out --no-restore \
+    -p:PosthogApiKey="$POSTHOG_API_KEY"
 
 # Upstream data — changes outside our control so we cache-bust per build.
 # CI sets DATA_CACHEBUST to the git sha; local `docker build --build-arg

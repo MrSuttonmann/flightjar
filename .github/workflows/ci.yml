@@ -156,5 +156,6 @@ jobs:
           build-args: |
             DATA_CACHEBUST=${{ github.sha }}
             FLIGHTJAR_VERSION=${{ github.sha }}
+            POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
