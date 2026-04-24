@@ -20,6 +20,7 @@ public abstract class AuthEndpointTestBase
     protected const string WatchlistPath = "/api/watchlist";
     protected const string NotifConfigPath = "/api/notifications/config";
     protected const string NotifTestPath = "/api/notifications/test/abc";
+    protected const string TelemetryResetPath = "/api/telemetry/reset";
     protected const string LoginPath = "/api/auth/login";
     protected const string LogoutPath = "/api/auth/logout";
     protected const string StatusPath = "/api/auth/status";
@@ -118,6 +119,7 @@ public class AuthEnabledTests : AuthEndpointTestBase, IDisposable
     [InlineData(NotifConfigPath, "GET")]
     [InlineData(NotifConfigPath, "POST")]
     [InlineData(NotifTestPath, "POST")]
+    [InlineData(TelemetryResetPath, "POST")]
     public async Task GatedEndpoints_Return401_WithoutSession(string path, string method)
     {
         var client = NoRedirectClient(_factory);

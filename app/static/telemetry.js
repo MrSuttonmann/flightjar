@@ -59,6 +59,27 @@ export function track(event, properties) {
   posthogReady.capture(event, properties || {});
 }
 
+// Rotate the install's PostHog distinct_id. POSTs the gated reset
+// endpoint, then severs the live tab from the old id by calling
+// posthog.reset() and re-identifying as the new id so any further
+// events from this tab attach to the new Person. Throws on HTTP
+// failure so the caller can surface an error message.
+export async function resetTelemetry(authedFetch) {
+  const fetchFn = authedFetch || ((url, init) => fetch(url, init));
+  const r = await fetchFn('/api/telemetry/reset', { method: 'POST' });
+  if (!r.ok) {
+    throw new Error(`reset failed: HTTP ${r.status}`);
+  }
+  const body = await r.json();
+  if (window.posthog && typeof window.posthog.reset === 'function') {
+    window.posthog.reset();
+    if (body.distinct_id && typeof window.posthog.identify === 'function') {
+      window.posthog.identify(body.distinct_id);
+    }
+  }
+  return body;
+}
+
 // Verbatim PostHog bootstrap snippet from
 // https://posthog.com/docs/getting-started/install — creates a queueing
 // stub on window.posthog and dynamically loads the real library from

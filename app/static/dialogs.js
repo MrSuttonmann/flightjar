@@ -4,6 +4,7 @@
 
 import { applyWatchStateToPanel, selectAircraft } from './detail_panel.js';
 import { authedFetch, ensureUnlocked } from './auth.js';
+import { resetTelemetry } from './telemetry.js';
 import { countHistory, renderSidebar, setRenderStats } from './sidebar.js';
 import { COUNT_HISTORY_LEN, state } from './state.js';
 import { escapeHtml } from './format.js';
@@ -52,6 +53,34 @@ function maybePrependWrightBrothersNote() {
   }
 }
 
+function wireTelemetryReset() {
+  const btn = document.getElementById('telemetry-reset-btn');
+  const status = document.getElementById('telemetry-reset-status');
+  if (!btn || !status) return;
+
+  function setStatus(text, kind) {
+    status.textContent = text;
+    status.hidden = !text;
+    status.classList.remove('is-error', 'is-ok');
+    if (kind) status.classList.add(`is-${kind}`);
+  }
+
+  btn.addEventListener('click', async () => {
+    const ok = window.confirm('Reset the telemetry ID? This is irreversible.');
+    if (!ok) return;
+    btn.disabled = true;
+    setStatus('Resetting…');
+    try {
+      await resetTelemetry(authedFetch);
+      setStatus('Reset complete.', 'ok');
+    } catch (err) {
+      setStatus(`Reset failed: ${err.message || err}`, 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
 export function initAboutDialog() {
   const dialog = aboutDialogEl();
   document.getElementById('about-btn').addEventListener('click', async () => {
@@ -60,12 +89,17 @@ export function initAboutDialog() {
     if (typeof dialog.showModal === 'function') dialog.showModal();
     else dialog.setAttribute('open', '');
   });
+  dialog.addEventListener('close', () => {
+    const status = document.getElementById('telemetry-reset-status');
+    if (status) { status.hidden = true; status.textContent = ''; }
+  });
   dialog.addEventListener('click', (e) => {
     const r = dialog.getBoundingClientRect();
     const inside = e.clientX >= r.left && e.clientX <= r.right
                 && e.clientY >= r.top && e.clientY <= r.bottom;
     if (!inside) dialog.close();
   });
+  wireTelemetryReset();
 }
 
 // ---------------- Map-key dialog ----------------

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { initTelemetry, track } from '../../app/static/telemetry.js';
+import { initTelemetry, resetTelemetry, track } from '../../app/static/telemetry.js';
 
 // Minimal globals so the module can `fetch()` and reference `window`
 // without a real browser. Each test sets up exactly what it needs.
@@ -59,6 +59,70 @@ test('initTelemetry bails on a network failure', async () => {
       // sync throw would still escape).
       await initTelemetry();
       assert.equal(globalThis.window.posthog, undefined);
+    },
+  );
+});
+
+test('resetTelemetry POSTs and severs the live tab from the old id', async () => {
+  let posted = null;
+  let reset = false;
+  let identifiedAs = null;
+  await withFakeEnv(
+    () => {
+      globalThis.fetch = async (url, init) => {
+        posted = { url, method: init?.method };
+        return {
+          ok: true,
+          json: async () => ({ ok: true, distinct_id: 'new-id', telemetry_enabled: true }),
+        };
+      };
+      globalThis.window = {
+        posthog: {
+          reset: () => { reset = true; },
+          identify: (id) => { identifiedAs = id; },
+        },
+      };
+      globalThis.document = {};
+    },
+    async () => {
+      const body = await resetTelemetry();
+      assert.equal(body.distinct_id, 'new-id');
+      assert.deepEqual(posted, { url: '/api/telemetry/reset', method: 'POST' });
+      assert.equal(reset, true);
+      assert.equal(identifiedAs, 'new-id');
+    },
+  );
+});
+
+test('resetTelemetry throws on non-OK response so the UI can surface it', async () => {
+  await withFakeEnv(
+    () => {
+      globalThis.fetch = async () => ({ ok: false, status: 401, json: async () => ({}) });
+      globalThis.window = {};
+      globalThis.document = {};
+    },
+    async () => {
+      await assert.rejects(() => resetTelemetry(), /401/);
+    },
+  );
+});
+
+test('resetTelemetry no-ops PostHog calls when posthog never loaded', async () => {
+  await withFakeEnv(
+    () => {
+      globalThis.fetch = async () => ({
+        ok: true,
+        json: async () => ({ ok: true, distinct_id: 'fresh', telemetry_enabled: false }),
+      });
+      // window.posthog deliberately absent — telemetry was disabled this
+      // session, but the user may still want to rotate the persisted id.
+      globalThis.window = {};
+      globalThis.document = {};
+    },
+    async () => {
+      const body = await resetTelemetry();
+      assert.equal(body.telemetry_enabled, false);
+      assert.equal(body.distinct_id, 'fresh');
     },
   );
 });

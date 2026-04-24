@@ -223,7 +223,10 @@ builder.Services.AddHttpClient<PosthogClient>();
 builder.Services.AddSingleton(sp => new PosthogClient(
     sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(PosthogClient)),
     sp.GetService<ILogger<PosthogClient>>()));
-builder.Services.AddHostedService<TelemetryWorker>();
+// Register the worker as a singleton AND a hosted service so the reset
+// endpoint can call SendIdentifyAsync directly after rotating the id.
+builder.Services.AddSingleton<TelemetryWorker>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<TelemetryWorker>());
 
 var app = builder.Build();
 
@@ -407,6 +410,35 @@ app.MapGet("/api/telemetry_config", (AppOptions opts, InstanceIdStore instance) 
         distinct_id = instance.InstanceId,
     });
 });
+
+// Rotate the install's PostHog distinct_id. Mints a new instance id +
+// resets first_seen to now, persists, then fires a fresh $identify so
+// the new Person registers upstream without waiting for the next
+// scheduled tick. Gated behind the same auth as the watchlist —
+// reset is irreversible and visible to the maintainer's analytics.
+app.MapPost("/api/telemetry/reset", async (
+    AppOptions opts,
+    InstanceIdStore instance,
+    TelemetryWorker telemetry,
+    CancellationToken ct) =>
+{
+    await instance.ResetAsync(ct);
+    var posthogActive = opts.TelemetryEnabled
+        && !string.IsNullOrWhiteSpace(TelemetryConfig.ApiKey);
+    if (posthogActive)
+    {
+        // Fire-and-forget so the response doesn't block on the upstream
+        // POST. IdentifyAsync swallows network failures, and the next
+        // 24h tick retries anyway.
+        _ = telemetry.SendIdentifyAsync(CancellationToken.None);
+    }
+    return Results.Ok(new
+    {
+        ok = true,
+        distinct_id = instance.InstanceId,
+        telemetry_enabled = posthogActive,
+    });
+}).RequireAuthSession();
 
 app.MapGet("/api/airports", (
     [Microsoft.AspNetCore.Mvc.FromServices] AirportsDb db,

@@ -59,6 +59,47 @@ public class InstanceIdStoreTests
     }
 
     [Fact]
+    public async Task Reset_GeneratesDifferentIdAndRefreshesFirstSeen()
+    {
+        var path = NewTempFile();
+        try
+        {
+            var store = new InstanceIdStore(path);
+            await store.LoadOrCreateAsync();
+            var oldId = store.InstanceId;
+            var oldFirstSeen = store.FirstSeen;
+
+            // Sleep just enough to make first_seen demonstrably move
+            // forward. ResetAsync uses the wall clock.
+            await Task.Delay(5);
+            await store.ResetAsync();
+
+            Assert.NotEqual(oldId, store.InstanceId);
+            Assert.True(store.FirstSeen >= oldFirstSeen);
+
+            // The persisted file should now reflect the rotated id.
+            using var doc = JsonDocument.Parse(File.ReadAllText(path));
+            Assert.Equal(store.InstanceId, doc.RootElement.GetProperty("instance_id").GetString());
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task Reset_NoPath_StillRotatesInMemory()
+    {
+        var store = new InstanceIdStore(path: null);
+        await store.LoadOrCreateAsync();
+        var oldId = store.InstanceId;
+
+        await store.ResetAsync();
+
+        Assert.NotEqual(oldId, store.InstanceId);
+    }
+
+    [Fact]
     public async Task CorruptFile_RegeneratesId()
     {
         var path = NewTempFile();
