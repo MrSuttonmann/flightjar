@@ -106,6 +106,7 @@ public static class AppOptionsBinder
             BlackspotsMaxAglM = maxAgl,
             TerrainCacheDir = NullIfEmpty(Str(get, "TERRAIN_CACHE_DIR", "")) ?? "/data/terrain",
             TelemetryEnabled = Bool(get, "TELEMETRY_ENABLED", true),
+            Password = Str(get, "FLIGHTJAR_PASSWORD", ""),
         };
     }
 

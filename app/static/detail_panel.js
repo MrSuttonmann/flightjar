@@ -948,7 +948,7 @@ export function initDetailPanel() {
 
   state.detailWatchBtn.addEventListener('click', async () => {
     if (!state.selectedIcao) return;
-    const nowWatching = state.watchlist.toggle(state.selectedIcao);
+    const nowWatching = await state.watchlist.toggle(state.selectedIcao);
     if (nowWatching) await state.watchlist.setNotifyEnabled(true);
     applyWatchStateToPanel();
     if (state.lastSnap) _renderSidebar(state.lastSnap);

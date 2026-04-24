@@ -12,6 +12,7 @@
 // toggle so users can paste a fresh token without having to first
 // select-all and delete a long masked string.
 
+import { authedFetch, ensureUnlocked } from './auth.js';
 import { escapeHtml } from './format.js';
 import { lucide } from './icons_lib.js';
 
@@ -69,7 +70,7 @@ export function initAlertsDialog() {
 
   async function loadConfig() {
     try {
-      const r = await fetch(CONFIG_URL);
+      const r = await authedFetch(CONFIG_URL);
       if (!r.ok) return { channels: [] };
       const body = await r.json();
       return { channels: Array.isArray(body.channels) ? body.channels : [] };
@@ -80,7 +81,7 @@ export function initAlertsDialog() {
 
   async function saveConfig() {
     try {
-      const r = await fetch(CONFIG_URL, {
+      const r = await authedFetch(CONFIG_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ channels: state.channels }),
@@ -100,7 +101,7 @@ export function initAlertsDialog() {
     btn.textContent = 'Sending…';
     btn.disabled = true;
     try {
-      const r = await fetch(TEST_URL(id), { method: 'POST' });
+      const r = await authedFetch(TEST_URL(id), { method: 'POST' });
       btn.textContent = r.ok ? 'Sent ✓' : 'Failed';
     } catch (_) {
       btn.textContent = 'Failed';
@@ -294,6 +295,9 @@ export function initAlertsDialog() {
   // -------- dialog open/close --------
 
   document.getElementById('alerts-btn').addEventListener('click', async () => {
+    // Alerts management is gated; if the user cancels the unlock
+    // prompt, don't open the dialog.
+    if (!await ensureUnlocked()) return;
     state = await loadConfig();
     render();
     if (typeof dialog.showModal === 'function') dialog.showModal();

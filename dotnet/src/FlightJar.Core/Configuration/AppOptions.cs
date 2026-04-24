@@ -65,4 +65,12 @@ public sealed record AppOptions
     /// coordinates, no API keys / tokens. Single user opt-out:
     /// <c>TELEMETRY_ENABLED=0</c>.</summary>
     public bool TelemetryEnabled { get; init; } = true;
+
+    /// <summary>Optional shared secret. When non-empty, the notification config
+    /// + watchlist endpoints require an authenticated session cookie minted by
+    /// <c>POST /api/auth/login</c> with this password. Empty disables auth
+    /// entirely (backwards-compatible default for self-hosted users on a LAN).
+    /// Set when exposing the instance to the public internet so unauthenticated
+    /// callers can't read your bot tokens or scrape your watchlist.</summary>
+    public string Password { get; init; } = "";
 }

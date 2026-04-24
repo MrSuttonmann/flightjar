@@ -3,6 +3,7 @@
 // the update loop can call when relevant.
 
 import { applyWatchStateToPanel, selectAircraft } from './detail_panel.js';
+import { authedFetch, ensureUnlocked } from './auth.js';
 import { countHistory, renderSidebar, setRenderStats } from './sidebar.js';
 import { COUNT_HISTORY_LEN, state } from './state.js';
 import { escapeHtml } from './format.js';
@@ -412,11 +413,12 @@ function wireWatchlistRowHandlers() {
   const watchlistEntriesEl = document.getElementById('watchlist-entries');
   const dialog = document.getElementById('watchlist-dialog');
   watchlistEntriesEl.querySelectorAll('.wl-remove').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
+    btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const icao = btn.dataset.icao;
       if (!icao) return;
-      state.watchlist.remove(icao);
+      const removed = await state.watchlist.remove(icao);
+      if (!removed) return; // user cancelled the unlock prompt
       renderWatchlistDialog();
       if (state.lastSnap) renderSidebar(state.lastSnap);
       applyWatchStateToPanel();
@@ -455,9 +457,12 @@ async function renderWatchlistDialog() {
     watchlistEntriesEl.innerHTML = '';
     return;
   }
-  // Refresh server-tracked last-seen map before rendering.
+  // Refresh server-tracked last-seen map before rendering. authedFetch
+  // pops the unlock dialog if the instance is locked — opening the
+  // watchlist is a clear "I want to manage this" signal so the prompt
+  // is appropriate.
   try {
-    const r = await fetch('/api/watchlist', {
+    const r = await authedFetch('/api/watchlist', {
       headers: { Accept: 'application/json' },
     });
     if (r.ok) {
@@ -504,13 +509,25 @@ export function initWatchlistDialog() {
       return;
     }
     addErr.hidden = true;
-    const added = state.watchlist.add(raw);
+    const added = await state.watchlist.add(raw);
+    if (!added) {
+      // Either it was already on the list, or the user cancelled the
+      // unlock prompt. The first case is a no-op; the second we
+      // surface as a soft hint so the user knows the add didn't land.
+      if (state.watchlist.has(raw)) {
+        addInput.value = '';
+      } else {
+        addErr.textContent = 'Could not save — unlock the instance to manage the watchlist.';
+        addErr.hidden = false;
+      }
+      return;
+    }
     addInput.value = '';
     // First add in a session: prompt for notification permission so
     // notifications actually fire. Idempotent after the first.
-    if (added) await state.watchlist.setNotifyEnabled(true);
+    await state.watchlist.setNotifyEnabled(true);
     await renderWatchlistDialog();
-    if (added && state.lastSnap) renderSidebar(state.lastSnap);
+    if (state.lastSnap) renderSidebar(state.lastSnap);
   });
 
   notifyEl.addEventListener('change', async () => {
@@ -519,6 +536,9 @@ export function initWatchlistDialog() {
   });
 
   document.getElementById('watchlist-btn').addEventListener('click', async () => {
+    // Watchlist management is gated; if the user cancels the unlock
+    // prompt, don't open the dialog.
+    if (!await ensureUnlocked()) return;
     await renderWatchlistDialog();
     if (typeof dialog.showModal === 'function') dialog.showModal();
     else dialog.setAttribute('open', '');

@@ -48,6 +48,14 @@ public sealed class TelemetryWorker(
             "telemetry: enabled, instance {InstanceId}",
             instanceStore.InstanceId);
 
+        // Register the Person profile with PostHog on cold start.
+        // Stable per-install attributes (version, feature flags, coarse
+        // region) go into $set; the install's first-seen timestamp goes
+        // into $set_once so it survives version bumps without being
+        // overwritten. Runs before the warmup delay so a Person exists
+        // in PostHog before any per-tick events land against it.
+        await SendIdentifyAsync(stoppingToken);
+
         try
         {
             await Task.Delay(WarmupDelay, time, stoppingToken);
@@ -63,6 +71,22 @@ public sealed class TelemetryWorker(
             }
             catch (OperationCanceledException) { return; }
         }
+    }
+
+    internal async Task SendIdentifyAsync(CancellationToken ct)
+    {
+        var (set, setOnce) = TelemetryPayloadBuilder.BuildIdentify(
+            options: options,
+            firstSeen: instanceStore.FirstSeen);
+
+        _ = await posthog.IdentifyAsync(
+            host: TelemetryConfig.Host,
+            apiKey: TelemetryConfig.ApiKey,
+            distinctId: instanceStore.InstanceId,
+            setProperties: set,
+            setOnceProperties: setOnce,
+            timestamp: time.GetUtcNow(),
+            ct: ct);
     }
 
     internal async Task SendPingAsync(CancellationToken ct)
@@ -145,5 +169,49 @@ public static class TelemetryPayloadBuilder
         }
 
         return props;
+    }
+
+    /// <summary>
+    /// Build the property pair for a PostHog <c>$identify</c> event.
+    /// <c>$set</c> holds attributes that may change between runs
+    /// (version, feature-flag booleans, coarse region) so the Person
+    /// profile reflects current state. <c>$set_once</c> holds the
+    /// install's first-seen timestamp so the original value sticks
+    /// even if a later run somehow re-sends a different one.
+    /// </summary>
+    public static (IReadOnlyDictionary<string, object?> Set,
+                   IReadOnlyDictionary<string, object?> SetOnce)
+        BuildIdentify(AppOptions options, DateTimeOffset firstSeen)
+    {
+        var set = new Dictionary<string, object?>
+        {
+            ["$lib"] = "flightjar",
+            ["version"] = Environment.GetEnvironmentVariable("FLIGHTJAR_VERSION") ?? "dev",
+
+            // Same geoip-disable hint as the per-event payload — without
+            // it PostHog rewrites the Person's location every time the
+            // public IP resolves to a different city.
+            ["$geoip_disable"] = true,
+            ["$ip"] = "",
+
+            ["feature_flight_routes"] = options.FlightRoutesEnabled,
+            ["feature_metar"] = options.MetarEnabled,
+            ["feature_openaip"] = !string.IsNullOrWhiteSpace(options.OpenAipApiKey),
+            ["feature_blackspots"] = options.BlackspotsEnabled
+                && options.LatRef is not null && options.LonRef is not null,
+        };
+
+        if (options.LatRef is double lat && options.LonRef is double lon)
+        {
+            set["region_lat_10"] = (int)Math.Round(lat / 10.0) * 10;
+            set["region_lon_10"] = (int)Math.Round(lon / 10.0) * 10;
+        }
+
+        var setOnce = new Dictionary<string, object?>
+        {
+            ["first_seen_iso"] = firstSeen.ToString("O"),
+        };
+
+        return (set, setOnce);
     }
 }

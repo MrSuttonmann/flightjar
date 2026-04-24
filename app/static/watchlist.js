@@ -2,14 +2,21 @@
 // lowercase hex strings in localStorage under a single JSON-array key
 // AND mirrored to the server via /api/watchlist so the backend can fire
 // Telegram / ntfy / webhook alerts when a watched tail reappears — even
-// when no browser tab is open. The browser is authoritative for UI
-// state; the server is authoritative for alerts.
+// when no browser tab is open.
 //
-// Sync policy (union-merge on load):
-//   1. Initialise from localStorage (offline-first).
-//   2. Pull the server's list in the background. Union remote + local.
-//   3. If the union differs from the server copy, push it back.
-//   4. Every add/remove POSTs the full list to the server.
+// Sync policy:
+//   - On boot: union-merge localStorage with the server's list. Skip
+//     silently when the server's locked (no auto-prompt on page load).
+//   - Mutations (add/remove): push the *tentative* new set to the
+//     server first; only commit to localStorage on 2xx. If the server
+//     returns 401 the user gets the unlock dialog; if they cancel,
+//     the mutation is aborted entirely and local state is unchanged.
+//     This is the security boundary — a tampered localStorage cannot
+//     forge a watchlist entry the server didn't accept.
+//   - Network / 5xx errors still commit locally (offline-friendly):
+//     the next reload's union-merge reconciles. Auth failure does not.
+
+import { authedFetch } from './auth.js';
 
 const STORAGE_KEY = 'flightjar.watchlist';
 const NOTIF_PREF_KEY = 'flightjar.watchlist.notify';
@@ -44,29 +51,44 @@ export function createWatchlist() {
   const seenThisSession = new Set();
   let notifyEnabled = localStorage.getItem(NOTIF_PREF_KEY) === '1';
 
-  // Server sync — best-effort, silent on failure so the UI stays
-  // usable when offline. The server listens for snapshot ticks on its
-  // own side and fires backend notifications; our job is just to keep
-  // it mirrored with what the user has starred.
-  async function pushToServer() {
+  // Push a tentative set to the server. Returns one of:
+  //   'committed'      — server accepted it, commit locally
+  //   'auth-rejected'  — 401 with no successful unlock; abort mutation
+  //   'transient'      — network/5xx; commit locally, reconcile later
+  // Plain fetch is fine for the unauthed 'feature disabled' path
+  // because the server returns 200 on every call; authedFetch handles
+  // the 401-prompt-and-retry cycle when auth is enabled.
+  async function pushTentative(targetSet) {
     try {
-      await fetch(SYNC_URL, {
+      const r = await authedFetch(SYNC_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ icao24s: [...set] }),
+        body: JSON.stringify({ icao24s: [...targetSet] }),
       });
-    } catch (_) { /* offline — UI + localStorage still work */ }
+      if (r.ok) return 'committed';
+      if (r.status === 401) return 'auth-rejected';
+      return 'transient';
+    } catch (_) {
+      return 'transient';
+    }
   }
 
-  // Union-merge on load: entries on either side survive, duplicates
-  // collapse. Push back if the union grew the server's copy.
+  // Initial union-merge with the server's list. Plain fetch (no
+  // unlock prompt) — when the instance is locked we want the page
+  // to load cleanly; the user gets the prompt when they take an
+  // action that needs auth.
   async function pullAndMergeFromServer() {
     try {
-      const r = await fetch(SYNC_URL, { headers: { 'Accept': 'application/json' } });
+      const r = await fetch(SYNC_URL, {
+        headers: { 'Accept': 'application/json' },
+        credentials: 'same-origin',
+      });
+      if (r.status === 401) return;          // locked — skip silently
       if (!r.ok) {
-        // Endpoint missing (older server) — push our state so the next
-        // reload at least has something to union with.
-        if (set.size > 0) pushToServer();
+        // Endpoint missing (older server) — push our state via
+        // authedFetch so the next reload at least has something
+        // to union with.
+        if (set.size > 0) pushTentative(set);
         return;
       }
       const data = await r.json();
@@ -80,8 +102,10 @@ export function createWatchlist() {
         if (!set.has(k)) { set.add(k); changed = true; }
       }
       if (changed) saveSet(set);
-      // Any local-only entries need mirroring back up to the server.
-      if ([...set].some((k) => !remote.has(k))) pushToServer();
+      // Any local-only entries need mirroring back up. authedFetch
+      // would prompt if locked — the operator just unlocked moments
+      // ago by visiting this page, so it's fine to ask.
+      if ([...set].some((k) => !remote.has(k))) pushTentative(set);
     } catch (_) { /* offline — keep local state, retry on next reload */ }
   }
 
@@ -93,31 +117,41 @@ export function createWatchlist() {
     return set.has((icao || '').toLowerCase());
   }
 
-  function add(icao) {
+  async function add(icao) {
     const key = (icao || '').toLowerCase();
     if (!key) return false;
     if (set.has(key)) return false;
+    // Tentative copy — only mutate the real set after the server
+    // confirms (or fails non-auth-related-ly).
+    const next = new Set(set);
+    next.add(key);
+    const result = await pushTentative(next);
+    if (result === 'auth-rejected') return false;
     set.add(key);
     saveSet(set);
-    pushToServer();
     return true;
   }
 
-  function remove(icao) {
+  async function remove(icao) {
     const key = (icao || '').toLowerCase();
-    if (!set.delete(key)) return false;
+    if (!set.has(key)) return false;
+    const next = new Set(set);
+    next.delete(key);
+    const result = await pushTentative(next);
+    if (result === 'auth-rejected') return false;
+    set.delete(key);
     saveSet(set);
-    pushToServer();
     return true;
   }
 
-  function toggle(icao) {
+  async function toggle(icao) {
     if (has(icao)) {
-      remove(icao);
-      return false;
+      const removed = await remove(icao);
+      return !removed; // false when removal landed (no longer watching)
+                       // true when removal was rejected (still watching)
     }
-    add(icao);
-    return true;
+    const added = await add(icao);
+    return added;
   }
 
   function size() {

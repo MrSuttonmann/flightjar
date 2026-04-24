@@ -20,6 +20,36 @@ public sealed class PosthogClient
         _logger = logger ?? NullLogger<PosthogClient>.Instance;
     }
 
+    /// <summary>
+    /// Send a PostHog <c>$identify</c> event. Same endpoint as a regular
+    /// capture, but the event name + <c>$set</c> / <c>$set_once</c>
+    /// property bags tell PostHog to attach the values to the Person
+    /// profile rather than to a single event. Use <paramref
+    /// name="setProperties"/> for attributes that may change (version,
+    /// feature flags) and <paramref name="setOnceProperties"/> for
+    /// values that should stick to their first-seen value (install
+    /// first-seen timestamp).
+    /// </summary>
+    public Task<bool> IdentifyAsync(
+        string host,
+        string apiKey,
+        string distinctId,
+        IReadOnlyDictionary<string, object?> setProperties,
+        IReadOnlyDictionary<string, object?>? setOnceProperties,
+        DateTimeOffset timestamp,
+        CancellationToken ct = default)
+    {
+        var props = new Dictionary<string, object?>
+        {
+            ["$set"] = setProperties,
+        };
+        if (setOnceProperties is { Count: > 0 })
+        {
+            props["$set_once"] = setOnceProperties;
+        }
+        return CaptureAsync(host, apiKey, "$identify", distinctId, props, timestamp, ct);
+    }
+
     public async Task<bool> CaptureAsync(
         string host,
         string apiKey,

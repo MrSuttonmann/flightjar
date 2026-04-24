@@ -378,7 +378,51 @@
   #watchlist-dialog .about-close-form,
   #alerts-dialog .about-close-form,
   #airspace-filters-dialog .about-close-form,
-  #map-key-dialog .about-close-form {
+  #map-key-dialog .about-close-form,
+  #auth-dialog .about-close-form {
     position: sticky; top: 0; z-index: 2;
     background: var(--panel);
   }
+
+  /* Unlock dialog. Same modal shell as the others; minimal form
+     because there's only one credential to collect. */
+  #auth-dialog { max-width: 360px; width: 90vw;
+                 border: 1px solid var(--border); border-radius: 6px;
+                 background: var(--panel); color: var(--text);
+                 padding: 20px 24px 24px;
+                 box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+                 font-size: 13px; line-height: 1.45; }
+  #auth-dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
+  #auth-dialog h2 { margin: 0 0 8px; font-size: 18px; font-weight: 600; }
+  #auth-dialog p { margin: 0 0 12px; color: var(--muted); }
+  #auth-dialog .about-close { background: transparent; border: 0;
+                              color: var(--muted); cursor: pointer;
+                              padding: 2px 4px; margin: -6px -8px 0 0;
+                              display: inline-flex; align-items: center;
+                              justify-content: center; }
+  #auth-dialog .about-close svg { display: block; }
+  #auth-dialog .about-close:hover { color: var(--text); }
+  /* Visually hidden username input — present in the DOM so password
+     managers detect this as a credential form, but never visible to
+     the user. Avoid display:none, which some managers skip. */
+  .auth-username-shim {
+    position: absolute; left: -9999px; width: 1px; height: 1px;
+    opacity: 0; pointer-events: none;
+  }
+  .auth-form { display: flex; flex-direction: column; gap: 10px; }
+  .auth-field { display: flex; flex-direction: column; gap: 4px;
+                font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px;
+                color: var(--muted); font-weight: 600; }
+  .auth-field input {
+    padding: 7px 10px; font-family: inherit; font-size: 13px;
+    text-transform: none; letter-spacing: normal; font-weight: 400;
+    background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 3px;
+  }
+  .auth-field input:focus { outline: none; border-color: var(--accent); }
+  .auth-error { color: #fca5a5; font-size: 12px; margin: 0; }
+  .auth-actions { display: flex; justify-content: flex-end; margin-top: 4px; }
+  .auth-submit { padding: 7px 16px; font-size: 13px; font-family: inherit;
+                 cursor: pointer; background: var(--accent); color: #fff;
+                 border: 0; border-radius: 3px; }
+  .auth-submit:hover { background: #1d4ed8; }

@@ -108,6 +108,24 @@
       </svg>
       <span class="footer-btn-label">Alerts</span>
     </button>
+    <button id="auth-lock-btn" type="button" title="Locked — click to unlock"
+            aria-label="Lock or unlock notification settings" aria-pressed="false" hidden>
+      <!-- lucide: lock (locked state) -->
+      <svg class="auth-lock-icon-locked" viewBox="0 0 24 24" aria-hidden="true" fill="none"
+           stroke="currentColor" stroke-width="1.8"
+           stroke-linecap="round" stroke-linejoin="round">
+        <rect width="18" height="11" x="3" y="11" rx="2" ry="2"/>
+        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+      </svg>
+      <!-- lucide: lock-open (unlocked state) -->
+      <svg class="auth-lock-icon-unlocked" viewBox="0 0 24 24" aria-hidden="true" fill="none"
+           stroke="currentColor" stroke-width="1.8"
+           stroke-linecap="round" stroke-linejoin="round">
+        <rect width="18" height="11" x="3" y="11" rx="2" ry="2"/>
+        <path d="M7 11V7a5 5 0 0 1 9.9-1"/>
+      </svg>
+      <span class="footer-btn-label">Lock</span>
+    </button>
     <button id="about-btn" type="button" title="Credits and dependencies" aria-label="Credits and dependencies">
       <!-- lucide: info -->
       <svg viewBox="0 0 24 24" aria-hidden="true" fill="none"
@@ -324,6 +342,47 @@
         chart overlays. Charts are US Federal Government public domain;
         tile hosting by VFRMap.com.</li>
   </ul>
+</dialog>
+
+<!-- Optional unlock dialog. Shown when the server requires a password
+     (FLIGHTJAR_PASSWORD env var) and the user tries an action that
+     hits a gated endpoint. Real <form> with hidden username field +
+     autocomplete=current-password so password managers detect it
+     and offer to save / autofill. The username is a fixed sentinel
+     ("flightjar") because the server only checks the password. -->
+<dialog id="auth-dialog">
+  <form method="dialog" class="about-close-form">
+    <button class="about-close" value="close" aria-label="Close">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"
+           fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+      </svg>
+    </button>
+  </form>
+  <h2>Unlock settings</h2>
+  <p class="about-body">
+    This Flightjar instance is password-protected. Enter the password to
+    manage the watchlist and notification channels.
+  </p>
+  <form id="auth-form" class="auth-form" action="/api/auth/login" method="post">
+    <!-- Hidden but DOM-present so password managers detect this as a
+         credential form. Visually offscreen rather than display:none —
+         some managers (Bitwarden, 1Password) skip display:none fields. -->
+    <input type="text" name="username" autocomplete="username"
+           value="flightjar" readonly aria-hidden="true" tabindex="-1"
+           class="auth-username-shim">
+    <label class="auth-field">
+      <span>Password</span>
+      <input id="auth-password" name="password" type="password"
+             autocomplete="current-password" required
+             aria-describedby="auth-error">
+    </label>
+    <div id="auth-error" class="auth-error" role="alert" hidden></div>
+    <div class="auth-actions">
+      <button type="submit" class="auth-submit">Unlock</button>
+    </div>
+  </form>
 </dialog>
 
 <dialog id="map-key-dialog">
