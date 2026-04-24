@@ -275,8 +275,13 @@ function mockTailRecord(icaoHex, photoDataUri) {
 // gaps), and picks a couple of "unreachable" cells at the far edges.
 function mockBlackspotsGrid(targetAltM) {
   const gridDeg = 0.05;
-  const groundM = 72;
-  const antennaMslM = 25;
+  // Plausible suburban receiver: ground at ~45 m MSL, antenna on a
+  // roof-mounted mast ~13 m above that. Ground MUST stay below antenna
+  // — an antenna-MSL lower than ground-MSL surfaces as a negative AGL
+  // in the tooltip ("You have X m MSL (-Y m AGL)"), which reads as if
+  // the receiver is buried.
+  const groundM = 45;
+  const antennaMslM = 58;
   const radiusDeg = 1.6; // ~175 km N/S at UK latitudes
   const cells = [];
 
