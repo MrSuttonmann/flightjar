@@ -137,6 +137,16 @@ jobs:
             type=semver,pattern={{version}}
             type=raw,value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
 
+      # Rolling weekly key for the upstream-data layer in the Dockerfile.
+      # Per-commit pushes hit the cache (so a code-only change doesn't
+      # re-pull aircraft_db / airports / navaids / airlines / shapes);
+      # a real upstream change comes in within 7 days. Bump-on-demand:
+      # change this format string or trigger a workflow_dispatch with
+      # --no-cache equivalent.
+      - name: Compute weekly data cachebust
+        id: cachebust
+        run: echo "value=$(date -u +%Y-W%V)" >> "$GITHUB_OUTPUT"
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
@@ -146,16 +156,15 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # DATA_CACHEBUST is a per-commit string that's referenced in
-          # the Dockerfile just above the data-fetch RUN layers, so those
-          # never serve cached (potentially months-old) aircraft /
-          # airport / tar1090-marker data. Everything else (dotnet publish,
-          # static-asset copy) still caches normally between builds.
-          # FLIGHTJAR_VERSION stamps the image with the commit that
-          # produced it; /api/stats exposes it and the About dialog
-          # shows the short form next to the title.
+          # DATA_CACHEBUST is a weekly ISO-week string (YYYY-WNN) so
+          # commits don't re-pull unchanged upstream files but a real
+          # upstream change comes in within ~7 days. Everything else
+          # (dotnet publish, static-asset copy) still caches normally
+          # between builds. FLIGHTJAR_VERSION stamps the image with
+          # the commit that produced it; /api/stats exposes it and the
+          # About dialog shows the short form next to the title.
           build-args: |
-            DATA_CACHEBUST=${{ github.sha }}
+            DATA_CACHEBUST=${{ steps.cachebust.outputs.value }}
             FLIGHTJAR_VERSION=${{ github.sha }}
             POSTHOG_API_KEY=${{ vars.POSTHOG_API_KEY }}
           cache-from: type=gha

@@ -1,14 +1,25 @@
 # ---- builder ----
 #
-# Restores NuGet packages + publishes the Api in Release. The SDK image
-# is chunky (~800 MB) so everything heavy lives here and the runtime
-# image only gets the published output.
+# Pinned to $BUILDPLATFORM so this entire stage runs once on the build
+# host (typically linux/amd64) regardless of how many target platforms
+# the runtime stage is being assembled for. Without this pin, every
+# RUN here would execute under QEMU emulation for every non-native
+# target arch — `dotnet publish` under emulated arm64 is 4–6× slower
+# than native, and the architecture-agnostic data downloads (CSVs +
+# the OpenFlights .dat) would re-fetch identical bytes per target.
 #
-# Also fetches the public-domain data files (tar1090-db aircraft DB,
-# OurAirports airports + navaids, OpenFlights airlines) + the tar1090
-# plane silhouettes bundle. `DATA_CACHEBUST` stuck above those RUN layers
+# `dotnet publish` with no `-r` flag and `UseAppHost=false` produces
+# portable IL — no native binaries, runs unchanged on any RID. The
+# per-arch runtime stage just COPYs the same /out into both the
+# linux/amd64 and linux/arm64 ASP.NET Core base images.
+#
+# The SDK image is chunky (~800 MB) so everything heavy lives here
+# and the runtime image only gets the published output. Also fetches
+# the public-domain data files (tar1090-db aircraft DB, OurAirports
+# airports + navaids, OpenFlights airlines) + the tar1090 plane
+# silhouettes bundle. `DATA_CACHEBUST` stuck above those RUN layers
 # so Docker can't freeze us on a stale snapshot from an earlier build.
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS builder
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS builder
 
 # Install Python (small — ~20 MB) for the tar1090 shapes fetch script,
 # and curl for the upstream data downloads.
@@ -38,13 +49,19 @@ COPY dotnet/src ./src
 # public client-side keys, not secrets); local `docker build` can
 # override with `--build-arg POSTHOG_API_KEY=phc_xxx`.
 ARG POSTHOG_API_KEY=""
+# UseAppHost=false skips the small native ./FlightJar.Api launcher —
+# unused (ENTRYPOINT is `dotnet ...dll`) and the only build-host-arch-
+# specific artifact `dotnet publish` would otherwise emit. Keeps /out
+# fully portable across the per-arch runtime images downstream.
 RUN dotnet publish src/FlightJar.Api/FlightJar.Api.csproj -c Release -o /out --no-restore \
-    -p:PosthogApiKey="$POSTHOG_API_KEY"
+    -p:PosthogApiKey="$POSTHOG_API_KEY" \
+    -p:UseAppHost=false
 
-# Upstream data — changes outside our control so we cache-bust per build.
-# CI sets DATA_CACHEBUST to the git sha; local `docker build --build-arg
-# DATA_CACHEBUST=$(date +%s)` forces a fresh pull, `--no-cache` is the
-# sledgehammer fallback.
+# Upstream data — changes outside our control so we cache-bust on a
+# rolling key. CI sets DATA_CACHEBUST to an ISO week (YYYY-WNN), so
+# regular commits hit the cache and a real upstream change comes in
+# within ~7 days. Local `docker build --build-arg DATA_CACHEBUST=$(date +%s)`
+# forces a fresh pull; `--no-cache` is the sledgehammer fallback.
 ARG DATA_CACHEBUST=static
 
 ARG AIRCRAFT_DB_URL=https://raw.githubusercontent.com/wiedehopf/tar1090-db/refs/heads/csv/aircraft.csv.gz
@@ -97,6 +114,12 @@ RUN set -eu; \
 
 
 # ---- runtime ----
+#
+# Per-arch — this is the only stage buildx assembles separately for
+# linux/amd64 and linux/arm64. No RUN under emulation needed (apt-get
+# is a `RUN`, but this stage runs natively on each target node when
+# the multi-arch manifest is being built; or, in single-arch builds,
+# just once).
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 
 # curl for the docker-native healthcheck.
