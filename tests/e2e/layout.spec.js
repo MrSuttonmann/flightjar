@@ -235,3 +235,99 @@ test('no console errors during a typical UI session', async ({ page }) => {
   await page.waitForTimeout(400);
   expect(errors, errors.join('\n')).toEqual([]);
 });
+
+test('detail panel renders Enhanced Mode S section when comm_b is present', async ({ page }) => {
+  // Inject a fake snapshot with a fully populated comm_b block and
+  // assert that the .panel-met section is visible with the expected
+  // metric tiles. Guards against schema-drift (e.g. renaming a field
+  // like `mach` → `mach_number` on the backend) silently hiding the
+  // entire new panel.
+  const snapWithMet = {
+    ...FAKE_SNAPSHOT,
+    aircraft: [{
+      ...FAKE_AIRCRAFT,
+      comm_b: {
+        selected_altitude_mcp_ft: 36000,
+        qnh_hpa: 1013.2,
+        wind_speed_kt: 72,
+        wind_direction_deg: 258,
+        static_air_temperature_c: -56.3,
+        total_air_temperature_c: -26.1,
+        static_pressure_hpa: 214,
+        humidity_pct: 8.3,
+        turbulence: 1,
+        mach: 0.81,
+        indicated_airspeed_kt: 287,
+        true_airspeed_kt: 471,
+        groundspeed_kt: 465,
+        magnetic_heading_deg: 92,
+        true_track_deg: 95,
+        roll_deg: -1.4,
+        track_rate_deg_per_s: 0.12,
+        baro_vertical_rate_fpm: 0,
+        inertial_vertical_rate_fpm: -32,
+        bds40_at: Date.now() / 1000,
+        bds44_at: Date.now() / 1000,
+        bds50_at: Date.now() / 1000,
+        bds60_at: Date.now() / 1000,
+      },
+    }],
+  };
+  await page.evaluate(async (snap) => {
+    const uMod = await import('/static/update_loop.js');
+    uMod.update(snap);
+    const m = await import('/static/detail_panel.js');
+    m.openDetailPanel('a12345');
+  }, snapWithMet);
+  await page.waitForTimeout(300);
+
+  const visible = await page.evaluate(() => {
+    const sec = document.querySelector('.panel-met');
+    if (!sec || sec.hidden) return { sectionVisible: false };
+    const tiles = Array.from(sec.querySelectorAll('.panel-met-grid .metric'))
+      .filter((el) => !el.hidden)
+      .map((el) => ({
+        label: el.querySelector('.label')?.textContent,
+        val: el.querySelector('.val')?.textContent,
+      }));
+    return { sectionVisible: true, tiles };
+  });
+  expect(visible.sectionVisible).toBe(true);
+  // Sanity: at least the four headline fields the user asked for
+  // (wind, OAT, QNH, Mach) must all render. The label text now
+  // includes the trailing help-icon text node (empty from the SVG),
+  // so `includes` rather than an exact match.
+  const labels = visible.tiles.map((t) => (t.label || '').trim());
+  expect(labels.some((l) => l.startsWith('Wind'))).toBe(true);
+  expect(labels.some((l) => l.startsWith('OAT / SAT'))).toBe(true);
+  expect(labels.some((l) => l.startsWith('QNH'))).toBe(true);
+  expect(labels.some((l) => l.startsWith('Mach'))).toBe(true);
+});
+
+test('detail panel metric labels carry help icons with explanations', async ({ page }) => {
+  // Open the panel for a plain aircraft (no comm_b needed — every
+  // .panel-meta tile should have a help icon regardless of the data).
+  await page.evaluate(async (snap) => {
+    const uMod = await import('/static/update_loop.js');
+    uMod.update(snap);
+    const m = await import('/static/detail_panel.js');
+    m.openDetailPanel('a12345');
+  }, FAKE_SNAPSHOT);
+  await page.waitForTimeout(250);
+
+  const audit = await page.evaluate(() => {
+    const icons = Array.from(document.querySelectorAll('#detail-panel .help-icon'));
+    return {
+      count: icons.length,
+      sampleHelp: icons.find((el) => el.closest('.metric')?.querySelector('.label')?.textContent?.includes('Altitude'))
+        ?.dataset?.help ?? null,
+    };
+  });
+  // Every metric in .panel-meta has a help entry registered, so we
+  // expect at least 9 icons (alt/speed/heading/vrate/squawk/distance/
+  // lat/lon/flown).
+  expect(audit.count).toBeGreaterThanOrEqual(9);
+  // The altitude tile's help text should mention "altitude" — loose
+  // substring check so future prose edits don't break the test.
+  expect(audit.sampleHelp?.toLowerCase()).toContain('altitude');
+});

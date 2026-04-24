@@ -59,6 +59,26 @@
     max-width: 240px; pointer-events: none;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
   }
+  /* Wider variant applied by tooltip.js when the trigger carries a
+     [data-help] attribute (explanatory prose, not a short name label). */
+  #airport-tooltip.tip-help {
+    max-width: 320px;
+    padding: 6px 10px;
+    line-height: 1.4;
+    text-align: left;
+    white-space: normal;
+  }
+  /* Inline "?" glyph appended to detail-panel metric labels. Kept tiny
+     and low-contrast so it doesn't upstage the label text, but tappable
+     on mobile — the span, not just the SVG, is the hit target. */
+  .help-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 13px; height: 13px; margin-left: 2px;
+    color: var(--muted); opacity: 0.7;
+    cursor: help; vertical-align: baseline;
+  }
+  .help-icon:hover, .help-icon:focus { opacity: 1; outline: none; }
+  .help-icon svg { display: block; }
   .alt-tag { font-size: 10px; color: var(--muted); font-weight: 400; }
   .plane-icon { background: transparent !important; border: none !important; }
   .receiver-icon { background: transparent !important; border: none !important; }
@@ -86,7 +106,11 @@
        transition on close only) keeps it out of the a11y tree and blocks
        pointer events when invisible. */
     position: absolute; top: 10px; bottom: 10px;
-    left: 330px; width: 360px; z-index: 1000;
+    /* Width was 360px before the Enhanced Mode S grid landed — at 3
+       columns each tile had only ~110px, which squashed values like
+       "-56.8 °C derived" and "36000 ft" onto two lines. 420px gives
+       ~130px per tile with a bit of headroom for longer strings. */
+    left: 330px; width: 420px; z-index: 1000;
     background: var(--panel);
     border: 1px solid var(--border); border-radius: 8px;
     overflow-y: auto;
@@ -290,6 +314,29 @@
                                text-transform: uppercase; letter-spacing: 0.6px; }
   .panel-meta .metric .val { font-size: 13px; margin-top: 1px;
                              white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+
+  /* Enhanced Mode S (Comm-B) block. Same metric tile styling as
+     .panel-meta but with its own sub-heading that carries a "· live"
+     / "· 12s ago" freshness hint so the reader can tell at a glance
+     whether the values are current or aging out of the 120s window. */
+  .panel-met { background: rgba(255, 255, 255, 0.03);
+               border: 1px solid var(--border); border-radius: 4px;
+               padding: 7px 10px; }
+  .panel-met .panel-met-sub { font-size: 9px; color: var(--muted);
+                              text-transform: none; letter-spacing: 0;
+                              font-weight: 400; }
+  .panel-met-grid { display: grid; grid-template-columns: repeat(3, 1fr);
+                    gap: 6px; }
+  .panel-met-grid .metric { background: rgba(255, 255, 255, 0.04);
+                            border: 1px solid var(--border); border-radius: 4px;
+                            padding: 6px 8px; overflow: hidden; }
+  .panel-met-grid .metric .label { font-size: 9px; color: var(--muted);
+                                   text-transform: uppercase; letter-spacing: 0.6px; }
+  .panel-met-grid .metric .val { font-size: 13px; margin-top: 1px;
+                                 white-space: nowrap; text-overflow: ellipsis;
+                                 overflow: hidden;
+                                 font-variant-numeric: tabular-nums; }
+  .panel-met-grid .metric .val .met-sub { font-size: 10px; color: var(--muted); }
 
   /* Altitude profile sparkline — stretches to the panel width and scales
      with the panel. Drawn each tick by renderAltProfile() in app.js. */

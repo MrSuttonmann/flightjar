@@ -111,6 +111,146 @@ public class AircraftRegistryTests
     }
 
     [Fact]
+    public void CommB_Bds44_PopulatesWindAndTemperatureInSnapshot()
+    {
+        var reg = MakeRegistry();
+        reg.Ingest("ID01xxxx", now: 10.0);  // seed callsign so snapshot includes aircraft
+        reg.Ingest("BD44xxxx", now: 10.1);
+        var snap = reg.Snapshot(now: 10.2);
+        var commB = snap.Aircraft[0].CommB;
+        Assert.NotNull(commB);
+        Assert.Equal(50, commB!.WindSpeedKt);
+        Assert.Equal(270.0, commB.WindDirectionDeg);
+        Assert.Equal(-55.0, commB.StaticAirTemperatureC);
+        Assert.Equal("observed", commB.StaticAirTemperatureSource);
+        // TAT is only derived when SAT AND Mach are fresh.
+        Assert.Null(commB.TotalAirTemperatureC);
+    }
+
+    [Fact]
+    public void CommB_Bds60_PopulatesMachAndHeading()
+    {
+        var reg = MakeRegistry();
+        reg.Ingest("ID01xxxx", now: 10.0);
+        reg.Ingest("BD60xxxx", now: 10.1);
+        var snap = reg.Snapshot(now: 10.2);
+        var commB = snap.Aircraft[0].CommB;
+        Assert.NotNull(commB);
+        Assert.Equal(0.82, commB!.Mach);
+        Assert.Equal(285, commB.IndicatedAirspeedKt);
+        Assert.Equal(95.0, commB.MagneticHeadingDeg);
+    }
+
+    [Fact]
+    public void CommB_Bds44AndBds60_DeriveTatFromSatAndMach()
+    {
+        var reg = MakeRegistry();
+        reg.Ingest("ID01xxxx", now: 10.0);
+        reg.Ingest("BD44xxxx", now: 10.1);  // SAT = -55 °C
+        reg.Ingest("BD60xxxx", now: 10.2);  // Mach = 0.82
+        var snap = reg.Snapshot(now: 10.3);
+        var commB = snap.Aircraft[0].CommB;
+        Assert.NotNull(commB);
+        Assert.NotNull(commB!.TotalAirTemperatureC);
+        // TAT_K = SAT_K * (1 + 0.2 * M^2) = (218.15) * (1 + 0.2 * 0.6724)
+        //       = 218.15 * 1.13448 = 247.47 K → 247.47 - 273.15 = -25.68 °C
+        Assert.Equal(-25.68, commB.TotalAirTemperatureC!.Value, 0.1);
+    }
+
+    [Fact]
+    public void CommB_Bds40_PopulatesQnhAndAutopilotTarget()
+    {
+        var reg = MakeRegistry();
+        reg.Ingest("ID01xxxx", now: 10.0);
+        reg.Ingest("BD40xxxx", now: 10.1);
+        var snap = reg.Snapshot(now: 10.2);
+        var commB = snap.Aircraft[0].CommB;
+        Assert.NotNull(commB);
+        Assert.Equal(1013.0, commB!.QnhHpa);
+        Assert.Equal(36000, commB.SelectedAltitudeMcpFt);
+    }
+
+    [Fact]
+    public void CommB_StaleValuesAreFilteredFromSnapshot()
+    {
+        var reg = MakeRegistry();
+        reg.Ingest("ID01xxxx", now: 10.0);
+        reg.Ingest("BD44xxxx", now: 10.1);
+        // Jump clock past CommBMaxAge so the BDS 4,4 decode ages out.
+        var snap = reg.Snapshot(now: 10.1 + AircraftRegistry.CommBMaxAge + 1);
+        Assert.Null(snap.Aircraft[0].CommB);
+    }
+
+    [Fact]
+    public void CommB_DifferentRegistersDoNotClobberEachOther()
+    {
+        var reg = MakeRegistry();
+        reg.Ingest("ID01xxxx", now: 10.0);
+        reg.Ingest("BD44xxxx", now: 10.1);  // sets wind + SAT
+        reg.Ingest("BD60xxxx", now: 10.2);  // sets mach + heading (must NOT clear wind)
+        var snap = reg.Snapshot(now: 10.3);
+        var commB = snap.Aircraft[0].CommB;
+        Assert.NotNull(commB);
+        Assert.Equal(50, commB!.WindSpeedKt);
+        Assert.Equal(0.82, commB.Mach);
+    }
+
+    [Fact]
+    public void CommB_DerivesSatFromTasAndMachWhenBds44Absent()
+    {
+        // BDS 4,4 is pilot-optional; when it never arrives but we do have
+        // TAS (BDS 5,0) + Mach (BDS 6,0), SAT is derivable from
+        // a = TAS / M, T_K = a² / (γR). TAS 470 kt + M 0.82 → SAT ~ -57 °C.
+        var reg = MakeRegistry();
+        reg.Ingest("ID01xxxx", now: 10.0);
+        reg.Ingest("BD50xxxx", now: 10.1);
+        reg.Ingest("BD60xxxx", now: 10.2);
+        var snap = reg.Snapshot(now: 10.3);
+        var commB = snap.Aircraft[0].CommB;
+        Assert.NotNull(commB);
+        Assert.NotNull(commB!.StaticAirTemperatureC);
+        Assert.Equal(-56.8, commB.StaticAirTemperatureC!.Value, 0.5);
+        Assert.Equal("derived", commB.StaticAirTemperatureSource);
+        // TAT must also derive in this state (uses the derived SAT + Mach).
+        Assert.NotNull(commB.TotalAirTemperatureC);
+        Assert.Equal(-27.7, commB.TotalAirTemperatureC!.Value, 0.5);
+    }
+
+    [Fact]
+    public void CommB_PrefersObservedSatOverDerived()
+    {
+        // When BDS 4,4 IS present, it wins over the TAS/Mach derivation —
+        // a direct reading from the aircraft is always preferable.
+        var reg = MakeRegistry();
+        reg.Ingest("ID01xxxx", now: 10.0);
+        reg.Ingest("BD50xxxx", now: 10.1);  // would derive SAT ~ -57 °C
+        reg.Ingest("BD60xxxx", now: 10.2);
+        reg.Ingest("BD44xxxx", now: 10.3);  // observed SAT = -55 °C
+        var snap = reg.Snapshot(now: 10.4);
+        var commB = snap.Aircraft[0].CommB;
+        Assert.NotNull(commB);
+        Assert.Equal(-55.0, commB!.StaticAirTemperatureC);
+        Assert.Equal("observed", commB.StaticAirTemperatureSource);
+    }
+
+    [Fact]
+    public void CommB_DerivationRejectsImplausibleTemperature()
+    {
+        // If the TAS/Mach pair would yield a temperature outside [150 K,
+        // 320 K] — e.g. Mach 0.05 during a taxi transient with a stale
+        // TAS reading — blank the value rather than display garbage.
+        var reg = MakeRegistry();
+        reg.Ingest("ID01xxxx", now: 10.0);
+        reg.Ingest("BD50xxxx", now: 10.1);  // TAS 470 kt
+        // Inject a tiny Mach directly to mimic a noise event.
+        var ac = reg.Aircraft["abc123"];
+        ac.Mach = 0.05;
+        ac.Bds60At = 10.2;
+        var snap = reg.Snapshot(now: 10.3);
+        Assert.Null(snap.Aircraft[0].CommB?.StaticAirTemperatureC);
+    }
+
+    [Fact]
     public void Cleanup_EvictsStaleAircraft()
     {
         var reg = MakeRegistry();

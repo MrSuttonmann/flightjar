@@ -31,6 +31,109 @@ import { uconv } from './units.js';
 let _renderSidebar = () => {};
 export function setRenderSidebar(fn) { _renderSidebar = fn; }
 
+// Tiny inline "?" rendered next to a metric label. The span itself is
+// the tooltip trigger (via the `[data-help]` selector wired up in
+// tooltip.js) so hover on desktop + tap on mobile both reveal the
+// explanation. The SVG is hard-coded rather than reaching into the
+// lucide library because it's drawn at 11px and needs chunkier strokes
+// than lucide's default to stay legible at that size.
+function helpIcon(text) {
+  return `<span class="help-icon" data-help="${escapeHtml(text)}"` +
+    ` aria-label="Help" role="button" tabindex="0">` +
+    `<svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true">` +
+    `<circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor"` +
+    ` stroke-width="1.3"/>` +
+    `<path d="M6.2 6.3c.1-1.1 1-1.8 1.9-1.8 1 0 1.8.6 1.8 1.6` +
+    ` 0 1-.7 1.3-1.2 1.6-.5.3-.7.6-.7 1.1" fill="none"` +
+    ` stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>` +
+    `<circle cx="8" cy="11.5" r="0.8" fill="currentColor"/>` +
+    `</svg></span>`;
+}
+
+// Copy each metric's help text here so the strings stay next to each
+// other and are easy to tune. Labels match the `.label` text exactly.
+const METRIC_HELP = {
+  // panel-meta (primary grid)
+  'Altitude': 'Barometric altitude above mean sea level, from the aircraft\'s' +
+    ' pressure altimeter. Falls back to GNSS altitude when the baro reading' +
+    ' isn\'t broadcast.',
+  'Speed': 'Ground speed — how fast the aircraft is moving across the ground,' +
+    ' from the ADS-B velocity message. Differs from airspeed by the wind.',
+  'Heading': 'Ground track: the compass direction the aircraft is actually' +
+    ' moving, measured from true north. Crosswinds make this differ from' +
+    ' the heading the nose is pointing.',
+  'V.Rate': 'Vertical rate in feet per minute. Positive values = climbing,' +
+    ' negative = descending. Zero means level flight.',
+  'Squawk': 'Four-digit transponder code set by the pilot. 7500 = hijack,' +
+    ' 7600 = radio failure, 7700 = general emergency, 2000 = default en-route,' +
+    ' 1200/7000 = VFR.',
+  'Distance': 'Great-circle distance from your receiver to the aircraft\'s' +
+    ' current position.',
+  'Latitude': 'Aircraft latitude in decimal degrees. Positive = north of the' +
+    ' equator.',
+  'Longitude': 'Aircraft longitude in decimal degrees. Positive = east of' +
+    ' Greenwich.',
+  'Flown': 'Distance flown along the trail we\'ve recorded since the aircraft' +
+    ' first came into range of your receiver.',
+
+  // panel-met (Enhanced Mode S, Comm-B derived)
+  'MCP alt': 'Mode Control Panel selected altitude — the altitude the pilot' +
+    ' has dialled into the autopilot. The aircraft will climb or descend to' +
+    ' this target and level off. Decoded from BDS 4,0.',
+  'FMS alt': 'Flight Management System selected altitude — the altitude' +
+    ' programmed into the flight plan. Often matches the MCP alt but can' +
+    ' differ if the pilot has dialled an intermediate step. Decoded from BDS 4,0.',
+  'QNH': 'Barometric altimeter setting the pilot has dialled in, referenced' +
+    ' to mean sea level. Standard pressure is 1013.25 hPa; local QNH varies' +
+    ' with weather. Decoded from BDS 4,0.',
+  'Wind': 'Wind speed and direction at the aircraft\'s current altitude,' +
+    ' measured by the air-data computer. Direction is where the wind is' +
+    ' coming FROM, not where it\'s going. Decoded from BDS 4,4.',
+  'OAT / SAT': 'Outside (or Static) Air Temperature — the actual ambient air' +
+    ' temperature outside the aircraft. Typically −55 °C at cruise altitude.' +
+    ' "derived" means computed from TAS and Mach because BDS 4,4 wasn\'t' +
+    ' available; direct readings come from BDS 4,4.',
+  'TAT': 'Total Air Temperature — the temperature the aircraft skin actually' +
+    ' experiences, which is SAT plus ram-rise heating from air compression' +
+    ' at speed. Always warmer than OAT. Derived from SAT and Mach.',
+  'Static pres': 'Static atmospheric pressure at the aircraft\'s altitude, in' +
+    ' hectopascals. Used by the altimeter. Decoded from BDS 4,4 (rarely' +
+    ' emitted).',
+  'Humidity': 'Relative humidity at flight level, as a percentage. Rarely' +
+    ' broadcast. Decoded from BDS 4,4.',
+  'Turbulence': 'Pilot-reported turbulence level. 0 = none, 1 = light,' +
+    ' 2 = moderate, 3 = severe. Decoded from BDS 4,4.',
+  'Mach': 'Aircraft speed expressed as a fraction of the local speed of' +
+    ' sound. 0.82 means 82% of sound speed. Typical long-haul cruise is' +
+    ' 0.78–0.86. Decoded from BDS 6,0.',
+  'IAS': 'Indicated Airspeed — the speed shown on the pilot\'s airspeed' +
+    ' indicator, based on dynamic pressure (ram air vs static). What the' +
+    ' pilot actually flies by at low altitudes. Decoded from BDS 6,0.',
+  'TAS': 'True Airspeed — actual speed through the surrounding air. Equals' +
+    ' IAS corrected for air density (altitude + temperature). Much higher' +
+    ' than IAS at cruise. Decoded from BDS 5,0.',
+  'GS (EHS)': 'Ground speed as reported by the aircraft\'s own navigation' +
+    ' system (BDS 5,0). Usually agrees with the ADS-B groundspeed in the' +
+    ' main grid — disagreement hints at a bad GPS fix or a decode error.',
+  'Mag heading': 'Magnetic heading — the direction the aircraft\'s nose is' +
+    ' pointing, referenced to magnetic north. Differs from ground track by' +
+    ' the crosswind correction angle. Decoded from BDS 6,0.',
+  'True track': 'True track — the aircraft\'s actual path over the ground,' +
+    ' referenced to true (geographic) north. Decoded from BDS 5,0.',
+  'Roll': 'Bank angle. Positive = right wing down, negative = left wing' +
+    ' down. Airliners cruise within a degree or two of level; standard' +
+    ' turns are 15–30°. Decoded from BDS 5,0.',
+  'Turn rate': 'Rate of change of track in degrees per second. Positive =' +
+    ' turning right. A standard-rate turn is 3°/s (2-minute 360°).' +
+    ' Decoded from BDS 5,0.',
+  'V.Rate (baro)': 'Vertical rate from the barometric altimeter — the same' +
+    ' kind of reading as the main V.Rate tile but reported via BDS 6,0' +
+    ' from the air-data computer rather than via ADS-B.',
+  'V.Rate (IRS)': 'Vertical rate from the inertial reference system' +
+    ' (ring-laser gyros). Can disagree with the baro rate in turbulence' +
+    ' or during pressure anomalies. Decoded from BDS 6,0.',
+};
+
 // Build the panel DOM once per aircraft, with placeholder children for
 // every field that changes on snapshot tick. Subsequent ticks call
 // updatePopupContent() to mutate those placeholders in place — this
@@ -92,6 +195,69 @@ export function buildPopupContent(a, now, airports) {
       `<span class="live-dot"></span>` +
       `<span class="live-label">Live</span>` +
     `</div>` +
+    `<div class="panel-met" hidden>` +
+      `<div class="panel-mini-label">Enhanced Mode S` +
+        `<span class="panel-met-sub"></span></div>` +
+      `<div class="panel-met-grid">` +
+        `<div class="metric pop-met-mcp" hidden>` +
+          `<div class="label">MCP alt</div>` +
+          `<div class="val"></div></div>` +
+        `<div class="metric pop-met-fms" hidden>` +
+          `<div class="label">FMS alt</div>` +
+          `<div class="val"></div></div>` +
+        `<div class="metric pop-met-qnh" hidden>` +
+          `<div class="label">QNH</div>` +
+          `<div class="val"></div></div>` +
+        `<div class="metric pop-met-wind" hidden>` +
+          `<div class="label">Wind</div>` +
+          `<div class="val"></div></div>` +
+        `<div class="metric pop-met-oat" hidden>` +
+          `<div class="label">OAT / SAT</div>` +
+          `<div class="val"></div></div>` +
+        `<div class="metric pop-met-tat" hidden>` +
+          `<div class="label">TAT</div>` +
+          `<div class="val"></div></div>` +
+        `<div class="metric pop-met-spres" hidden>` +
+          `<div class="label">Static pres</div>` +
+          `<div class="val"></div></div>` +
+        `<div class="metric pop-met-humid" hidden>` +
+          `<div class="label">Humidity</div>` +
+          `<div class="val"></div></div>` +
+        `<div class="metric pop-met-turb" hidden>` +
+          `<div class="label">Turbulence</div>` +
+          `<div class="val"></div></div>` +
+        `<div class="metric pop-met-mach" hidden>` +
+          `<div class="label">Mach</div>` +
+          `<div class="val"></div></div>` +
+        `<div class="metric pop-met-ias" hidden>` +
+          `<div class="label">IAS</div>` +
+          `<div class="val"></div></div>` +
+        `<div class="metric pop-met-tas" hidden>` +
+          `<div class="label">TAS</div>` +
+          `<div class="val"></div></div>` +
+        `<div class="metric pop-met-gs" hidden>` +
+          `<div class="label">GS (EHS)</div>` +
+          `<div class="val"></div></div>` +
+        `<div class="metric pop-met-mhdg" hidden>` +
+          `<div class="label">Mag heading</div>` +
+          `<div class="val"></div></div>` +
+        `<div class="metric pop-met-ttrk" hidden>` +
+          `<div class="label">True track</div>` +
+          `<div class="val"></div></div>` +
+        `<div class="metric pop-met-roll" hidden>` +
+          `<div class="label">Roll</div>` +
+          `<div class="val"></div></div>` +
+        `<div class="metric pop-met-trkrate" hidden>` +
+          `<div class="label">Turn rate</div>` +
+          `<div class="val"></div></div>` +
+        `<div class="metric pop-met-bvr" hidden>` +
+          `<div class="label">V.Rate (baro)</div>` +
+          `<div class="val"></div></div>` +
+        `<div class="metric pop-met-ivr" hidden>` +
+          `<div class="label">V.Rate (IRS)</div>` +
+          `<div class="val"></div></div>` +
+      `</div>` +
+    `</div>` +
     `<div class="panel-meta">` +
       `<div class="metric"><div class="label">Altitude</div>` +
         `<div class="val pop-alt-wrap"><b class="pop-alt"></b>` +
@@ -140,8 +306,24 @@ export function buildPopupContent(a, now, airports) {
       `<div class="stat"><span class="stat-label">First seen</span>` +
         `<span class="stat-val pop-first-seen"></span></div>` +
     `</div>`;
+  injectHelpIcons(root);
   updatePopupContent(root, a, now, airports);
   return root;
+}
+
+// Walk every metric label inside the panel and append the help icon
+// whose text matches METRIC_HELP[label]. Run once per build rather than
+// per tick — the labels are static, and appending fresh SVGs each tick
+// would bloat the DOM. Guards against re-injection so repeated calls
+// don't stack duplicate icons.
+function injectHelpIcons(root) {
+  root.querySelectorAll('.metric > .label').forEach((label) => {
+    if (label.querySelector('.help-icon')) return;
+    const key = label.textContent.trim();
+    const help = METRIC_HELP[key];
+    if (!help) return;
+    label.insertAdjacentHTML('beforeend', ' ' + helpIcon(help));
+  });
 }
 
 export function updatePopupContent(root, a, now, airports) {
@@ -388,6 +570,121 @@ export function updatePopupContent(root, a, now, airports) {
   q('.pop-signal').textContent = signalLabel(a.signal_peak);
   const firstSeen = entry?.sessionFirstSeen || a.first_seen;
   q('.pop-first-seen').textContent = relativeAge(firstSeen, now);
+
+  renderCommBSection(root, q, a, now);
+}
+
+// Populate the Enhanced Mode S (Comm-B) section. Only aircraft currently
+// being interrogated by a ground SSR reply with BDS 4,0 / 4,4 / 5,0 / 6,0,
+// so this section is sparse — most aircraft won't have any values most of
+// the time. We hide individual metrics whose field is null, and hide the
+// whole section when nothing is fresh.
+function renderCommBSection(root, q, a, now) {
+  const met = a.comm_b;
+  const sec = q('.panel-met');
+  if (!met) {
+    sec.hidden = true;
+    return;
+  }
+
+  // Track the newest BDS timestamp so the header can surface a "last
+  // update" age without the user having to inspect each field.
+  const ats = [met.bds40_at, met.bds44_at, met.bds50_at, met.bds60_at]
+    .filter((t) => t != null);
+  const freshestAt = ats.length ? Math.max(...ats) : null;
+
+  const setText = (cls, value) => {
+    const el = root.querySelector(cls);
+    if (value == null) {
+      el.hidden = true;
+    } else {
+      el.querySelector('.val').textContent = String(value);
+      el.hidden = false;
+    }
+  };
+  const setHtml = (cls, value) => {
+    const el = root.querySelector(cls);
+    if (value == null) {
+      el.hidden = true;
+    } else {
+      el.querySelector('.val').innerHTML = value;
+      el.hidden = false;
+    }
+  };
+
+  // BDS 4,0 — autopilot targets + QNH.
+  setText('.pop-met-mcp', met.selected_altitude_mcp_ft != null
+    ? uconv('alt', met.selected_altitude_mcp_ft) : null);
+  setText('.pop-met-fms', met.selected_altitude_fms_ft != null
+    ? uconv('alt', met.selected_altitude_fms_ft) : null);
+  setText('.pop-met-qnh', met.qnh_hpa != null
+    ? `${met.qnh_hpa.toFixed(1)} hPa` : null);
+
+  // BDS 4,4 — wind, temperature, pressure, humidity, turbulence.
+  const wind = met.wind_speed_kt != null
+    ? `${uconv('spd', met.wind_speed_kt)}`
+      + (met.wind_direction_deg != null
+        ? ` <span class="met-sub">from ${met.wind_direction_deg.toFixed(0)}°</span>`
+        : '')
+    : null;
+  setHtml('.pop-met-wind', wind);
+  const satDerivedTag = met.static_air_temperature_source === 'derived'
+    ? ' <span class="met-sub">derived</span>' : '';
+  setHtml('.pop-met-oat', met.static_air_temperature_c != null
+    ? `${met.static_air_temperature_c.toFixed(1)} °C${satDerivedTag}` : null);
+  // TAT inherits the derived tag when SAT was derived — it's computed
+  // off the same SAT, so it's no more accurate than its source.
+  setHtml('.pop-met-tat', met.total_air_temperature_c != null
+    ? `${met.total_air_temperature_c.toFixed(1)} °C${satDerivedTag}` : null);
+  setText('.pop-met-spres', met.static_pressure_hpa != null
+    ? `${met.static_pressure_hpa} hPa` : null);
+  setText('.pop-met-humid', met.humidity_pct != null
+    ? `${met.humidity_pct.toFixed(0)}%` : null);
+  const turbLabel = { 0: 'None', 1: 'Light', 2: 'Moderate', 3: 'Severe' };
+  setText('.pop-met-turb', met.turbulence != null
+    ? (turbLabel[met.turbulence] || `L${met.turbulence}`) : null);
+
+  // BDS 5,0 + 6,0 — flight data.
+  setText('.pop-met-mach', met.mach != null ? met.mach.toFixed(2) : null);
+  setText('.pop-met-ias', met.indicated_airspeed_kt != null
+    ? uconv('spd', met.indicated_airspeed_kt) : null);
+  setText('.pop-met-tas', met.true_airspeed_kt != null
+    ? uconv('spd', met.true_airspeed_kt) : null);
+  setText('.pop-met-gs', met.groundspeed_kt != null
+    ? uconv('spd', met.groundspeed_kt) : null);
+  setText('.pop-met-mhdg', met.magnetic_heading_deg != null
+    ? `${met.magnetic_heading_deg.toFixed(0)}°` : null);
+  setText('.pop-met-ttrk', met.true_track_deg != null
+    ? `${met.true_track_deg.toFixed(0)}°` : null);
+  setText('.pop-met-roll', met.roll_deg != null
+    ? `${met.roll_deg > 0 ? '+' : ''}${met.roll_deg.toFixed(1)}°` : null);
+  setText('.pop-met-trkrate', met.track_rate_deg_per_s != null
+    ? `${met.track_rate_deg_per_s.toFixed(2)}°/s` : null);
+  setText('.pop-met-bvr', met.baro_vertical_rate_fpm != null
+    ? uconv('vrt', met.baro_vertical_rate_fpm) : null);
+  setText('.pop-met-ivr', met.inertial_vertical_rate_fpm != null
+    ? uconv('vrt', met.inertial_vertical_rate_fpm) : null);
+
+  // Hide the whole section if every metric ended up hidden — e.g. when
+  // all Comm-B timestamps aged past the backend's 120 s freshness gate
+  // and the snapshot returned a CommB object full of nulls. That
+  // shouldn't actually happen given the backend filter, but belt-and-
+  // braces against a schema evolution drift.
+  const grid = q('.panel-met-grid');
+  const anyVisible = Array.from(grid.children).some((el) => !el.hidden);
+  if (!anyVisible) {
+    sec.hidden = true;
+    return;
+  }
+
+  const sub = q('.panel-met-sub');
+  if (freshestAt != null && now != null) {
+    const age = Math.max(0, now - freshestAt);
+    sub.textContent = age < 2 ? ' · live' : ` · ${Math.round(age)}s ago`;
+  } else {
+    sub.textContent = '';
+  }
+  sec.hidden = false;
 }
 
 // Route string (e.g. "EGLL → KJFK") from snapshot fields.

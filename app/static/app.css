@@ -224,7 +224,7 @@
     box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.5);
   }
   body.compact-mode #sidebar-toggle svg { transform: scaleX(-1); }
-  body.compact-mode #app.panel-open ~ #sidebar-toggle { left: 359px; }
+  body.compact-mode #app.panel-open ~ #sidebar-toggle { left: 419px; }
 
   /* Default-hidden; the mobile media query below flips it to flex. */
   #sidebar-handle { display: none; }
@@ -292,11 +292,11 @@
                 user-select: none;
                 transition: left 0.22s ease; }
   /* When the detail panel is open, shift the legend into the centre of
-     the visible strip of map (the panel occupies ~370px on the left of
-     the map, so half of that — 185px — is the right shift that
+     the visible strip of map (the panel occupies ~430px on the left of
+     the map, so half of that — ~215px — is the right shift that
      re-centres the legend under the visible area). Mobile's full-screen
      panel overlays the map entirely, so skip the shift there. */
-  #app.panel-open .alt-legend { left: calc(50% + 185px); }
+  #app.panel-open .alt-legend { left: calc(50% + 215px); }
   .alt-legend-bar { height: 8px; width: 240px; border-radius: 2px;
                     margin-bottom: 2px; }
   .alt-legend-ticks { display: flex; justify-content: space-between; }

@@ -99,6 +99,21 @@ up as a fullscreen sheet:
   hover. Pulled live from the free
   [aviationweather.gov](https://aviationweather.gov/) API and cached
   server-side for 10 min. Disable with `METAR_WEATHER=0`.
+- **Enhanced Mode S air data** — when a plane is in Mode S interrogation
+  range of a ground SSR, the detail panel surfaces everything decoded from
+  its Comm-B replies: autopilot-selected altitude (MCP/FCU + FMS) and QNH
+  setting (BDS 4,0); wind speed and direction, static air temperature (OAT),
+  static pressure, humidity, and turbulence (BDS 4,4); roll angle, true
+  track, true airspeed, ground speed, and turn rate (BDS 5,0); Mach,
+  indicated airspeed, magnetic heading, and baro / inertial vertical rates
+  (BDS 6,0). Total air temperature (TAT) is derived from SAT + Mach via
+  the standard stagnation-temperature relation. When BDS 4,4 isn't being
+  emitted (pilot-optional on most airframes), SAT is back-solved from
+  TAS + Mach and tagged "derived" in the UI. Values age out after 120 s of
+  silence. **Caveat**: Comm-B replies are solicited — unlike ADS-B they
+  are not broadcast continuously, so they only appear when a Mode S SSR
+  near the aircraft is actively interrogating it. In airspace without
+  EHS-enabled radar this section will stay empty most of the time.
 - **Watchlist + server-side alerts** — star any aircraft from the detail
   panel or the watchlist manager in the sidebar footer to get a
   notification when it reappears on your receiver. Emergency squawks

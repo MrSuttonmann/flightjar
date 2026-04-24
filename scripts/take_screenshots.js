@@ -183,6 +183,7 @@ function buildFleet() {
       track_source: 'adsb',
       distance_km: Math.round(
         Math.hypot((lat - LAT_REF) * 111, (lon - LON_REF) * 70) * 10) / 10,
+      comm_b: extra.comm_b ?? null,
       trail,
     };
   };
@@ -190,7 +191,37 @@ function buildFleet() {
   const aircraft = [
     mk('406b31', 'BAW283', 51.78, -0.45, 255, 34000, 470,
       'B789', 'British Airways', 'BA', 'oneworld', 'United Kingdom',
-      'G-ZBKA', 'BOEING 787-9', 'EGLL', 'KSFO', 'cruise'),
+      'G-ZBKA', 'BOEING 787-9', 'EGLL', 'KSFO', 'cruise',
+      {
+        // Realistic cruise-altitude Comm-B so the Enhanced Mode S panel
+        // has values to show in the screenshot. Mix of observed BDS 4,4
+        // (wind + SAT) and BDS 5,0 / 6,0 (TAS / Mach / IAS / heading /
+        // v-rates) — covers all four registers the decoder handles.
+        comm_b: {
+          selected_altitude_mcp_ft: 34000,
+          qnh_hpa: 1013.2,
+          wind_speed_kt: 78, wind_direction_deg: 265,
+          static_air_temperature_c: -54.5,
+          total_air_temperature_c: -24.6,
+          humidity_pct: 8.0,
+          turbulence: 1,
+          mach: 0.84,
+          indicated_airspeed_kt: 288,
+          true_airspeed_kt: 481,
+          groundspeed_kt: 472,
+          magnetic_heading_deg: 259,
+          true_track_deg: 255,
+          roll_deg: -0.6,
+          track_rate_deg_per_s: 0.02,
+          baro_vertical_rate_fpm: 0,
+          inertial_vertical_rate_fpm: -32,
+          static_air_temperature_source: 'observed',
+          bds40_at: (Date.now() / 1000) - 1,
+          bds44_at: (Date.now() / 1000) - 2,
+          bds50_at: (Date.now() / 1000) - 1,
+          bds60_at: (Date.now() / 1000),
+        },
+      }),
     mk('4ca7b4', 'RYR4FP', 51.30, 0.32, 90, 12000, 330,
       'B738', 'Ryanair', 'FR', null, 'Ireland',
       'EI-DYM', 'BOEING 737-800', 'EGSS', 'LIRA', 'climb'),
@@ -580,8 +611,29 @@ async function capture(browser, device, base, photoDataUri, statsRoutes) {
     return img && img.complete && img.naturalWidth > 0;
   }, null, { timeout: 5000 }).catch(() => {});
   await page.waitForTimeout(400);
+  // Grow the viewport vertically so the whole panel fits in a single
+  // screenshot. The panel has grown past one viewport-height since
+  // the Enhanced Mode S section landed, especially on mobile where
+  // the tiles stack in a narrower grid. Measure the panel's
+  // scrollHeight and bump the viewport to match (+ a margin).
+  const panelHeight = await page.evaluate(() => {
+    const p = document.getElementById('detail-panel');
+    return p ? p.scrollHeight : 0;
+  });
+  const targetHeight = Math.max(device.viewport.height, panelHeight + 40);
+  if (targetHeight > device.viewport.height) {
+    await page.setViewportSize({ width: device.viewport.width, height: targetHeight });
+    await page.waitForTimeout(200);
+  }
   console.log(`-> ${file('detail-panel')}`);
   await page.screenshot({ path: file('detail-panel') });
+  // Restore the default viewport so the subsequent captures (stats,
+  // compact, blackspots) use the nominal device height rather than
+  // the grown one.
+  if (targetHeight > device.viewport.height) {
+    await page.setViewportSize(device.viewport);
+    await page.waitForTimeout(200);
+  }
 
   await page.locator('#detail-close').evaluate((el) => el.click());
   await page.waitForTimeout(400);
