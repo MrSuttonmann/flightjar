@@ -115,7 +115,10 @@ public sealed class BlackspotsGrid
     /// <summary>
     /// Compute the grid from a pre-loaded terrain sampler. Enumerates cells
     /// inside the configured radius, runs the LOS solver per cell, and collects
-    /// blocked ones with their required-antenna-height solution.
+    /// blocked ones with their required-antenna-height solution. Cells are
+    /// solved in parallel — the solver and <see cref="ITerrainSampler"/>
+    /// implementations are pure / safe for concurrent reads — so wall-time
+    /// scales near-linearly with <see cref="Environment.ProcessorCount"/>.
     /// </summary>
     /// <param name="onProgress">
     /// Optional progress callback invoked as cells are solved. Receives a
@@ -138,7 +141,6 @@ public sealed class BlackspotsGrid
         var (minLat, maxLat, minLon, maxLon) = BboxFor(
             @params.ReceiverLat, @params.ReceiverLon, @params.RadiusKm);
 
-        var cells = new List<BlackspotCell>();
         var receiver = new LosReceiver(
             @params.ReceiverLat, @params.ReceiverLon, @params.AntennaMslM);
         // Bisection ceiling — how high we'd consider raising the antenna,
@@ -150,57 +152,93 @@ public sealed class BlackspotsGrid
         var ceilingMslM = Math.Max(
             @params.AntennaMslM, @params.GroundElevationM + @params.MaxAglM);
 
-        // First pass: count how many (lat, lon) cells we'll actually iterate
-        // so the progress fraction is accurate. The inner cell work dwarfs
-        // this counting loop (which doesn't call the solver), so it's a
-        // cheap price for a smooth progress readout.
-        var totalCells = 0;
+        // Enumerate the in-radius cells once up-front. Pre-filtering (rather
+        // than doing the distance check per-worker) gives every cell in the
+        // parallel loop comparable work — otherwise the top/bottom rows of
+        // the bbox, which are mostly outside the inscribed radius, bail out
+        // in microseconds and let their chunks' workers spike `stepCount`
+        // while middle-row workers are still grinding on real LOS solves.
+        // The result is progress that climbs linearly in wall time instead
+        // of jumping from small to big values.
+        var coords = new List<(double Lat, double Lon)>();
+        var radiusMetres = @params.RadiusKm * 1000.0;
         for (var lat = minLat; lat <= maxLat; lat += @params.GridDeg)
         {
             for (var lon = minLon; lon <= maxLon; lon += @params.GridDeg)
             {
-                totalCells++;
+                var d = GreatCircle.DistanceMetres(@params.ReceiverLat, @params.ReceiverLon, lat, lon);
+                if (d <= radiusMetres && d >= 1.0)
+                {
+                    coords.Add((lat, lon));
+                }
             }
         }
+        var totalCells = coords.Count;
 
+        var cells = new List<BlackspotCell>();
+        var cellsGate = new object();
         var stepCount = 0;
-        var blockedCount = 0;
+        var progressGate = new object();
         var lastReported = 0.0;
-        for (var lat = minLat; lat <= maxLat; lat += @params.GridDeg)
-        {
-            for (var lon = minLon; lon <= maxLon; lon += @params.GridDeg)
+        var options = new ParallelOptions { CancellationToken = ct };
+
+        Parallel.For(0, totalCells, options,
+            localInit: () => new List<BlackspotCell>(),
+            body: (i, _, local) =>
             {
-                ct.ThrowIfCancellationRequested();
-                stepCount++;
-                // Great-circle distance gate — keeps the grid roughly circular
-                // rather than a square bbox.
-                var d = GreatCircle.DistanceMetres(@params.ReceiverLat, @params.ReceiverLon, lat, lon);
-                if (d <= @params.RadiusKm * 1000.0 && d >= 1.0)
+                var (lat, lon) = coords[i];
+                // TargetAltitudeM == 0 means "plane on the ground" —
+                // use the DEM elevation at this cell plus a small fuselage
+                // offset so we're not targeting the dirt itself. Anything
+                // positive is treated as an absolute MSL altitude.
+                var targetMslM = @params.TargetAltitudeM > 0
+                    ? @params.TargetAltitudeM
+                    : sampler.ElevationMetres(lat, lon) + 2.0;
+                var target = new LosTarget(lat, lon, targetMslM);
+                var result = LineOfSightSolver.Solve(
+                    receiver, target, sampler, ceilingMslM: ceilingMslM);
+                if (result.Blocked)
                 {
-                    var target = new LosTarget(lat, lon, @params.TargetAltitudeM);
-                    var result = LineOfSightSolver.Solve(
-                        receiver, target, sampler, ceilingMslM: ceilingMslM);
-                    if (result.Blocked)
-                    {
-                        cells.Add(new BlackspotCell(
-                            Math.Round(lat, 4), Math.Round(lon, 4), result.RequiredAntennaMslM));
-                        blockedCount++;
-                    }
+                    local.Add(new BlackspotCell(
+                        Math.Round(lat, 4), Math.Round(lon, 4), result.RequiredAntennaMslM));
                 }
                 if (onProgress is not null && totalCells > 0)
                 {
-                    var frac = (double)stepCount / totalCells;
-                    if (frac - lastReported >= 0.02 || stepCount == totalCells)
+                    var done = Interlocked.Increment(ref stepCount);
+                    var frac = (double)done / totalCells;
+                    // Callback runs under the lock so reports can never arrive
+                    // out of order — without this, a thread with frac=0.10
+                    // that was descheduled just after releasing the gate can
+                    // clobber a faster thread's already-delivered frac=0.12.
+                    // The fire rate is capped at ~50 calls per compute so the
+                    // extra hold time is negligible.
+                    lock (progressGate)
                     {
-                        lastReported = frac;
-                        try { onProgress(frac); } catch { /* never fail a compute on a progress hiccup */ }
+                        if (frac - lastReported >= 0.02 || done == totalCells)
+                        {
+                            lastReported = frac;
+                            try { onProgress(frac); } catch { /* never fail a compute on a progress hiccup */ }
+                        }
                     }
                 }
-            }
-        }
+                return local;
+            },
+            localFinally: local =>
+            {
+                if (local.Count == 0)
+                {
+                    return;
+                }
+                lock (cellsGate)
+                {
+                    cells.AddRange(local);
+                }
+            });
+
         logger.LogInformation(
-            "blackspots: solved {Steps} cells, {Blocked} blocked ({Pct:F1}%)",
-            stepCount, blockedCount, stepCount == 0 ? 0 : blockedCount * 100.0 / stepCount);
+            "blackspots: solved {Steps} cells, {Blocked} blocked ({Pct:F1}%) across {Workers} worker(s)",
+            totalCells, cells.Count, totalCells == 0 ? 0 : cells.Count * 100.0 / totalCells,
+            Environment.ProcessorCount);
 
         return new BlackspotsGrid(@params, time.GetUtcNow(), tileCount, tilesWithData, cells);
     }
