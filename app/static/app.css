@@ -661,14 +661,8 @@
       grid-template-rows: 40vh 1fr auto;
       grid-template-areas: "sidebar" "map" "footer";
     }
-    #detail-panel {
-      /* Overlays the whole app on mobile — no room for a side card.
-         Slide up from the bottom instead of the horizontal desktop slide. */
-      position: fixed; inset: 0; width: auto;
-      margin: 0; border-radius: 0; z-index: 2000;
-      transform: translateY(20px);
-    }
-    #detail-panel.open { transform: translateY(0); }
+    /* Detail panel mobile override lives in detail_panel.css so the
+       cascade order is right (detail_panel.css loads after app.css). */
     /* Legend's horizontal shift is pointless when the panel covers the
        whole map, so undo it on mobile. */
     #app.panel-open .alt-legend { left: 50%; }

@@ -147,7 +147,7 @@ function renderTrafficHeatmap(data) {
   const H = TOP + 7 * (CELL_H + GAP);
   let out =
     `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" ` +
-    `width="100%" height="auto">`;
+    `width="100%">`;
   for (let h = 0; h < 24; h += 3) {
     const x = LABEL_W + h * (CELL_W + GAP) + CELL_W / 2;
     out +=
@@ -209,7 +209,7 @@ function renderPolarHeatmap(data) {
 
   let out =
     `<svg viewBox="0 0 ${SIZE} ${SIZE}" preserveAspectRatio="xMidYMid meet" ` +
-    `width="100%" height="auto">`;
+    `width="100%">`;
 
   // Filled wedges — one per (bucket, band). Innermost band first so the
   // stroke antialiasing between rings looks right, though with fill-only

@@ -356,3 +356,29 @@
   .airspace-filter-help-icon:hover::before,
   .airspace-filter-help-icon:focus::after,
   .airspace-filter-help-icon:focus::before { opacity: 1; }
+
+  /* Keep every modal scrollable when its content is taller than the
+     viewport (most often on phones). The close button lives in the
+     first child <form> — pin it so it stays reachable while the body
+     scrolls underneath. `100dvh` tracks the *visible* viewport on
+     mobile browsers (excludes the URL bar) so the dialog actually
+     fits when the browser chrome is onscreen. */
+  #about-dialog,
+  #stats-dialog,
+  #watchlist-dialog,
+  #alerts-dialog,
+  #airspace-filters-dialog,
+  #map-key-dialog {
+    max-height: calc(100dvh - 20px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  #about-dialog .about-close-form,
+  #stats-dialog .about-close-form,
+  #watchlist-dialog .about-close-form,
+  #alerts-dialog .about-close-form,
+  #airspace-filters-dialog .about-close-form,
+  #map-key-dialog .about-close-form {
+    position: sticky; top: 0; z-index: 2;
+    background: var(--panel);
+  }
