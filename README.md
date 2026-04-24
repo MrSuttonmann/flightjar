@@ -14,16 +14,24 @@ photos, weather, airline metadata) come from free public sources,
 are cached on disk, and are individually feature-gated for offline
 or privacy-conscious deployments.
 
-| Overview | Detail panel | Stats dialog | Compact mode |
-| -------- | ------------ | ------------ | ------------ |
-| ![Overview](docs/screenshots/main.png) | ![Detail panel](docs/screenshots/detail-panel.png) | ![Stats dialog](docs/screenshots/stats.png) | ![Compact mode](docs/screenshots/compact.png) |
+| Overview | Detail panel | Terrain blackspots |
+| -------- | ------------ | ------------------ |
+| ![Overview](docs/screenshots/main.png) | ![Detail panel](docs/screenshots/detail-panel.png) | ![Terrain blackspots](docs/screenshots/blackspots.png) |
+
+| Stats dialog | Compact mode |
+| ------------ | ------------ |
+| ![Stats dialog](docs/screenshots/stats.png) | ![Compact mode](docs/screenshots/compact.png) |
 
 On mobile, the sidebar stacks above the map and the detail panel slides
 up as a fullscreen sheet:
 
-| Overview | Detail panel | Stats dialog | Compact mode |
-| -------- | ------------ | ------------ | ------------ |
-| ![Overview (mobile)](docs/screenshots/main-mobile.png) | ![Detail panel (mobile)](docs/screenshots/detail-panel-mobile.png) | ![Stats dialog (mobile)](docs/screenshots/stats-mobile.png) | ![Compact mode (mobile)](docs/screenshots/compact-mobile.png) |
+| Overview | Detail panel | Terrain blackspots |
+| -------- | ------------ | ------------------ |
+| ![Overview (mobile)](docs/screenshots/main-mobile.png) | ![Detail panel (mobile)](docs/screenshots/detail-panel-mobile.png) | ![Terrain blackspots (mobile)](docs/screenshots/blackspots-mobile.png) |
+
+| Stats dialog | Compact mode |
+| ------------ | ------------ |
+| ![Stats dialog (mobile)](docs/screenshots/stats-mobile.png) | ![Compact mode (mobile)](docs/screenshots/compact-mobile.png) |
 
 
 ## What you get
