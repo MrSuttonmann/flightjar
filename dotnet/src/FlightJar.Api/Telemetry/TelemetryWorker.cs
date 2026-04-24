@@ -112,6 +112,17 @@ public static class TelemetryPayloadBuilder
             ["uptime_s"] = (long)(now - startedAt).TotalSeconds,
             ["first_seen_iso"] = firstSeen.ToString("O"),
 
+            // Tell PostHog not to enrich this event with $geoip_* properties
+            // derived from the source IP, and clear the IP itself. Without
+            // this the Person profile's "location" field gets overwritten
+            // every time the public IP resolves to a different city in
+            // PostHog's geoip database — producing nonsense like "your UK
+            // receiver moved to Sweden". The coarse region_lat_10 /
+            // region_lon_10 below are the only location data we want
+            // associated with the install.
+            ["$geoip_disable"] = true,
+            ["$ip"] = "",
+
             ["feature_flight_routes"] = options.FlightRoutesEnabled,
             ["feature_metar"] = options.MetarEnabled,
             ["feature_openaip"] = !string.IsNullOrWhiteSpace(options.OpenAipApiKey),

@@ -177,6 +177,23 @@ public class TelemetryPayloadBuilderTests
             0, 0, 0, 0);
         Assert.Equal(false, props["feature_openaip"]);
     }
+
+    [Fact]
+    public void Payload_DisablesPosthogServerSideGeoip()
+    {
+        // Without $geoip_disable, PostHog enriches the event from the
+        // source IP and the Person profile's location flips around as
+        // the user's public IP resolves to different cities. We send
+        // our own coarse rounded region instead, so server-side geoip
+        // must be off and the IP must be blanked.
+        var opts = new AppOptions { LatRef = 52.98, LonRef = -1.20 };
+        var props = TelemetryPayloadBuilder.Build(
+            opts, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow,
+            0, 0, 0, 0);
+
+        Assert.Equal(true, props["$geoip_disable"]);
+        Assert.Equal("", props["$ip"]);
+    }
 }
 
 public class PosthogClientTests
