@@ -153,12 +153,14 @@ function renderColumn(a, x, yMaxFt) {
   g.appendChild(rect);
 
   // Class abbreviation centered vertically (or anchored top for very
-  // tall columns so it stays in view when the user scans).
+  // tall columns so it stays in view when the user scans). When this
+  // column represents N merged duplicates, suffix "×N".
   const labelY = h > 24 ? Math.min(yBot - 6, yTop + 12) : (yTop + h / 2 + 3);
   const label = el('text', {
     x: x + COL_W / 2, y: labelY, class: 'slice-col-label',
   });
-  label.textContent = classAbbrev(a);
+  const abbrev = classAbbrev(a);
+  label.textContent = a._mergeCount > 1 ? `${abbrev}×${a._mergeCount}` : abbrev;
   g.appendChild(label);
 
   // Upper limit caption above the rect — or "↑ open" when the airspace
@@ -278,15 +280,40 @@ function querySliceHits(latlng) {
     if (!pointInGeometry(lon, lat, a.geometry)) continue;
     hits.push(a);
   }
+  return dedupeAndSort(hits);
+}
+
+// OpenAIP frequently exports a single logical airspace as several
+// adjacent polygons (sectored TMAs, segmented airways) — the cursor
+// can land inside multiple of them at once and produce duplicate
+// columns of the exact same type / class / floor / ceiling. Collapse
+// those to a single column annotated with a multiplier so the slice
+// reads as the airspace structure, not the polygon count.
+function dedupeAndSort(hits) {
+  const seen = new Map();
+  for (const a of hits) {
+    const key = `${a.type_name || ''}|${a.class || ''}`
+      + `|${a.lower_ft}|${a.lower_datum || ''}`
+      + `|${a.upper_ft}|${a.upper_datum || ''}`;
+    const existing = seen.get(key);
+    if (!existing) {
+      // Shallow-clone so we don't mutate the cache entry with the
+      // _mergeCount annotation.
+      seen.set(key, Object.assign({}, a, { _mergeCount: 1 }));
+    } else {
+      existing._mergeCount += 1;
+    }
+  }
+  const out = Array.from(seen.values());
   // Sort low-to-high so the leftmost column is the surface-rooted
   // airspace and ceiling-stacked entries fan out to the right.
-  hits.sort((p, q) => {
+  out.sort((p, q) => {
     const pl = effectiveLowerFt(p);
     const ql = effectiveLowerFt(q);
     if (pl !== ql) return pl - ql;
     return effectiveUpperFt(p) - effectiveUpperFt(q);
   });
-  return hits;
+  return out;
 }
 
 function pickYMax(hits, planes) {
@@ -373,7 +400,7 @@ function render() {
   // the position and skip the SVG rebuild. The signature includes the
   // ids + altitude window + chosen yMax + plane altitudes.
   const sig = hits.slice(0, MAX_COLS)
-    .map((a) => `${a.id || ''}:${a.lower_ft}:${a.upper_ft}`)
+    .map((a) => `${a.id || ''}:${a.lower_ft}:${a.upper_ft}:${a._mergeCount}`)
     .join('|') + `#${hits.length}@${yMax}!`
     + planes.map((p) => `${p.icao}:${p.altitude}`).join(',');
   if (sig !== lastSig) {
