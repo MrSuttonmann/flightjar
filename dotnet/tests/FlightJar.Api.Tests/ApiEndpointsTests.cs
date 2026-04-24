@@ -99,6 +99,30 @@ public class ApiEndpointsTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.False(doc.RootElement.TryGetProperty("distinct_id", out _));
     }
 
+    [Fact]
+    public async Task TelemetryReset_RotatesDistinctId()
+    {
+        // Auth is off in this fixture, so the gated endpoint is open. The
+        // store mints a fresh id per process (no data dir wired), and reset
+        // should swap it for a new one. The endpoint returns the new id —
+        // we just confirm two consecutive calls produce different values.
+        var client = _factory.CreateClient();
+        var first = await client.PostAsync("/api/telemetry/reset", content: null);
+        first.EnsureSuccessStatusCode();
+        using var firstDoc = JsonDocument.Parse(await first.Content.ReadAsStringAsync());
+        var firstId = firstDoc.RootElement.GetProperty("distinct_id").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(firstId));
+        // No baked-in PostHog key in test builds, so posthog is inactive
+        // and the response advertises that to the frontend.
+        Assert.False(firstDoc.RootElement.GetProperty("telemetry_enabled").GetBoolean());
+
+        var second = await client.PostAsync("/api/telemetry/reset", content: null);
+        second.EnsureSuccessStatusCode();
+        using var secondDoc = JsonDocument.Parse(await second.Content.ReadAsStringAsync());
+        var secondId = secondDoc.RootElement.GetProperty("distinct_id").GetString();
+        Assert.NotEqual(firstId, secondId);
+    }
+
     [Theory]
     [InlineData("/api/openaip/airspaces")]
     [InlineData("/api/openaip/obstacles")]

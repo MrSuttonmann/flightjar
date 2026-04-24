@@ -45,6 +45,21 @@
     width: 16px; height: 16px; fill: currentColor;
   }
   #about-dialog .about-links img { display: block; height: 28px; width: auto; }
+  #about-dialog .danger-btn {
+    margin-top: 4px; padding: 5px 12px; font-size: 12px;
+    font-family: inherit; cursor: pointer;
+    background: transparent; color: #fca5a5;
+    border: 1px solid #7f1d1d; border-radius: 3px;
+  }
+  #about-dialog .danger-btn:hover { background: #7f1d1d; color: #fff; }
+  #about-dialog .danger-btn:disabled {
+    opacity: 0.5; cursor: not-allowed; background: transparent; color: #fca5a5;
+  }
+  #about-dialog .telemetry-status {
+    margin: 8px 0 0; font-size: 11px; color: var(--muted);
+  }
+  #about-dialog .telemetry-status.is-error { color: #fca5a5; }
+  #about-dialog .telemetry-status.is-ok { color: #4ade80; }
 
   /* Stats dialog — reuses the about-dialog visual shell but replaces
      the bulleted lists with a responsive stat-card grid and a bigger

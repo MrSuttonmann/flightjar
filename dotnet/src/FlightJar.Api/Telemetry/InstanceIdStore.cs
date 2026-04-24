@@ -89,6 +89,24 @@ public sealed class InstanceIdStore
         await PersistAsync(newId, now, ct);
     }
 
+    /// <summary>
+    /// Mints a fresh instance id and resets <see cref="FirstSeen"/> to now,
+    /// then persists the change. The previous PostHog Person is left in
+    /// place upstream — only the install's link to it is severed, so future
+    /// pings + frontend events register against the new id instead.
+    /// </summary>
+    public async Task ResetAsync(CancellationToken ct = default)
+    {
+        var newId = Guid.NewGuid().ToString("N");
+        var now = _time.GetUtcNow();
+        lock (_gate)
+        {
+            _instanceId = newId;
+            _firstSeen = now;
+        }
+        await PersistAsync(newId, now, ct);
+    }
+
     private async Task PersistAsync(string id, DateTimeOffset firstSeen, CancellationToken ct)
     {
         if (_path is null) return;
