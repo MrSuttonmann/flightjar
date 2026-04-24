@@ -68,9 +68,11 @@ async function fetchForAltitude(altM) {
 // Poll /api/blackspots/progress while a compute is in flight. Updates the
 // percent readout under the spinner; stops automatically when the main
 // fetch resolves (signal is aborted) or the backend reports active=false.
+// First tick fires immediately so a sub-interval compute still produces at
+// least one readout instead of flashing past.
 function startProgressPoll(altM, abortSignal) {
   stopProgressPoll();
-  progressPoll = setInterval(async () => {
+  const tick = async () => {
     if (abortSignal.aborted) {
       stopProgressPoll();
       return;
@@ -81,7 +83,9 @@ function startProgressPoll(altM, abortSignal) {
       const data = await r.json();
       setSliderProgress(data.active ? data.progress : null);
     } catch (_) { /* AbortError or network blip — either way, let it pass */ }
-  }, 300);
+  };
+  tick();
+  progressPoll = setInterval(tick, 150);
 }
 
 function stopProgressPoll() {

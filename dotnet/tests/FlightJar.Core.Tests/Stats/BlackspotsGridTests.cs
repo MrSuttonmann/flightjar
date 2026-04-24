@@ -113,6 +113,32 @@ public class BlackspotsGridTests
     }
 
     [Fact]
+    public void Progress_callback_fires_monotonically_and_reaches_one()
+    {
+        var p = DefaultParams(radiusKm: 300, gridDeg: 0.2, targetAltMslM: 500);
+        var observed = new System.Collections.Concurrent.ConcurrentQueue<double>();
+        BlackspotsGrid.Compute(p, new FlatSampler(), onProgress: observed.Enqueue);
+
+        var values = observed.ToArray();
+        Assert.NotEmpty(values);
+        // Final call must be exactly 1.0 — that's the done==totalCells branch.
+        Assert.Equal(1.0, values[^1], 6);
+        // Each value must be in (0, 1]. No NaN, no negatives, no overshoot.
+        Assert.All(values, v => Assert.InRange(v, 0.001, 1.0));
+        // We throttle at 2 %, so across a full compute we expect roughly
+        // 50 calls — fewer than ~30 means the worker fires too sparsely
+        // for a 300 ms-poll frontend to show meaningful movement.
+        Assert.InRange(values.Length, 30, 60);
+        // And values must be strictly non-decreasing — otherwise the
+        // frontend's %-readout can jump backwards.
+        for (var i = 1; i < values.Length; i++)
+        {
+            Assert.True(values[i] >= values[i - 1],
+                $"progress went backwards: {values[i - 1]} -> {values[i]} at index {i}");
+        }
+    }
+
+    [Fact]
     public void BboxFor_widens_longitudinally_at_high_latitude()
     {
         var lowLat = BlackspotsGrid.BboxFor(0, 0, 111.32);
