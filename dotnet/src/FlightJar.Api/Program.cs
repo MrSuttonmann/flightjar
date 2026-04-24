@@ -512,9 +512,12 @@ app.MapGet("/api/blackspots", async (
         return Results.Json(new { enabled = false, cells = Array.Empty<object>() });
     }
     var alt = target_alt_m ?? BlackspotsWorker.DefaultTargetAltitudeM;
-    if (alt <= 0 || alt > 20_000)
+    // 0 is a sentinel for "ground level at each cell" — the grid uses
+    // sampled DEM elevation + a 2 m fuselage offset per cell instead of
+    // a fixed MSL value. Anything positive is treated as absolute MSL.
+    if (alt < 0 || alt > 20_000)
     {
-        return Results.BadRequest(new { error = "target_alt_m out of range (0, 20000]" });
+        return Results.BadRequest(new { error = "target_alt_m out of range [0, 20000]" });
     }
     try
     {

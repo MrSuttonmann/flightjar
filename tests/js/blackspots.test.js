@@ -61,8 +61,17 @@ test('flLabel renders metres as a zero-padded flight level', () => {
   assert.equal(flLabel(12192), 'FL400');
 });
 
+test('flLabel renders the 0 ground-level sentinel as GND', () => {
+  assert.equal(flLabel(0), 'GND');
+});
+
 test('ALT_STOPS_M default index maps to FL100', () => {
   assert.equal(flLabel(ALT_STOPS_M[DEFAULT_STOP_INDEX]), 'FL100');
+});
+
+test('ALT_STOPS_M includes GND and FL250 stops', () => {
+  assert.equal(ALT_STOPS_M[0], 0);
+  assert.ok(ALT_STOPS_M.includes(7620), 'FL250 stop missing');
 });
 
 test('ALT_STOPS_M is strictly increasing', () => {
