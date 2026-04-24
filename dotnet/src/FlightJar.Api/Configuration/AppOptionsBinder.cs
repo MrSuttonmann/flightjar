@@ -105,6 +105,7 @@ public static class AppOptionsBinder
             BlackspotsGridDeg = gridDeg,
             BlackspotsMaxAglM = maxAgl,
             TerrainCacheDir = NullIfEmpty(Str(get, "TERRAIN_CACHE_DIR", "")) ?? "/data/terrain",
+            TelemetryEnabled = Bool(get, "TELEMETRY_ENABLED", true),
         };
     }
 

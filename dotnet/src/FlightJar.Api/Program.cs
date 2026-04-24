@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Threading.Channels;
 using FlightJar.Api.Configuration;
 using FlightJar.Api.Hosting;
+using FlightJar.Api.Telemetry;
 using FlightJar.Clients.Adsbdb;
 using FlightJar.Clients.Metar;
 using FlightJar.Clients.OpenAip;
@@ -205,6 +206,19 @@ builder.Services.AddSingleton(sp => new BlackspotsWorker(
     sp.GetRequiredService<ILogger<BlackspotsWorker>>(),
     blackspotsPath));
 builder.Services.AddHostedService(sp => sp.GetRequiredService<BlackspotsWorker>());
+
+// Anonymous telemetry. No-op unless TELEMETRY_ENABLED=1 (default) AND a
+// POSTHOG_API_KEY is set — without a key the worker never makes a request.
+var telemetryPath = !string.IsNullOrEmpty(dataDir) ? Path.Combine(dataDir, "telemetry.json") : null;
+builder.Services.AddSingleton(sp => new InstanceIdStore(
+    telemetryPath,
+    sp.GetRequiredService<TimeProvider>(),
+    sp.GetService<ILogger<InstanceIdStore>>()));
+builder.Services.AddHttpClient<PosthogClient>();
+builder.Services.AddSingleton(sp => new PosthogClient(
+    sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(PosthogClient)),
+    sp.GetService<ILogger<PosthogClient>>()));
+builder.Services.AddHostedService<TelemetryWorker>();
 
 var app = builder.Build();
 

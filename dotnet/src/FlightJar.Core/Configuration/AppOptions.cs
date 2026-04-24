@@ -56,4 +56,13 @@ public sealed record AppOptions
     public double BlackspotsGridDeg { get; init; } = 0.05;
     public double BlackspotsMaxAglM { get; init; } = 100.0;
     public string TerrainCacheDir { get; init; } = "/data/terrain";
+
+    /// <summary>Anonymous usage telemetry. When enabled (and a destination
+    /// is baked into the app — see TelemetryConfig), the service emits one
+    /// event per interval with a stable random instance ID, version,
+    /// uptime, feature-flag booleans, aggregate traffic counts, and a
+    /// coarse 10°-rounded receiver region. No per-aircraft data, no exact
+    /// coordinates, no API keys / tokens. Single user opt-out:
+    /// <c>TELEMETRY_ENABLED=0</c>.</summary>
+    public bool TelemetryEnabled { get; init; } = true;
 }
