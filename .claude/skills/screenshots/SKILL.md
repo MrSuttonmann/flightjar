@@ -1,17 +1,35 @@
 ---
 name: screenshots
-description: Regenerate the README screenshots (desktop + mobile) by running scripts/take_screenshots.js against a freshly-built backend and inspecting the resulting PNGs. Use when the user asks to refresh, update, or re-take the screenshots, or whenever a UI change has landed that would invalidate the current set. The script self-hosts the backend, injects a fake fleet, and mocks the /api/aircraft + /api/blackspots endpoints — no live ADS-B feed or SRTM downloads needed.
+description: Regenerate the README screenshots (desktop + mobile) by running scripts/take_screenshots.js against a freshly-built backend and inspecting the resulting PNGs. Use when the user asks to refresh, update, or re-take the screenshots, or whenever a UI change has landed that would invalidate the current set. The script self-hosts the backend, injects a fake fleet, fetches a real aircraft photo from Wikimedia Commons, and mocks /api/aircraft + /api/blackspots + /api/stats + /api/coverage + /api/heatmap + /api/polar_heatmap so every dialog reads like a real-world install with weeks of data.
 ---
 
 # Regenerating the README screenshots
 
 `scripts/take_screenshots.js` produces the ten PNGs under `docs/screenshots/`
 (`main`, `detail-panel`, `stats`, `compact`, `blackspots` × desktop + mobile).
-It runs entirely offline: spawns a Kestrel instance with BEAST pointed at a
-non-existent host, Playwright replaces `window.WebSocket` with a no-op shim,
-then injects a fake fleet via `update_loop.js.update()` and mocks
-`/api/aircraft/<icao>` + `/api/blackspots*` so the detail panel's photo and
-the terrain shadow grid render without real enrichments.
+It runs entirely offline aside from a one-off fetch of a CC-licensed photo
+from Wikimedia Commons at the start of each run: spawns a Kestrel instance
+with BEAST pointed at a non-existent host, Playwright replaces
+`window.WebSocket` with a no-op shim, then injects a 10-aircraft fake fleet
+via `update_loop.js.update()` and mocks the endpoints the Stats dialog,
+detail panel, and blackspots layer reach for.
+
+Mocked endpoints (see the `mock*` helpers at the top of the script):
+
+- `/api/aircraft/<hex>` → tail record with the fetched G-ZBKA 787 photo
+  base64-embedded as `photo_thumbnail` / `photo_url`, plus a Creative
+  Commons credit line so the screenshot attribution is honest.
+- `/api/blackspots*` → dense radial grid (~few hundred cells) with three
+  Gaussian "ridges" NW / NE / SE + an unreachable sprinkle at the edges
+  so all four legend bands (yellow / orange / red / purple) are visible.
+- `/api/stats` → 6 d 13 h uptime, 8.4 M frames, 2 WS clients, fake
+  `readsb.home.lan:30005` BEAST source shown as connected.
+- `/api/coverage` → 36-bucket polar coverage with an east-south-east
+  lobe (~500 km max range).
+- `/api/heatmap` → 7×24 traffic heatmap with morning and evening peaks
+  and a weekend dip.
+- `/api/polar_heatmap` → 36 × 12 reception-density grid, decaying with
+  distance + brighter toward the SE lobe.
 
 ## Preferred run (backend already up)
 
@@ -58,28 +76,41 @@ node scripts/take_screenshots.js
 
 1. **Read every PNG** — use the `Read` tool on each file under
    `docs/screenshots/` and check:
-   - `main` + `main-mobile`: 10 aircraft visible, trails coloured, sidebar populated.
-   - `detail-panel` + `detail-panel-mobile`: BAW283 selected, mock plane
-     photo at top, route ticket EGLL → KSFO, telemetry grid populated.
-   - `stats` + `stats-mobile`: Receiver stats dialog open, uptime non-zero.
-   - `compact` + `compact-mobile`: sidebar hidden, map full-width, Leaflet
-     layers control collapsed (small icon top-right, not the expanded menu).
-   - `blackspots` + `blackspots-mobile`: altitude slider on right edge
-     (FL100 label), shaded grid cells visible around the receiver —
-     yellow / orange / red / purple bands all represented.
-2. If a shot regressed (layers control expanded, blackspot cells invisible,
-   detail panel empty, etc.), tweak `scripts/take_screenshots.js` and re-run.
-   Common knobs:
-   - **Zoom / framing**: the explicit `state.map.setView(...)` calls inside
-     each capture block control the view. Blackspots uses zoom 8 centred on
-     the receiver; the main / detail shots rely on `update()`'s first-update
-     fitBounds over the fleet.
-   - **Fleet composition**: edit `buildFleet()` — each aircraft's altitude
-     drives its marker + trail colour via `altColor`.
-   - **Fake blackspot cells**: `mockBlackspotsGrid()`. Density + bbox affect
-     how visible the shaded cells are at the captured zoom.
-   - **Fake photo**: `fakePhotoDataUri()` is an inline SVG data URI so
-     screenshots are fully offline-reproducible.
+   - `main` + `main-mobile`: status strip reads `10 aircraft · 10
+     positioned` (NOT "undefined aircraft"), 10 markers placed, sidebar
+     rows populated with route + registration + type.
+   - `detail-panel` + `detail-panel-mobile`: BAW283 selected, a real
+     photograph of G-ZBKA at the top (not the fallback SVG), Creative
+     Commons credit visible, route ticket EGLL → KSFO, telemetry grid.
+   - `stats` + `stats-mobile`: uptime / frames / rate / WS clients all
+     populated (not "—"), traffic heatmap has clear peaks, polar
+     coverage reports a max range ≥ 300 nm, reception-density polar
+     heatmap shows a visible lobe.
+   - `compact` + `compact-mobile`: sidebar hidden, map full-width,
+     Leaflet layers control **collapsed** (small icon top-right, not
+     the expanded list of overlay checkboxes — that's a common
+     regression on mobile).
+   - `blackspots` + `blackspots-mobile`: altitude slider labelled FL100
+     at the right edge, dense grid of shaded cells covering most of
+     the receiver radius with yellow / orange / red / purple bands all
+     represented, and one cell's tooltip popped open showing
+     "Blind spot at FL100 / Needs antenna ≥ X m MSL".
+
+2. If a shot regressed (layers control expanded, blackspot tooltip
+   missing, stats empty, photo didn't load, etc.), tweak
+   `scripts/take_screenshots.js` and re-run. Common knobs:
+   - **Fleet**: `buildFleet()` — altitudes drive marker/trail colours.
+   - **Photo**: `COMMONS_PHOTO_URL`. If Wikimedia goes down the run
+     falls back to `fallbackPhotoSvg()`; swap in another Commons URL if
+     you need a different aircraft.
+   - **Blackspot density / shape**: `mockBlackspotsGrid()` — ridge
+     parameters (`cLat`, `cLon`, `peak`, `sigma`) and the `delta < 8`
+     prune threshold control density.
+   - **Stats realism**: `mockStatsPayload`, `mockCoveragePayload`,
+     `mockHeatmapPayload`, `mockPolarHeatmapPayload`.
+   - **Framing**: the explicit `state.map.setView(...)` calls inside
+     each capture block. Blackspots uses zoom 8 centred on the
+     receiver; main/detail rely on `update()`'s first-tick fitBounds.
 
 ## README tables
 
@@ -91,8 +122,11 @@ mobile parallel so screenshots read left-to-right in the same order.
 
 ## Do not
 
-- Do not commit the `/tmp/flightjar.log` / `/tmp/flightjar.pid` files.
+- Do not commit `/tmp/flightjar.log` or `/tmp/flightjar.pid`.
 - Do not leave a backend running after you finish — `kill` it and
   double-check with `lsof -i :8766` if you're unsure.
 - Do not hand-edit the PNGs; always regenerate from the script so the
   next person with a UI change can reproduce them.
+- Do not swap the Commons photo URL for a non-CC source — the detail
+  panel displays the credit line straight from the mock response, so
+  the attribution has to stay truthful.
