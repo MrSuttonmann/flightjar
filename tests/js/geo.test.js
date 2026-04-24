@@ -1,7 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { haversineKm, flightProgress, trailDistanceKm } from '../../app/static/geo.js';
+import {
+  bboxContains,
+  bboxOfGeometry,
+  flightProgress,
+  haversineKm,
+  pointInGeometry,
+  pointInPolygon,
+  pointInRing,
+  trailDistanceKm,
+} from '../../app/static/geo.js';
 
 test('haversineKm returns zero for identical points', () => {
   assert.equal(haversineKm(51.47, -0.45, 51.47, -0.45), 0);
@@ -116,4 +125,115 @@ test('trailDistanceKm ignores trailing metadata in entries', () => {
   ];
   const d = trailDistanceKm(trail);
   assert.ok(d > 110 && d < 112);
+});
+
+// ---- point-in-polygon ----
+
+const SQUARE = [[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]];
+
+test('pointInRing: point inside a square is inside', () => {
+  assert.equal(pointInRing(5, 5, SQUARE), true);
+});
+
+test('pointInRing: points outside a square are outside', () => {
+  assert.equal(pointInRing(11, 5, SQUARE), false);
+  assert.equal(pointInRing(-1, 5, SQUARE), false);
+  assert.equal(pointInRing(5, -1, SQUARE), false);
+  assert.equal(pointInRing(5, 11, SQUARE), false);
+});
+
+test('pointInRing: degenerate input returns false', () => {
+  assert.equal(pointInRing(0, 0, null), false);
+  assert.equal(pointInRing(0, 0, []), false);
+  assert.equal(pointInRing(0, 0, [[0, 0], [1, 1]]), false);
+});
+
+test('pointInRing: concave L-shape — point in the notch is outside', () => {
+  // L-shape with the notch in the upper-right quadrant (5..10, 5..10).
+  const lShape = [
+    [0, 0], [10, 0], [10, 5], [5, 5], [5, 10], [0, 10], [0, 0],
+  ];
+  // In the bottom arm
+  assert.equal(pointInRing(2, 2, lShape), true);
+  // In the right arm
+  assert.equal(pointInRing(7, 2, lShape), true);
+  // In the notch — outside the L
+  assert.equal(pointInRing(7, 7, lShape), false);
+});
+
+test('pointInPolygon: hole-interior is outside', () => {
+  const outer = SQUARE;
+  const hole = [[4, 4], [6, 4], [6, 6], [4, 6], [4, 4]];
+  // Inside outer, outside hole
+  assert.equal(pointInPolygon(2, 2, [outer, hole]), true);
+  assert.equal(pointInPolygon(7, 7, [outer, hole]), true);
+  // Inside the hole — should be classified as outside the polygon
+  assert.equal(pointInPolygon(5, 5, [outer, hole]), false);
+  // Outside the outer ring entirely
+  assert.equal(pointInPolygon(20, 20, [outer, hole]), false);
+});
+
+test('pointInPolygon: empty / null rings returns false', () => {
+  assert.equal(pointInPolygon(0, 0, null), false);
+  assert.equal(pointInPolygon(0, 0, []), false);
+});
+
+test('pointInGeometry: Polygon dispatch', () => {
+  const geom = { type: 'Polygon', coordinates: [SQUARE] };
+  assert.equal(pointInGeometry(5, 5, geom), true);
+  assert.equal(pointInGeometry(20, 20, geom), false);
+});
+
+test('pointInGeometry: MultiPolygon — inside either component', () => {
+  const left = [[[0, 0], [4, 0], [4, 4], [0, 4], [0, 0]]];
+  const right = [[[10, 0], [14, 0], [14, 4], [10, 4], [10, 0]]];
+  const geom = { type: 'MultiPolygon', coordinates: [left, right] };
+  assert.equal(pointInGeometry(2, 2, geom), true);
+  assert.equal(pointInGeometry(12, 2, geom), true);
+  // In the gap between the two squares
+  assert.equal(pointInGeometry(7, 2, geom), false);
+});
+
+test('pointInGeometry: returns false for unsupported / null geometries', () => {
+  assert.equal(pointInGeometry(0, 0, null), false);
+  assert.equal(pointInGeometry(0, 0, undefined), false);
+  assert.equal(pointInGeometry(0, 0, {}), false);
+  assert.equal(pointInGeometry(0, 0, { type: 'LineString', coordinates: [[0, 0], [1, 1]] }), false);
+  assert.equal(pointInGeometry(0, 0, { type: 'Point', coordinates: [0, 0] }), false);
+});
+
+test('bboxOfGeometry: Polygon returns [minLon, minLat, maxLon, maxLat]', () => {
+  const geom = { type: 'Polygon', coordinates: [SQUARE] };
+  assert.deepEqual(bboxOfGeometry(geom), [0, 0, 10, 10]);
+});
+
+test('bboxOfGeometry: MultiPolygon spans every component', () => {
+  const left = [[[0, 0], [4, 0], [4, 4], [0, 4], [0, 0]]];
+  const right = [[[10, 1], [14, 1], [14, 5], [10, 5], [10, 1]]];
+  const geom = { type: 'MultiPolygon', coordinates: [left, right] };
+  assert.deepEqual(bboxOfGeometry(geom), [0, 0, 14, 5]);
+});
+
+test('bboxOfGeometry: ignores hole rings (they cannot extend the outer bbox)', () => {
+  const outer = [[-2, -2], [12, -2], [12, 12], [-2, 12], [-2, -2]];
+  const hole = [[0, 0], [4, 0], [4, 4], [0, 4], [0, 0]];
+  const geom = { type: 'Polygon', coordinates: [outer, hole] };
+  assert.deepEqual(bboxOfGeometry(geom), [-2, -2, 12, 12]);
+});
+
+test('bboxOfGeometry: unsupported / null geometries return null', () => {
+  assert.equal(bboxOfGeometry(null), null);
+  assert.equal(bboxOfGeometry({}), null);
+  assert.equal(bboxOfGeometry({ type: 'LineString', coordinates: [] }), null);
+  assert.equal(bboxOfGeometry({ type: 'Polygon', coordinates: [] }), null);
+});
+
+test('bboxContains: boundary is inclusive', () => {
+  const bb = [0, 0, 10, 10];
+  assert.equal(bboxContains(bb, 0, 0), true);
+  assert.equal(bboxContains(bb, 10, 10), true);
+  assert.equal(bboxContains(bb, 5, 5), true);
+  assert.equal(bboxContains(bb, -0.001, 5), false);
+  assert.equal(bboxContains(bb, 5, 10.001), false);
+  assert.equal(bboxContains(null, 0, 0), false);
 });

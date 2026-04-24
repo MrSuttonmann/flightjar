@@ -5,13 +5,18 @@
 // re-renders the airspace layer from the in-memory cache so the change
 // is instant — no refetch.
 
+import { syncSliceEnabled } from './airspace_slice.js';
 import {
   AIRSPACE_GROUPS,
   airspaceGroupCounts,
   reapplyAirspaceFilters,
   setAirspaceFiltersOpener,
 } from './openaip.js';
-import { state, writeAirspaceCategories } from './state.js';
+import {
+  state,
+  writeAirspaceCategories,
+  writeAirspaceSliceEnabled,
+} from './state.js';
 
 function dialogEl() { return document.getElementById('airspace-filters-dialog'); }
 function listEl() { return document.getElementById('airspace-filter-list'); }
@@ -84,10 +89,16 @@ function applyBulk(enabled) {
   }
 }
 
+function syncSliceToggleCheckbox() {
+  const cb = document.getElementById('airspace-slice-toggle');
+  if (cb) cb.checked = !!state.airspaceSliceEnabled;
+}
+
 function openDialog() {
   const dialog = dialogEl();
   if (!dialog) return;
   renderList();
+  syncSliceToggleCheckbox();
   if (typeof dialog.showModal === 'function') dialog.showModal();
   else dialog.setAttribute('open', '');
 }
@@ -122,6 +133,12 @@ export function initAirspaceFiltersDialog() {
     const t = e.target;
     if (!(t instanceof HTMLInputElement)) return;
     if (t.type !== 'checkbox') return;
+    if (t.id === 'airspace-slice-toggle') {
+      state.airspaceSliceEnabled = t.checked;
+      writeAirspaceSliceEnabled(t.checked);
+      syncSliceEnabled();
+      return;
+    }
     const key = t.dataset.group;
     if (!key) return;
     applyGroupToggle(key, t.checked);

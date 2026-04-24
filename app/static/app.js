@@ -8,6 +8,7 @@
 import { createWatchlist } from './watchlist.js';
 import { initAboutDialog, initMapKeyDialog, initStatsDialog, initWatchlistDialog } from './dialogs.js';
 import { initAirspaceFiltersDialog } from './airspace_filters_dialog.js';
+import { initAirspaceSlice, refreshSlice, syncSliceEnabled } from './airspace_slice.js';
 import { initAlertsDialog } from './alerts_dialog.js';
 import { initAirportTooltip } from './tooltip.js';
 import {
@@ -27,7 +28,9 @@ import {
 } from './map_controls.js';
 import { setBlackspots } from './blackspots.js';
 import {
+  setAirspaceCacheListener,
   setAirspaces,
+  setAirspaceVisibilityListener,
   setObstacles,
   setReporting,
 } from './openaip.js';
@@ -83,6 +86,10 @@ async function boot() {
   initDetailPanel();
   initSidebar();
   initMapControls();
+  initAirspaceSlice();
+  setAirspaceVisibilityListener(syncSliceEnabled);
+  setAirspaceCacheListener(refreshSlice);
+  syncSliceEnabled();
   initAboutDialog();
   initMapKeyDialog();
   initStatsDialog();

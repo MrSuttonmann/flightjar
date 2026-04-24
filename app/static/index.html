@@ -14,6 +14,7 @@
 <link rel="stylesheet" href="/static/app.css?v=__CSS_V__">
 <link rel="stylesheet" href="/static/dialogs.css?v=__CSS_V__">
 <link rel="stylesheet" href="/static/detail_panel.css?v=__CSS_V__">
+<link rel="stylesheet" href="/static/airspace_slice.css?v=__CSS_V__">
 </head>
 <body>
 <div id="app">
@@ -414,6 +415,10 @@
   </form>
   <h2>Airspace filters</h2>
   <p>Choose which airspace subcategories to show. Hover the <span class="airspace-filter-help-icon" aria-hidden="true">?</span> next to a group for a short explanation.</p>
+  <label class="airspace-slice-row">
+    <input type="checkbox" id="airspace-slice-toggle">
+    <span>Show vertical slice on hover</span>
+  </label>
   <div class="airspace-filter-actions">
     <button type="button" class="airspace-filter-action" data-action="all">Show all</button>
     <button type="button" class="airspace-filter-action" data-action="none">Hide all</button>

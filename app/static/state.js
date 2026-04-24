@@ -73,6 +73,17 @@ export function writeAirspaceCategories(enabledSet) {
   } catch (_) { /* storage disabled */ }
 }
 
+// Vertical-slice tooltip toggle — separate from the airspace overlay
+// itself so a user can keep airspaces drawn on the map while opting
+// out of the hover slice. Defaults to on so existing users discover
+// the feature; persisted as the literal "0" / "1" used elsewhere.
+const AIRSPACE_SLICE_STORAGE_KEY = 'flightjar.airspaces.slice';
+export function writeAirspaceSliceEnabled(value) {
+  try {
+    localStorage.setItem(AIRSPACE_SLICE_STORAGE_KEY, value ? '1' : '0');
+  } catch (_) { /* storage disabled */ }
+}
+
 export const state = {
   // Leaflet handles — populated by map_setup.initMap().
   map: null,
@@ -119,6 +130,10 @@ export const state = {
   showAirports: localStorage.getItem('flightjar.airports') === '1',
   showNavaids: localStorage.getItem('flightjar.navaids') === '1',
   showAirspaces: localStorage.getItem('flightjar.airspaces') === '1',
+  // Vertical-slice tooltip on/off (independent of the layer toggle so
+  // a user can keep airspaces drawn but skip the hover panel). Default
+  // on; localStorage is the source of truth past first load.
+  airspaceSliceEnabled: localStorage.getItem(AIRSPACE_SLICE_STORAGE_KEY) !== '0',
   showObstacles: localStorage.getItem('flightjar.obstacles') === '1',
   showReporting: localStorage.getItem('flightjar.reporting') === '1',
   showCoverage: localStorage.getItem('flightjar.coverage') === '1',
