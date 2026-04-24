@@ -2,6 +2,7 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
+using FlightJar.Api.Auth;
 using FlightJar.Api.Configuration;
 using FlightJar.Api.Hosting;
 using FlightJar.Api.Telemetry;
@@ -28,6 +29,10 @@ var builder = WebApplication.CreateBuilder(args);
 var options = AppOptionsBinder.FromEnvironment();
 builder.Services.AddSingleton(options);
 builder.Services.AddSingleton(TimeProvider.System);
+
+// Optional shared-secret gate for the notification config + watchlist
+// endpoints. No-op when FLIGHTJAR_PASSWORD is unset.
+builder.Services.AddSingleton<AuthService>();
 
 // Match Python's API: snake_case property + enum names, nulls omitted.
 builder.Services.ConfigureHttpJsonOptions(o =>
@@ -652,13 +657,109 @@ app.MapGet("/api/aircraft/{icao24}", async (
     });
 });
 
+// ----- Auth (optional shared-secret gate) -----
+
+// Cookie carrying the session token. HttpOnly so JS cannot read it (an
+// XSS foothold can't steal a token), SameSite=Strict so cross-site
+// POSTs can't smuggle the cookie back, Secure on HTTPS requests so
+// browsers refuse to leak it over plain HTTP. Localhost-over-HTTP still
+// works (IsHttps is false → cookie set without Secure).
+static void SetSessionCookie(HttpContext ctx, string token, TimeSpan lifetime)
+{
+    var secure = ctx.Request.IsHttps
+        || (ctx.Request.Headers.TryGetValue("X-Forwarded-Proto", out var p)
+            && string.Equals(p.ToString(), "https", StringComparison.OrdinalIgnoreCase));
+    ctx.Response.Cookies.Append(AuthService.CookieName, token, new CookieOptions
+    {
+        HttpOnly = true,
+        Secure = secure,
+        SameSite = SameSiteMode.Strict,
+        Path = "/",
+        MaxAge = lifetime,
+    });
+}
+
+static void ClearSessionCookie(HttpContext ctx)
+{
+    var secure = ctx.Request.IsHttps
+        || (ctx.Request.Headers.TryGetValue("X-Forwarded-Proto", out var p)
+            && string.Equals(p.ToString(), "https", StringComparison.OrdinalIgnoreCase));
+    ctx.Response.Cookies.Append(AuthService.CookieName, "", new CookieOptions
+    {
+        HttpOnly = true,
+        Secure = secure,
+        SameSite = SameSiteMode.Strict,
+        Path = "/",
+        Expires = DateTimeOffset.UnixEpoch,
+    });
+}
+
+// {required} tells the UI whether to show a lock indicator at all.
+// {unlocked} is informational only — the server never trusts it for
+// access control, the gating filter re-checks the cookie on every
+// request. Always 200 so the UI can read it on first paint.
+app.MapGet("/api/auth/status", (HttpContext ctx, AuthService auth) =>
+{
+    var cookie = ctx.Request.Cookies[AuthService.CookieName];
+    var unlocked = auth.Required && auth.ValidateSession(cookie);
+    return Results.Json(new { required = auth.Required, unlocked });
+});
+
+app.MapPost("/api/auth/login", async (HttpContext ctx, AuthService auth) =>
+{
+    if (!auth.Required)
+    {
+        return Results.NotFound(new { error = "auth not configured" });
+    }
+    var clientIp = ctx.Connection.RemoteIpAddress?.ToString() ?? "";
+    if (!auth.TryRecordLoginAttempt(clientIp))
+    {
+        ctx.Response.Headers["Retry-After"] = "60";
+        return Results.StatusCode(StatusCodes.Status429TooManyRequests);
+    }
+    string? candidate = null;
+    try
+    {
+        using var doc = await JsonDocument.ParseAsync(ctx.Request.Body, cancellationToken: ctx.RequestAborted);
+        if (doc.RootElement.ValueKind == JsonValueKind.Object
+            && doc.RootElement.TryGetProperty("password", out var pw)
+            && pw.ValueKind == JsonValueKind.String)
+        {
+            candidate = pw.GetString();
+        }
+    }
+    catch (JsonException)
+    {
+        return Results.BadRequest(new { error = "expected JSON {password: string}" });
+    }
+    if (!auth.VerifyPassword(candidate))
+    {
+        // Don't log the candidate. Log the IP so abuse leaves a trail.
+        ctx.RequestServices.GetService<ILogger<Program>>()
+            ?.LogWarning("auth: bad password from {Ip}", clientIp);
+        return Results.StatusCode(StatusCodes.Status401Unauthorized);
+    }
+    auth.ResetRateLimit(clientIp);
+    var token = auth.MintSession();
+    SetSessionCookie(ctx, token, AuthService.SessionLifetime);
+    return Results.Ok(new { ok = true });
+});
+
+app.MapPost("/api/auth/logout", (HttpContext ctx, AuthService auth) =>
+{
+    var cookie = ctx.Request.Cookies[AuthService.CookieName];
+    auth.InvalidateSession(cookie);
+    ClearSessionCookie(ctx);
+    return Results.Ok(new { ok = true });
+});
+
 // ----- Watchlist -----
 
 app.MapGet("/api/watchlist", (WatchlistStore store) =>
 {
     var snap = store.Snapshot();
     return Results.Json(new { icao24s = snap.Icao24s, last_seen = snap.LastSeen });
-});
+}).RequireAuthSession();
 
 app.MapPost("/api/watchlist", async (HttpContext ctx, WatchlistStore store) =>
 {
@@ -685,7 +786,7 @@ app.MapPost("/api/watchlist", async (HttpContext ctx, WatchlistStore store) =>
     }
     var snap = store.Replace(incoming);
     return Results.Json(new { icao24s = snap.Icao24s, last_seen = snap.LastSeen });
-});
+}).RequireAuthSession();
 
 // ----- Notifications config -----
 
@@ -694,7 +795,7 @@ app.MapGet("/api/notifications/config", (NotificationsConfigStore store) =>
     {
         version = NotificationsConfigStore.SchemaVersion,
         channels = store.Channels,
-    }));
+    })).RequireAuthSession();
 
 app.MapPost("/api/notifications/config", async (HttpContext ctx, NotificationsConfigStore store) =>
 {
@@ -718,13 +819,13 @@ app.MapPost("/api/notifications/config", async (HttpContext ctx, NotificationsCo
     }
     var updated = store.Replace(channels);
     return Results.Json(new { channels = updated });
-});
+}).RequireAuthSession();
 
 app.MapPost("/api/notifications/test/{channelId}", async (string channelId, NotifierDispatcher dispatcher, CancellationToken ct) =>
 {
     var ok = await dispatcher.TestChannelAsync(channelId, ct);
     return ok ? Results.Ok(new { ok = true }) : Results.NotFound(new { error = "unknown channel" });
-});
+}).RequireAuthSession();
 
 app.Map("/ws", async (HttpContext ctx, SnapshotBroadcaster broadcaster, CurrentSnapshot current, ILogger<Program> log) =>
 {

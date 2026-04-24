@@ -427,10 +427,55 @@ It shows up next to "Flightjar" in the sidebar and in the browser tab title
 | `BLACKSPOTS_MAX_AGL_M` | `100`              | Bisection ceiling when solving for required antenna height. Cells still blocked at this height are reported as "unreachable". |
 | `TERRAIN_CACHE_DIR`   | `/data/terrain`     | Directory for the downloaded SRTM tiles. |
 | `TELEMETRY_ENABLED`   | `1`                 | Anonymous usage telemetry — see below.                         |
+| `FLIGHTJAR_PASSWORD`  | (unset)             | Optional shared secret. When non-empty, the watchlist + notification-channel endpoints (`/api/watchlist`, `/api/notifications/*`) require an authenticated session cookie minted by `POST /api/auth/login`. Empty disables auth entirely (default — fine on a private LAN). Set this when exposing the instance to the internet so unauthenticated callers can't read your bot tokens or scrape your watchlist. See **Optional password protection** below. |
 
 Notification channels aren't configured via env vars — they're
 managed in the **Alerts** dialog in the sidebar footer. See the
 Notifications section below.
+
+## Optional password protection
+
+If you're exposing your Flightjar instance to the public internet
+(e.g. via a reverse proxy + DNS), the watchlist and notification
+settings should not be world-writeable. Set `FLIGHTJAR_PASSWORD` to
+any non-empty string and the following endpoints become gated:
+
+- `GET` and `POST /api/watchlist`
+- `GET` and `POST /api/notifications/config`
+- `POST /api/notifications/test/{id}`
+
+The map, snapshot stream, stats, and reference-data endpoints stay
+open — readers don't need a password to look at the live picture.
+
+The browser flow is:
+
+1. The first time the user clicks **Watchlist**, **Alerts**, or
+   tries to star an aircraft from the detail panel, an unlock dialog
+   pops up with a password field.
+2. On the correct password the server mints a 24 h session token and
+   sends it back as an **HttpOnly, SameSite=Strict** cookie. The
+   token never touches JavaScript-readable storage, so a tampered
+   `localStorage` cannot forge it; an XSS foothold cannot exfiltrate
+   it.
+3. A small lock icon appears next to the **Alerts** button — click
+   to lock again early.
+
+The password input is a real HTML form with `autocomplete=
+"current-password"` and a hidden `username` field, so password
+managers (Bitwarden, 1Password, browser built-ins) detect it and
+offer to save / autofill on subsequent visits.
+
+Defence-in-depth notes:
+
+- Failed logins are rate-limited per client IP (5 attempts per
+  rolling minute, then `429 Too Many Requests`) and don't log the
+  attempted password.
+- Sessions are in-memory only — process restarts invalidate them.
+- The cookie sets `Secure` automatically on HTTPS requests (and on
+  forwarded `X-Forwarded-Proto: https`), so a reverse-proxied
+  install over TLS won't leak the cookie back over plain HTTP.
+- The frontend's "unlocked" indicator is purely cosmetic — every
+  gated endpoint re-checks the cookie server-side on each request.
 
 ## Anonymous telemetry
 

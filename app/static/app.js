@@ -6,6 +6,7 @@
 // arrives, and so on.
 
 import { createWatchlist } from './watchlist.js';
+import { initAuth } from './auth.js';
 import { initAboutDialog, initMapKeyDialog, initStatsDialog, initWatchlistDialog } from './dialogs.js';
 import { initAirspaceFiltersDialog } from './airspace_filters_dialog.js';
 import { initAirspaceSlice, refreshSlice, syncSliceEnabled } from './airspace_slice.js';
@@ -75,6 +76,12 @@ async function boot() {
     setCoverage,
     setBlackspots,
   });
+
+  // Auth: discover whether the instance is password-protected and
+  // wire the unlock dialog + lock-status indicator. Awaited so the
+  // watchlist's initial pull-and-merge starts with an accurate
+  // state.required value.
+  await initAuth();
 
   // Shared singletons that aren't Leaflet.
   state.watchlist = createWatchlist();

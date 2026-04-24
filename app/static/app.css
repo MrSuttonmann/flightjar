@@ -328,7 +328,7 @@
     display: flex; align-items: center; gap: 2px;
   }
   #sidebar-footer svg { width: 16px; height: 16px; }
-  #about-btn, #stats-btn, #watchlist-btn, #alerts-btn {
+  #about-btn, #stats-btn, #watchlist-btn, #alerts-btn, #auth-lock-btn {
     color: var(--muted); background: transparent; border: 0;
     font-family: inherit; cursor: pointer;
     padding: 6px; border-radius: 4px;
@@ -337,9 +337,17 @@
     transition: background 0.12s ease, color 0.12s ease;
   }
   #about-btn:hover, #stats-btn:hover,
-  #watchlist-btn:hover, #alerts-btn:hover {
+  #watchlist-btn:hover, #alerts-btn:hover, #auth-lock-btn:hover {
     color: var(--text); background: rgba(255, 255, 255, 0.06);
   }
+  /* Lock toggle: amber when locked (draws the eye to the gate),
+     muted-then-text when unlocked (fades into the rest of the row). */
+  #auth-lock-btn[hidden] { display: none; }
+  #auth-lock-btn.locked { color: #fbbf24; }
+  #auth-lock-btn.locked:hover { color: #fcd34d; }
+  #auth-lock-btn .auth-lock-icon-unlocked { display: none; }
+  #auth-lock-btn:not(.locked) .auth-lock-icon-locked { display: none; }
+  #auth-lock-btn:not(.locked) .auth-lock-icon-unlocked { display: block; }
   .ac-item { position: relative; padding: 8px 14px; border-bottom: 1px solid var(--border);
              cursor: pointer; font-size: 12px; line-height: 1.4; }
   .ac-item:hover, .ac-item.peek { background: #1d222b; }
