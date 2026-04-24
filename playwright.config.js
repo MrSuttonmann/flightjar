@@ -23,8 +23,23 @@ export default defineConfig({
     trace: 'on-first-retry',
   },
 
+  // Run every spec in tests/e2e against both a desktop and a phone
+  // viewport. The mobile project keeps the layout spec honest when
+  // CSS or markup changes would reintroduce overflow / cut-off bugs.
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    { name: 'desktop', use: { ...devices['Desktop Chrome'] } },
+    {
+      name: 'mobile',
+      use: {
+        ...devices['Desktop Chrome'],
+        // A fixed CSS viewport (no isMobile emulation) so layout tests
+        // measure the same numbers a real phone would report for CSS
+        // pixels. 390×844 is the iPhone 13 / Pixel 7 ballpark; small
+        // enough to flush out tight-layout bugs without being fringe.
+        viewport: { width: 390, height: 844 },
+        hasTouch: true,
+      },
+    },
   ],
 
   webServer: {

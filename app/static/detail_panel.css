@@ -340,3 +340,22 @@
     text-transform: uppercase; letter-spacing: 0.6px;
   }
   .panel-stats .stat-val { font-size: 12px; color: var(--text); }
+
+  /* Mobile override. Must live here (not in app.css) because
+     detail_panel.css loads after app.css, so the desktop rules above
+     win against any same-specificity mobile rule declared in app.css.
+     Keep this block at the bottom so its cascade beats the desktop
+     positioning. */
+  @media (max-width: 600px) {
+    #detail-panel {
+      /* Overlays the whole app on mobile — no room for a side card.
+         Slide up from the bottom instead of the horizontal desktop slide. */
+      position: fixed; inset: 0; width: auto; left: 0;
+      margin: 0; border-radius: 0; z-index: 2000;
+      transform: translateY(20px);
+    }
+    #detail-panel.open { transform: translateY(0); }
+    /* Compact mode's `left: 10px` desktop override shouldn't fight the
+       full-viewport mobile overlay. */
+    body.compact-mode #detail-panel { left: 0; }
+  }

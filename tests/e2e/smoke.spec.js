@@ -90,13 +90,19 @@ test('Unit switcher toggles between metric, imperial, nautical', async ({ page }
 test('Compact mode hides the sidebar via the chevron toggle', async ({ page }) => {
   const body = page.locator('body');
   const sidebar = page.locator('#sidebar');
+  // On narrow viewports the chevron swaps to a horizontal grab-handle
+  // (#sidebar-handle); pick whichever one is actually visible so the
+  // test exercises the real affordance for each layout.
+  const toggle = (await page.locator('#sidebar-toggle').isVisible())
+    ? page.locator('#sidebar-toggle')
+    : page.locator('#sidebar-handle');
   await expect(body).not.toHaveClass(/compact-mode/);
   await expect(sidebar).toBeVisible();
-  await page.locator('#sidebar-toggle').click();
+  await toggle.click();
   await expect(body).toHaveClass(/compact-mode/);
   await expect(sidebar).toBeHidden();
   // Toggle back.
-  await page.locator('#sidebar-toggle').click();
+  await toggle.click();
   await expect(body).not.toHaveClass(/compact-mode/);
   await expect(sidebar).toBeVisible();
 });
