@@ -170,6 +170,24 @@ Static root discovery walks three tiers:
 `FLIGHTJAR_STATIC_DIR` (env override) → `<AppContext.BaseDirectory>/static`
 (Docker image layout) → repo-root `app/static` (dev + tests).
 
+### Frontend: escape before `innerHTML`
+
+`app/static/format.js` exports `escapeHtml(str)`. Any value interpolated
+into an HTML template string that goes to `innerHTML`, `outerHTML`, or
+`insertAdjacentHTML` **must** be either a literal / numeric / output of
+`fmt(…)` or `uconv(…)`, **or** wrapped in `escapeHtml(…)` before
+concatenation. That covers callsigns, registrations, airport names,
+operator strings, origin / destination codes — anything that originated
+from a BEAST payload, adsbdb, planespotters, METAR, user input, or
+localStorage.
+
+GitHub's CodeQL scan flags unescaped interpolations as reflected XSS on
+nearly every PR that touches the frontend. The data path may in practice
+be safe, but the static analyser can't prove it — escape and move on.
+Do not introduce `document.write`, and do not build a parallel
+sanitiser; `escapeHtml` is the one primitive. If you find yourself
+reaching for `DOMPurify` or similar, stop and ask.
+
 ### BEAST wire format (`dotnet/src/FlightJar.Decoder/Beast/BeastFrameReader.cs`)
 
 Frames are `0x1A <type> <6B MLAT ts> <1B sig> <msg>`, where any `0x1A` in
