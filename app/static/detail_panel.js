@@ -645,24 +645,24 @@ function renderCommBSection(root, q, a, now) {
     ? (turbLabel[met.turbulence] || `L${met.turbulence}`) : null);
 
   // BDS 5,0 + 6,0 — flight data.
-  set('.pop-met-mach', met.mach != null ? met.mach.toFixed(2) : null);
-  set('.pop-met-ias', met.indicated_airspeed_kt != null
+  setText('.pop-met-mach', met.mach != null ? met.mach.toFixed(2) : null);
+  setText('.pop-met-ias', met.indicated_airspeed_kt != null
     ? uconv('spd', met.indicated_airspeed_kt) : null);
-  set('.pop-met-tas', met.true_airspeed_kt != null
+  setText('.pop-met-tas', met.true_airspeed_kt != null
     ? uconv('spd', met.true_airspeed_kt) : null);
-  set('.pop-met-gs', met.groundspeed_kt != null
+  setText('.pop-met-gs', met.groundspeed_kt != null
     ? uconv('spd', met.groundspeed_kt) : null);
-  set('.pop-met-mhdg', met.magnetic_heading_deg != null
+  setText('.pop-met-mhdg', met.magnetic_heading_deg != null
     ? `${met.magnetic_heading_deg.toFixed(0)}°` : null);
-  set('.pop-met-ttrk', met.true_track_deg != null
+  setText('.pop-met-ttrk', met.true_track_deg != null
     ? `${met.true_track_deg.toFixed(0)}°` : null);
-  set('.pop-met-roll', met.roll_deg != null
+  setText('.pop-met-roll', met.roll_deg != null
     ? `${met.roll_deg > 0 ? '+' : ''}${met.roll_deg.toFixed(1)}°` : null);
-  set('.pop-met-trkrate', met.track_rate_deg_per_s != null
+  setText('.pop-met-trkrate', met.track_rate_deg_per_s != null
     ? `${met.track_rate_deg_per_s.toFixed(2)}°/s` : null);
-  set('.pop-met-bvr', met.baro_vertical_rate_fpm != null
+  setText('.pop-met-bvr', met.baro_vertical_rate_fpm != null
     ? uconv('vrt', met.baro_vertical_rate_fpm) : null);
-  set('.pop-met-ivr', met.inertial_vertical_rate_fpm != null
+  setText('.pop-met-ivr', met.inertial_vertical_rate_fpm != null
     ? uconv('vrt', met.inertial_vertical_rate_fpm) : null);
 
   // Hide the whole section if every metric ended up hidden — e.g. when
