@@ -72,6 +72,25 @@ SIGTERM, so prefer the two-step flow above during iteration:
 node scripts/take_screenshots.js
 ```
 
+## Viewport sizing
+
+Default viewports are `1440×900` (desktop) and `390×844` (mobile). The
+detail-panel capture grows the viewport **vertically** to fit the
+entire panel in a single screenshot — it measures
+`#detail-panel.scrollHeight`, calls `page.setViewportSize(...)` to at
+least `panelHeight + 40px`, takes the shot, then restores the nominal
+viewport before the next capture. This matters most on mobile: the
+Enhanced Mode S + main metric grid + altitude profile + link buttons +
+stats footer together exceed the 844px default height. Any future
+section added to the panel automatically gets captured in full — no
+code change needed as long as the section lives inside `#detail-panel`.
+
+If you add a **new** dialog / panel / overlay that's itself taller than
+the viewport, wrap its capture the same way: measure the element's
+`scrollHeight`, bump via `page.setViewportSize`, screenshot, restore.
+Don't use `{ fullPage: true }` — that captures the whole scrollable
+body (including the map), which is never what we want.
+
 ## After capture
 
 1. **Read every PNG** — use the `Read` tool on each file under
@@ -81,7 +100,13 @@ node scripts/take_screenshots.js
      rows populated with route + registration + type.
    - `detail-panel` + `detail-panel-mobile`: BAW283 selected, a real
      photograph of G-ZBKA at the top (not the fallback SVG), Creative
-     Commons credit visible, route ticket EGLL → KSFO, telemetry grid.
+     Commons credit visible, route ticket EGLL → KSFO, telemetry grid,
+     **and** the full Enhanced Mode S block (MCP alt / QNH / wind /
+     OAT / TAT / Mach / IAS / TAS / GS / mag heading / true track /
+     roll / turn rate / baro + IRS vertical rates). The whole panel
+     should be visible top-to-bottom — if it's truncated at the
+     bottom, the viewport-grow step (see "Viewport sizing") didn't
+     fire correctly.
    - `stats` + `stats-mobile`: uptime / frames / rate / WS clients all
      populated (not "—"), traffic heatmap has clear peaks, polar
      coverage reports a max range ≥ 300 nm, reception-density polar

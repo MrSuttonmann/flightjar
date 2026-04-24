@@ -60,4 +60,41 @@ public sealed class Aircraft
 
     /// <summary>Best-known altitude: prefer barometric, fall back to GNSS.</summary>
     public int? Altitude => AltitudeBaro ?? AltitudeGeo;
+
+    // Comm-B (DF 20/21) derived state. Only populated when an EHS
+    // interrogator near the receiver triggers the relevant BDS register,
+    // so these fields are typically sparse and go stale quickly. The
+    // `*At` timestamps record when each field was last updated so the
+    // snapshot builder can expire them independently.
+
+    // BDS 4,0 — selected vertical intention + baro setting.
+    public int? SelectedAltitudeMcpFt { get; set; }
+    public int? SelectedAltitudeFmsFt { get; set; }
+    public double? QnhHpa { get; set; }
+    public double Bds40At { get; set; }
+
+    // BDS 4,4 — meteorological routine air report.
+    public int? WindSpeedKt { get; set; }
+    public double? WindDirectionDeg { get; set; }
+    public double? StaticAirTemperatureC { get; set; }
+    public int? StaticPressureHpa { get; set; }
+    public int? Turbulence { get; set; }
+    public double? HumidityPct { get; set; }
+    public double Bds44At { get; set; }
+
+    // BDS 5,0 — track and turn.
+    public double? RollDeg { get; set; }
+    public double? TrueTrackDeg { get; set; }
+    public int? GroundspeedKt { get; set; }
+    public double? TrackRateDegPerS { get; set; }
+    public int? TrueAirspeedKt { get; set; }
+    public double Bds50At { get; set; }
+
+    // BDS 6,0 — heading and speed.
+    public double? MagneticHeadingDeg { get; set; }
+    public int? IndicatedAirspeedKt { get; set; }
+    public double? Mach { get; set; }
+    public int? BaroVerticalRateFpm { get; set; }
+    public int? InertialVerticalRateFpm { get; set; }
+    public double Bds60At { get; set; }
 }

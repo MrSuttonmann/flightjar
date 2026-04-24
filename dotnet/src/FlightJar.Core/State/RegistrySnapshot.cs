@@ -112,7 +112,59 @@ public sealed record SnapshotAircraft
     public string? CountryIso { get; init; }
     public string? Manufacturer { get; init; }
 
+    /// <summary>
+    /// Comm-B (DF 20/21 Enhanced Mode S) values decoded from the last
+    /// unambiguous reply of each BDS register. Sparse — only present when
+    /// the aircraft is being interrogated by a Mode S ground radar close
+    /// enough to reach the receiver too. Nested so the frontend can detect
+    /// "any Comm-B field present" with a single null check.
+    /// </summary>
+    public SnapshotCommB? CommB { get; init; }
+
     public IReadOnlyList<SnapshotTrailPoint> Trail { get; init; } = Array.Empty<SnapshotTrailPoint>();
+}
+
+/// <summary>Comm-B decoded values, all nullable. <c>_at</c> fields are
+/// unix-second timestamps of the last decode for that register — the
+/// frontend uses them to age out stale values.</summary>
+public sealed record SnapshotCommB
+{
+    // BDS 4,0
+    public int? SelectedAltitudeMcpFt { get; init; }
+    public int? SelectedAltitudeFmsFt { get; init; }
+    public double? QnhHpa { get; init; }
+    public double? Bds40At { get; init; }
+
+    // BDS 4,4
+    public int? WindSpeedKt { get; init; }
+    public double? WindDirectionDeg { get; init; }
+    public double? StaticAirTemperatureC { get; init; }
+    /// <summary>"observed" when SAT comes straight from BDS 4,4; "derived"
+    /// when computed from TAS (BDS 5,0) and Mach (BDS 6,0). Null when the
+    /// value is absent. Lets the frontend flag derived temps so the reader
+    /// knows they're coarser than a direct reading.</summary>
+    public string? StaticAirTemperatureSource { get; init; }
+    public double? TotalAirTemperatureC { get; init; }
+    public int? StaticPressureHpa { get; init; }
+    public int? Turbulence { get; init; }
+    public double? HumidityPct { get; init; }
+    public double? Bds44At { get; init; }
+
+    // BDS 5,0
+    public double? RollDeg { get; init; }
+    public double? TrueTrackDeg { get; init; }
+    public int? GroundspeedKt { get; init; }
+    public double? TrackRateDegPerS { get; init; }
+    public int? TrueAirspeedKt { get; init; }
+    public double? Bds50At { get; init; }
+
+    // BDS 6,0
+    public double? MagneticHeadingDeg { get; init; }
+    public int? IndicatedAirspeedKt { get; init; }
+    public double? Mach { get; init; }
+    public int? BaroVerticalRateFpm { get; init; }
+    public int? InertialVerticalRateFpm { get; init; }
+    public double? Bds60At { get; init; }
 }
 
 /// <summary>Trimmed airport record for snapshot enrichment.</summary>

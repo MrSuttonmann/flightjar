@@ -22,6 +22,15 @@ public class AircraftRegistry
     public const double SignalLostMinAge = 10.0;
     public const double DeadReckonResumeResetKm = 5.0;
 
+    /// <summary>
+    /// How long a Comm-B field survives after its last decode. Real-world EHS
+    /// cadence is typically one BDS reply every few seconds per register, but
+    /// coverage drops out when the aircraft leaves the interrogator's beam.
+    /// 120 s is long enough to ride through a couple of missed sweeps without
+    /// blanking the panel, short enough to not display obviously stale values.
+    /// </summary>
+    public const double CommBMaxAge = 120.0;
+
     private readonly Dictionary<string, Aircraft> _aircraft = new();
     private readonly Func<string, DecodedMessage?> _decoder;
     private readonly Func<double> _clock;
@@ -217,7 +226,60 @@ public class AircraftRegistry
         {
             ac.Squawk = sq;
         }
+        ApplyCommB(ac, r, now);
         return true;
+    }
+
+    /// <summary>
+    /// Fan out a disambiguated Comm-B decode into the matching aircraft-state
+    /// fields. Only fields from the single matched register are touched, so a
+    /// BDS 4,4 decode cannot clobber a previous BDS 5,0 decode's TAS etc.
+    /// </summary>
+    private static void ApplyCommB(Aircraft ac, DecodedMessage r, double now)
+    {
+        switch (r.Bds)
+        {
+            case "4,0":
+                ac.SelectedAltitudeMcpFt = r.SelectedAltitudeMcpFt;
+                ac.SelectedAltitudeFmsFt = r.SelectedAltitudeFmsFt;
+                if (r.QnhHpa is double qnh)
+                {
+                    ac.QnhHpa = qnh;
+                }
+                ac.Bds40At = now;
+                break;
+            case "4,4":
+                ac.WindSpeedKt = r.WindSpeedKt;
+                ac.WindDirectionDeg = r.WindDirectionDeg;
+                if (r.StaticAirTemperatureC is double sat)
+                {
+                    ac.StaticAirTemperatureC = sat;
+                }
+                ac.StaticPressureHpa = r.StaticPressureHpa;
+                ac.Turbulence = r.Turbulence;
+                ac.HumidityPct = r.HumidityPct;
+                ac.Bds44At = now;
+                break;
+            case "5,0":
+                ac.RollDeg = r.RollDeg;
+                ac.TrueTrackDeg = r.TrueTrackDeg;
+                ac.GroundspeedKt = r.GroundspeedKt;
+                ac.TrackRateDegPerS = r.TrackRateDegPerS;
+                ac.TrueAirspeedKt = r.TrueAirspeedKt;
+                ac.Bds50At = now;
+                break;
+            case "6,0":
+                ac.MagneticHeadingDeg = r.MagneticHeadingDeg;
+                ac.IndicatedAirspeedKt = r.IndicatedAirspeedKt;
+                if (r.Mach is double m)
+                {
+                    ac.Mach = m;
+                }
+                ac.BaroVerticalRateFpm = r.BaroVerticalRateFpm;
+                ac.InertialVerticalRateFpm = r.InertialVerticalRateFpm;
+                ac.Bds60At = now;
+                break;
+        }
     }
 
     private void UpdatePosition(Aircraft ac, DecodedMessage r, double now, bool surface)
@@ -555,6 +617,7 @@ public class AircraftRegistry
                 SignalPeak = ac.SignalPeak,
                 MsgCount = ac.MsgCount,
                 DistanceKm = distanceKm,
+                CommB = BuildCommBSnapshot(ac, t),
                 Trail = trail,
             });
         }
@@ -590,4 +653,100 @@ public class AircraftRegistry
     }
 
     private static double Deg2Rad(double d) => d * Math.PI / 180.0;
+
+    /// <summary>
+    /// Project the aircraft's Comm-B state into the snapshot record, dropping
+    /// values whose last decode is older than <see cref="CommBMaxAge"/>.
+    ///
+    /// Temperature source priority:
+    /// 1. If BDS 4,4 is fresh, use its direct SAT reading (ground-truth).
+    /// 2. Otherwise, if BDS 5,0 (TAS) and BDS 6,0 (Mach) are both fresh,
+    ///    derive SAT from the TAS/Mach relation: a = TAS / M is the local
+    ///    speed of sound, and T_K = a² / (γR) with γ=1.4 and R=287.05 J/(kg·K).
+    ///    BDS 4,4 is pilot-optional on most airframes, so in practice most
+    ///    EHS-interrogated aircraft only ever emit BDS 4,0 / 5,0 / 6,0 and
+    ///    the derivation is the only way to surface OAT for them.
+    ///
+    /// TAT is always derived from whichever SAT source is active, via the
+    /// standard compressible-flow stagnation-temperature relation (recovery
+    /// factor 1.0): in Kelvin, <c>TAT = SAT * (1 + 0.2 * M²)</c>.
+    ///
+    /// Returns null if no Comm-B field is fresh — the frontend uses a single
+    /// null check to suppress the panel.
+    /// </summary>
+    private static SnapshotCommB? BuildCommBSnapshot(Aircraft ac, double now)
+    {
+        var bds40Fresh = ac.Bds40At > 0 && now - ac.Bds40At <= CommBMaxAge;
+        var bds44Fresh = ac.Bds44At > 0 && now - ac.Bds44At <= CommBMaxAge;
+        var bds50Fresh = ac.Bds50At > 0 && now - ac.Bds50At <= CommBMaxAge;
+        var bds60Fresh = ac.Bds60At > 0 && now - ac.Bds60At <= CommBMaxAge;
+
+        if (!bds40Fresh && !bds44Fresh && !bds50Fresh && !bds60Fresh)
+        {
+            return null;
+        }
+
+        double? sat = bds44Fresh ? ac.StaticAirTemperatureC : null;
+        string? satSource = sat is not null ? "observed" : null;
+
+        if (sat is null && bds50Fresh && bds60Fresh
+            && ac.TrueAirspeedKt is int tasKt && tasKt > 0
+            && ac.Mach is double machObs && machObs > 0.1)
+        {
+            // TAS in m/s; 1 kt = 0.514444 m/s. γR ≈ 401.874.
+            var tasMps = tasKt * 0.5144444;
+            var aMps = tasMps / machObs;
+            var tK = aMps * aMps / 401.874;
+            // Physical plausibility: reject below 150 K (-123 °C) or above
+            // 320 K (+47 °C). Outside this range the input pair is almost
+            // certainly noise from a rapid maneuver where TAS and Mach are
+            // transiently inconsistent — better to blank than to show a
+            // wildly wrong figure.
+            if (tK >= 150.0 && tK <= 320.0)
+            {
+                sat = tK - 273.15;
+                satSource = "derived";
+            }
+        }
+
+        double? tat = null;
+        if (sat is double satC && bds60Fresh && ac.Mach is double mach)
+        {
+            var satK = satC + 273.15;
+            var tatK = satK * (1 + 0.2 * mach * mach);
+            tat = tatK - 273.15;
+        }
+
+        return new SnapshotCommB
+        {
+            SelectedAltitudeMcpFt = bds40Fresh ? ac.SelectedAltitudeMcpFt : null,
+            SelectedAltitudeFmsFt = bds40Fresh ? ac.SelectedAltitudeFmsFt : null,
+            QnhHpa = bds40Fresh ? ac.QnhHpa : null,
+            Bds40At = bds40Fresh ? ac.Bds40At : null,
+
+            WindSpeedKt = bds44Fresh ? ac.WindSpeedKt : null,
+            WindDirectionDeg = bds44Fresh ? ac.WindDirectionDeg : null,
+            StaticAirTemperatureC = sat,
+            StaticAirTemperatureSource = satSource,
+            TotalAirTemperatureC = tat,
+            StaticPressureHpa = bds44Fresh ? ac.StaticPressureHpa : null,
+            Turbulence = bds44Fresh ? ac.Turbulence : null,
+            HumidityPct = bds44Fresh ? ac.HumidityPct : null,
+            Bds44At = bds44Fresh ? ac.Bds44At : null,
+
+            RollDeg = bds50Fresh ? ac.RollDeg : null,
+            TrueTrackDeg = bds50Fresh ? ac.TrueTrackDeg : null,
+            GroundspeedKt = bds50Fresh ? ac.GroundspeedKt : null,
+            TrackRateDegPerS = bds50Fresh ? ac.TrackRateDegPerS : null,
+            TrueAirspeedKt = bds50Fresh ? ac.TrueAirspeedKt : null,
+            Bds50At = bds50Fresh ? ac.Bds50At : null,
+
+            MagneticHeadingDeg = bds60Fresh ? ac.MagneticHeadingDeg : null,
+            IndicatedAirspeedKt = bds60Fresh ? ac.IndicatedAirspeedKt : null,
+            Mach = bds60Fresh ? ac.Mach : null,
+            BaroVerticalRateFpm = bds60Fresh ? ac.BaroVerticalRateFpm : null,
+            InertialVerticalRateFpm = bds60Fresh ? ac.InertialVerticalRateFpm : null,
+            Bds60At = bds60Fresh ? ac.Bds60At : null,
+        };
+    }
 }

@@ -71,6 +71,53 @@ internal static class FakeDecoder
         ["AC01"] = new() { Df = 4, Icao = "def456", Altitude = 24000 },
         // DF5 squawk reply
         ["SQ01"] = new() { Df = 5, Icao = "def456", Squawk = "1234" },
+        // DF20 with a BDS 4,4 (meteorological) Comm-B payload
+        ["BD44"] = new()
+        {
+            Df = 20,
+            Icao = "abc123",
+            Altitude = 37000,
+            Bds = "4,4",
+            FigureOfMerit = 1,
+            WindSpeedKt = 50,
+            WindDirectionDeg = 270.0,
+            StaticAirTemperatureC = -55.0,
+        },
+        // DF20 with a BDS 6,0 (heading/speed) Comm-B payload
+        ["BD60"] = new()
+        {
+            Df = 20,
+            Icao = "abc123",
+            Altitude = 37000,
+            Bds = "6,0",
+            MagneticHeadingDeg = 95.0,
+            IndicatedAirspeedKt = 285,
+            Mach = 0.82,
+        },
+        // DF20 with a BDS 5,0 (track and turn) Comm-B payload.
+        // TAS 470 kt paired with BD60's Mach 0.82 yields a plausible
+        // cruise SAT ~ -57 °C (speed of sound a = TAS/M → T = a²/(γR)).
+        ["BD50"] = new()
+        {
+            Df = 20,
+            Icao = "abc123",
+            Altitude = 37000,
+            Bds = "5,0",
+            TrueAirspeedKt = 470,
+            GroundspeedKt = 478,
+            TrueTrackDeg = 95.5,
+            RollDeg = -1.2,
+        },
+        // DF20 with a BDS 4,0 (selected vertical intention) Comm-B payload
+        ["BD40"] = new()
+        {
+            Df = 20,
+            Icao = "abc123",
+            Altitude = 37000,
+            Bds = "4,0",
+            SelectedAltitudeMcpFt = 36000,
+            QnhHpa = 1013.0,
+        },
         // DF17 with bad CRC — should be dropped
         ["BAD1"] = new() { Df = 17, CrcValid = false, Icao = "aaa111", Typecode = 1 },
         // DF11 all-call with only ICAO — should not pass the snapshot "nothing interesting" filter

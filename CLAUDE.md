@@ -21,6 +21,12 @@ Snapshots are enriched from several free public sources:
 - METAR weather at origin / destination from
   [aviationweather.gov](https://aviationweather.gov/).
 
+Aircraft within reach of a Mode S ground interrogator additionally have
+their Comm-B (DF 20 / 21) replies decoded for BDS 4,0 / 4,4 / 5,0 / 6,0
+— autopilot selected altitude, QNH, wind, SAT/TAT, Mach, IAS, TAS, roll,
+magnetic heading, baro/inertial vertical rate, etc. These are *solicited*
+(not broadcast), so they only appear in airspace with active EHS SSR.
+
 A server-side watchlist + notification fan-out (Telegram / ntfy / generic
 webhook) fires alerts on watched-tail reappearance and emergency squawks
 (7500 / 7600 / 7700), whether a browser tab is open or not. Channels are
@@ -187,10 +193,22 @@ Hand-ported from pyModeS 3.2.0 (MIT-licensed). Organised under
 - `AdsbDecoder.cs` — DF17/18 typecode dispatch → BDS 0,5 / 0,6 / 0,8 / 0,9.
 - `Cpr.cs` — airborne + surface, pair + local-reference decode. `Nl`
   table derived from DO-260B §A.1.7.2; bisect lookup.
+- `CommB.cs` — DF 20 / 21 Comm-B register decoders + `Is-` heuristic
+  validators (reserved-bit / status-bit / range checks). Currently
+  supports the four heuristic registers: BDS 4,0 (selected vertical
+  intention + QNH), 4,4 (meteorological routine: wind, SAT, pressure,
+  humidity, turbulence), 5,0 (track and turn: roll, true track, GS,
+  track rate, TAS), 6,0 (heading and speed: magnetic heading, IAS,
+  Mach, baro VR, inertial VR). `CommB.Infer(payload)` returns a
+  `Candidates` struct; `MessageDecoder` applies the decode only when
+  exactly one register validates — multi-match payloads are ambiguous
+  and dropped rather than risk polluting state.
 - `MessageDecoder.cs` — top-level entry, returns `DecodedMessage`.
 
 Every decoder is validated against pyModeS golden vectors in
-`FlightJar.Decoder.Tests`.
+`FlightJar.Decoder.Tests`. The Comm-B validators + decoders were ported
+from pyModeS 3.x `pyModeS/decoder/bds/bds{40,44,50,60}.py` — see
+`CommBTests.cs` for the mapping from the pyModeS test corpus.
 
 ### Aircraft state
 
@@ -229,6 +247,33 @@ bearing-to-destination gates for adsbdb route cross-check).
 Registry exposes two callback hooks used by `RegistryWorker`:
 - `OnNewAircraft(icao, ts)` → `TrafficHeatmap.Observe`.
 - `OnPosition(lat, lon)` → `PolarCoverage.Observe`.
+
+DF 20 / 21 surveillance ingest also runs `ApplyCommB` when
+`MessageDecoder` resolved a single-candidate BDS register: only the
+fields from the matched register are written plus its `Bds{40,44,50,60}At`
+timestamp. `Snapshot()` then builds `SnapshotCommB` via
+`BuildCommBSnapshot(ac, now)`, dropping values whose timestamp is older
+than `CommBMaxAge` (120 s).
+
+Temperature sourcing in `BuildCommBSnapshot` has two paths:
+1. **Observed** — if BDS 4,4 is fresh, use its direct SAT reading.
+2. **Derived** — otherwise, if BDS 5,0 (TAS) and BDS 6,0 (Mach) are
+   both fresh, back-solve SAT from `a = TAS / M` and `T_K = a² / 401.874`
+   (γR for dry air). Pilots rarely opt into BDS 4,4, so derivation is
+   how most EHS aircraft get OAT. The snapshot tags which path produced
+   the value via `StaticAirTemperatureSource` ("observed" | "derived");
+   the UI renders a "derived" chip next to the tile so the reader
+   knows it's second-hand. Implausible pairs (T_K outside [150, 320])
+   are blanked rather than rendered.
+
+TAT is always derived from whichever SAT source is active plus BDS 6,0
+Mach via the standard stagnation-temperature relation (recovery
+factor 1.0): `TAT = SAT * (1 + 0.2 * M²)`.
+
+The whole `CommB` snapshot field is null when no register is fresh, so
+the frontend suppresses the Enhanced Mode S panel with a single check.
+Comm-B state is *not* persisted to `state.json.gz` — the 120 s
+freshness window is shorter than the persist cadence anyway.
 
 ### Blackspots (terrain LOS)
 

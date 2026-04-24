@@ -15,6 +15,7 @@ function fakeDocument() {
   return {
     body,
     createElement(tag) {
+      const classes = new Set();
       return {
         tag,
         children: [],
@@ -23,6 +24,10 @@ function fakeDocument() {
         textContent: '',
         offsetWidth: 80,
         offsetHeight: 20,
+        classList: {
+          toggle: (name, on) => { on ? classes.add(name) : classes.delete(name); },
+          has: (name) => classes.has(name),
+        },
         appendChild(c) { this.children.push(c); c.parentNode = this; },
         getBoundingClientRect: () => ({
           left: 50, top: 50, right: 100, bottom: 70, width: 50, height: 20,
@@ -44,6 +49,7 @@ function fakeTarget(name) {
   return {
     tag: 'span',
     dataset: { title: name },
+    hasAttribute(attr) { return attr === 'data-title'; },
     getBoundingClientRect: () => ({
       left: 100, top: 60, right: 140, bottom: 80, width: 40, height: 20,
     }),
@@ -54,6 +60,25 @@ function fakeTarget(name) {
 
 function bareTarget() {
   return { matches: () => false, closest: () => null };
+}
+
+function fakeHelpTarget(text) {
+  // Fakes an element carrying [data-help] — the help-icon render path.
+  const t = {
+    tag: 'span',
+    dataset: { help: text },
+    getAttribute(name) { return name === 'data-help' ? text : null; },
+    hasAttribute(name) { return name === 'data-help'; },
+    getBoundingClientRect: () => ({
+      left: 100, top: 60, right: 114, bottom: 74, width: 14, height: 14,
+    }),
+    matches(sel) { return sel === '[data-help]'; },
+    closest(sel) { return this.matches(sel) ? this : null; },
+  };
+  // Ensure `classList.toggle` on the tip element doesn't blow up. The
+  // fake createElement() in fakeDocument doesn't provide one, so we
+  // patch it via the tip element in the test that needs it.
+  return t;
 }
 
 test('initAirportTooltip mounts a hidden #airport-tooltip div on body', () => {
@@ -92,6 +117,24 @@ test('Clicking outside an airport code hides an open tooltip', () => {
   // Now click away.
   doc.fire('click', { target: bareTarget(), stopPropagation: () => {} });
   assert.equal(tip.hidden, true);
+});
+
+test('Hovering a [data-help] element shows the help tooltip with the help text', () => {
+  const doc = fakeDocument();
+  initAirportTooltip(doc);
+  const tip = doc.body.children[0];
+  // Give the tip element a classList that responds to toggle — the fake
+  // createElement doesn't provide one by default.
+  const classes = new Set();
+  tip.classList = {
+    toggle: (name, on) => { on ? classes.add(name) : classes.delete(name); },
+    has: (name) => classes.has(name),
+  };
+  const target = fakeHelpTarget('Mach number: ratio of TAS to speed of sound');
+  doc.fire('mouseover', { target });
+  assert.equal(tip.hidden, false);
+  assert.equal(tip.textContent, 'Mach number: ratio of TAS to speed of sound');
+  assert.equal(tip.classList.has('tip-help'), true);
 });
 
 test('Hovering an airport code shows the tooltip (non-persistent)', () => {

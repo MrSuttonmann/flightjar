@@ -36,4 +36,37 @@ public sealed record DecodedMessage
 
     // Squawk (DF5/21)
     public string? Squawk { get; init; }
+
+    // Comm-B decoded fields (DF20/21). Only populated when the 56-bit MB
+    // payload unambiguously matches exactly one heuristic BDS register
+    // (4,0 / 4,4 / 5,0 / 6,0) — see CommB.Infer.
+    public string? Bds { get; init; }
+
+    // BDS 4,0 — selected vertical intention + barometric setting.
+    public int? SelectedAltitudeMcpFt { get; init; }
+    public int? SelectedAltitudeFmsFt { get; init; }
+    public double? QnhHpa { get; init; }
+
+    // BDS 4,4 — meteorological routine air report.
+    public int? FigureOfMerit { get; init; }
+    public int? WindSpeedKt { get; init; }
+    public double? WindDirectionDeg { get; init; }
+    public double? StaticAirTemperatureC { get; init; }
+    public int? StaticPressureHpa { get; init; }
+    public int? Turbulence { get; init; }
+    public double? HumidityPct { get; init; }
+
+    // BDS 5,0 — track and turn.
+    public double? RollDeg { get; init; }
+    public double? TrueTrackDeg { get; init; }
+    public int? GroundspeedKt { get; init; }
+    public double? TrackRateDegPerS { get; init; }
+    public int? TrueAirspeedKt { get; init; }
+
+    // BDS 6,0 — heading and speed.
+    public double? MagneticHeadingDeg { get; init; }
+    public int? IndicatedAirspeedKt { get; init; }
+    public double? Mach { get; init; }
+    public int? BaroVerticalRateFpm { get; init; }
+    public int? InertialVerticalRateFpm { get; init; }
 }
