@@ -179,6 +179,55 @@ public class TelemetryPayloadBuilderTests
     }
 
     [Fact]
+    public void Identify_SplitsStableAndOnceAttributes()
+    {
+        var opts = new AppOptions
+        {
+            LatRef = 52.98,
+            LonRef = -1.20,
+            FlightRoutesEnabled = true,
+            MetarEnabled = false,
+            OpenAipApiKey = "abc",
+            BlackspotsEnabled = true,
+        };
+        var firstSeen = DateTimeOffset.Parse("2026-01-01T00:00:00Z");
+
+        var (set, setOnce) = TelemetryPayloadBuilder.BuildIdentify(opts, firstSeen);
+
+        // first_seen lives in $set_once so PostHog won't overwrite the
+        // original on subsequent identifies.
+        Assert.Equal(firstSeen.ToString("O"), setOnce["first_seen_iso"]);
+        Assert.False(set.ContainsKey("first_seen_iso"));
+
+        // Stable per-install attributes go in $set.
+        Assert.Equal("flightjar", set["$lib"]);
+        Assert.Equal(true, set["feature_flight_routes"]);
+        Assert.Equal(false, set["feature_metar"]);
+        Assert.Equal(true, set["feature_openaip"]);
+        Assert.Equal(true, set["feature_blackspots"]);
+        Assert.Equal(50, set["region_lat_10"]);
+        Assert.Equal(0, set["region_lon_10"]);
+
+        // Same geoip-disable hint as the per-event payload.
+        Assert.Equal(true, set["$geoip_disable"]);
+        Assert.Equal("", set["$ip"]);
+
+        // Per-event-only fields must not leak into the Person profile.
+        Assert.False(set.ContainsKey("uptime_s"));
+        Assert.False(set.ContainsKey("aircraft_count"));
+        Assert.False(set.ContainsKey("ws_subscribers"));
+    }
+
+    [Fact]
+    public void Identify_OmitsRegion_WhenReceiverUnconfigured()
+    {
+        var opts = new AppOptions { LatRef = null, LonRef = null };
+        var (set, _) = TelemetryPayloadBuilder.BuildIdentify(opts, DateTimeOffset.UtcNow);
+        Assert.False(set.ContainsKey("region_lat_10"));
+        Assert.False(set.ContainsKey("region_lon_10"));
+    }
+
+    [Fact]
     public void Payload_DisablesPosthogServerSideGeoip()
     {
         // Without $geoip_disable, PostHog enriches the event from the
@@ -240,6 +289,74 @@ public class PosthogClientTests
         Assert.Equal("instance_ping", doc.RootElement.GetProperty("event").GetString());
         Assert.Equal("abc", doc.RootElement.GetProperty("distinct_id").GetString());
         Assert.Equal(60, doc.RootElement.GetProperty("properties").GetProperty("uptime_s").GetInt32());
+    }
+
+    [Fact]
+    public async Task Identify_PostsSpecialEventWithSetAndSetOnce()
+    {
+        var handler = new RecordingHandler { Response = _ => new HttpResponseMessage(HttpStatusCode.OK) };
+        var client = new PosthogClient(new HttpClient(handler));
+
+        var ok = await client.IdentifyAsync(
+            host: "https://eu.i.posthog.com",
+            apiKey: "phc_test",
+            distinctId: "abc",
+            setProperties: new Dictionary<string, object?> { ["version"] = "1.2.3" },
+            setOnceProperties: new Dictionary<string, object?> { ["first_seen_iso"] = "2026-01-01T00:00:00Z" },
+            timestamp: DateTimeOffset.Parse("2026-04-24T12:00:00Z"));
+
+        Assert.True(ok);
+        var req = Assert.Single(handler.Requests);
+        Assert.Equal("https://eu.i.posthog.com/capture/", req.Uri);
+
+        using var doc = JsonDocument.Parse(req.Body!);
+        // PostHog's special event name — anything else and PostHog
+        // treats this as a regular event without updating the Person.
+        Assert.Equal("$identify", doc.RootElement.GetProperty("event").GetString());
+        Assert.Equal("abc", doc.RootElement.GetProperty("distinct_id").GetString());
+        var props = doc.RootElement.GetProperty("properties");
+        Assert.Equal("1.2.3", props.GetProperty("$set").GetProperty("version").GetString());
+        Assert.Equal("2026-01-01T00:00:00Z",
+            props.GetProperty("$set_once").GetProperty("first_seen_iso").GetString());
+    }
+
+    [Fact]
+    public async Task Identify_OmitsSetOnce_WhenEmpty()
+    {
+        var handler = new RecordingHandler { Response = _ => new HttpResponseMessage(HttpStatusCode.OK) };
+        var client = new PosthogClient(new HttpClient(handler));
+
+        await client.IdentifyAsync(
+            host: "https://eu.i.posthog.com",
+            apiKey: "phc_test",
+            distinctId: "abc",
+            setProperties: new Dictionary<string, object?> { ["version"] = "1.2.3" },
+            setOnceProperties: null,
+            timestamp: DateTimeOffset.UtcNow);
+
+        var req = Assert.Single(handler.Requests);
+        using var doc = JsonDocument.Parse(req.Body!);
+        var props = doc.RootElement.GetProperty("properties");
+        Assert.True(props.TryGetProperty("$set", out _));
+        Assert.False(props.TryGetProperty("$set_once", out _));
+    }
+
+    [Fact]
+    public async Task Identify_EmptyApiKey_DoesNotMakeRequest()
+    {
+        var handler = new RecordingHandler();
+        var client = new PosthogClient(new HttpClient(handler));
+
+        var ok = await client.IdentifyAsync(
+            host: "https://eu.i.posthog.com",
+            apiKey: "",
+            distinctId: "abc",
+            setProperties: new Dictionary<string, object?>(),
+            setOnceProperties: null,
+            timestamp: DateTimeOffset.UtcNow);
+
+        Assert.False(ok);
+        Assert.Empty(handler.Requests);
     }
 
     [Fact]
