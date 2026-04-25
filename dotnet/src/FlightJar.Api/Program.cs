@@ -383,12 +383,50 @@ app.MapGet("/metrics", (
 
 // ----- Map config / airports / navaids -----
 
+// `layer_status` reports each gated map layer's `{enabled, reason}` so
+// the frontend can render disabled rows in the layers control with an
+// info icon explaining why and how to enable them — instead of silently
+// hiding overlays whose backing config is missing.
 app.MapGet("/api/map_config", (AppOptions opts, VfrmapCycle vfrmap) =>
-    Results.Json(new
+{
+    var openAipKey = opts.OpenAipApiKey;
+    var vfrmapDate = vfrmap.CurrentDate ?? opts.VfrmapChartDate;
+    var openAipEnabled = !string.IsNullOrWhiteSpace(openAipKey);
+    var vfrmapEnabled = !string.IsNullOrWhiteSpace(vfrmapDate);
+    var blackspotsEnabled = opts.BlackspotsEnabled
+        && opts.LatRef is not null && opts.LonRef is not null;
+
+    string? blackspotsReason = blackspotsEnabled ? null
+        : !opts.BlackspotsEnabled
+            ? "Set BLACKSPOTS_ENABLED=1 to enable."
+            : "Set LAT_REF and LON_REF to enable.";
+
+    return Results.Json(new
     {
-        openaip_api_key = opts.OpenAipApiKey,
-        vfrmap_chart_date = vfrmap.CurrentDate ?? opts.VfrmapChartDate,
-    }));
+        openaip_api_key = openAipKey,
+        vfrmap_chart_date = vfrmapDate,
+        layer_status = new
+        {
+            openaip = new
+            {
+                enabled = openAipEnabled,
+                reason = openAipEnabled ? null
+                    : "Set OPENAIP_API_KEY to enable. Free key at openaip.net.",
+            },
+            vfrmap = new
+            {
+                enabled = vfrmapEnabled,
+                reason = vfrmapEnabled ? null
+                    : "Set VFRMAP_CHART_DATE, or check internet for auto-discovery.",
+            },
+            blackspots = new
+            {
+                enabled = blackspotsEnabled,
+                reason = blackspotsReason,
+            },
+        },
+    });
+});
 
 // Frontend telemetry init payload. Same opt-out as the backend ping
 // (TELEMETRY_ENABLED=0) and same destination (baked phc_* key). Returns
