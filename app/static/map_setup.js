@@ -13,6 +13,7 @@ import { getUnitSystem, uconv } from './units.js';
 import { showToast } from './toast.js';
 import { state } from './state.js';
 import { track } from './telemetry.js';
+import { initLayerStatus } from './map_layer_status.js';
 
 function slugify(name) {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
@@ -81,9 +82,10 @@ export function initMap({ config = {}, ...overlayHandlers } = {}) {
   };
   // OpenAIP's aeronautical tiles are a semi-transparent chart layer — on
   // their own there's no ground reference, so the Aeronautical base
-  // layer is a composite of OSM underneath + OpenAIP on top. Only
-  // offered when an API key is configured; otherwise the user gets a
-  // radio button for a layer that would just return 401s.
+  // layer is a composite of OSM underneath + OpenAIP on top. We always
+  // register the entry so the user can see it exists; when the OpenAIP
+  // gate is closed the layer is a no-op placeholder and applyLayerStatus
+  // disables the radio + attaches a why/how info popover.
   if (config.openaip_api_key) {
     baseLayers['Aeronautical (OpenAIP)'] = L.layerGroup([
       L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -101,9 +103,21 @@ export function initMap({ config = {}, ...overlayHandlers } = {}) {
         },
       ),
     ]);
+  } else {
+    baseLayers['Aeronautical (OpenAIP)'] = L.layerGroup();
   }
+  // When a base layer's gate is closed (e.g. OpenAIP without an API key)
+  // we register a no-op placeholder so the radio still shows in the
+  // layers control as a disabled row — but we must not *activate* it,
+  // even if the user previously selected it. Treat such entries as
+  // unavailable for the saved-basemap restore.
+  const layerStatus = config.layer_status || {};
+  const baseGated = {
+    'Aeronautical (OpenAIP)': layerStatus.openaip?.enabled === false,
+  };
   const savedBase = localStorage.getItem('flightjar.basemap');
-  const defaultBaseName = savedBase && baseLayers[savedBase] ? savedBase : 'OpenStreetMap';
+  const savedBaseUsable = savedBase && baseLayers[savedBase] && !baseGated[savedBase];
+  const defaultBaseName = savedBaseUsable ? savedBase : 'OpenStreetMap';
   baseLayers[defaultBaseName].addTo(map);
   applyBasemapClass(defaultBaseName);
 
@@ -200,10 +214,14 @@ export function initMap({ config = {}, ...overlayHandlers } = {}) {
   // L.tileLayer instances that Leaflet's native add/remove handles
   // directly. We still want their checkbox state to survive reloads, so
   // each entry has a `storageKey` we write on overlayadd/overlayremove.
-  // An overlay with no valid config (missing key / date) is skipped so
-  // the user isn't offered a toggle that would just yield broken tiles.
   // The OpenAIP Aeronautical chart is now a base layer, not an overlay
   // — see the `baseLayers` block above.
+  //
+  // When the VFRMap chart cycle is missing we still register placeholder
+  // layerGroups for IFR Low / IFR High; applyLayerStatus disables their
+  // checkboxes and attaches an info popover with VFRMAP_CHART_DATE
+  // setup notes, so the user can see the layers exist but understand
+  // why they aren't actionable.
   const tileOverlays = [];
   if (config.vfrmap_chart_date) {
     // VFRMap tile URLs embed the 28-day FAA chart cycle date. When the
@@ -264,6 +282,19 @@ export function initMap({ config = {}, ...overlayHandlers } = {}) {
       layer: ifrHighLayer,
       storageKey: 'flightjar.ifr_high',
       initiallyOn: state.showIfrHigh,
+    });
+  } else {
+    tileOverlays.push({
+      label: 'IFR Low (US)',
+      layer: L.layerGroup(),
+      storageKey: 'flightjar.ifr_low',
+      initiallyOn: false,
+    });
+    tileOverlays.push({
+      label: 'IFR High (US)',
+      layer: L.layerGroup(),
+      storageKey: 'flightjar.ifr_high',
+      initiallyOn: false,
     });
   }
   const tileLayerToKey = new Map(tileOverlays.map((o) => [o.layer, o.storageKey]));
@@ -330,6 +361,13 @@ export function initMap({ config = {}, ...overlayHandlers } = {}) {
   state.syncOverlay = syncOverlay;
   state.buildRangeRings = buildRangeRings;
   state.renderAltLegend = renderAltLegend;
+
+  // Paint disabled-layer rows from the backend's reported gate state
+  // (missing OPENAIP_API_KEY / VFRMAP_CHART_DATE / receiver coords).
+  // `layer_status` may be absent when the endpoint failed — in which
+  // case nothing is annotated and the user just sees the working
+  // layers, same as before.
+  initLayerStatus(config.layer_status);
 }
 
 // Draw the receiver marker (+ optional privacy circle) on first snapshot
