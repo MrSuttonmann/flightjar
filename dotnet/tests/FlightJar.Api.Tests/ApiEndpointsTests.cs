@@ -1,6 +1,9 @@
 using System.Net;
 using System.Text.Json;
+using FlightJar.Api.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace FlightJar.Api.Tests;
 
@@ -23,6 +26,18 @@ public class ApiEndpointsTests : IClassFixture<WebApplicationFactory<Program>>
             b.UseSetting("BEAST_PORT", "1");
             Environment.SetEnvironmentVariable("BEAST_HOST", "127.0.0.1");
             Environment.SetEnvironmentVariable("BEAST_PORT", "1");
+            // Stop the VFRMap cycle refresher from making a real call to
+            // vfrmap.com during the test run. Without this CI was racing
+            // the discovery against MapConfig_ReportsLayerStatus, which
+            // expects vfrmap.enabled=false: a fast network reply
+            // populated VfrmapCycle.CurrentDate before the assertion ran.
+            b.ConfigureServices(services =>
+            {
+                var refresher = services.FirstOrDefault(d =>
+                    d.ServiceType == typeof(IHostedService)
+                    && d.ImplementationType == typeof(VfrmapCycleRefresher));
+                if (refresher is not null) services.Remove(refresher);
+            });
         });
     }
 
