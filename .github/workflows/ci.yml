@@ -4,8 +4,24 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+    # Skip the run entirely when only doc / Claude / screenshot paths
+    # change — none of these end up in the published image, and the
+    # Docker build + Playwright runs are the slow ones to spin up. A
+    # change that mixes a doc edit with a real source edit still
+    # triggers, because GitHub triggers when *any* changed path is
+    # outside this list.
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - 'scripts/take_screenshots.js'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - 'scripts/take_screenshots.js'
   workflow_dispatch:
     inputs:
       tag:

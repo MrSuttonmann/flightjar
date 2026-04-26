@@ -645,8 +645,25 @@ async function capture(browser, device, base, photoDataUri, statsRoutes) {
   await page.waitForFunction(() =>
     document.getElementById('stats-dialog')?.open, null, { timeout: 5000 });
   await page.waitForTimeout(800);
+  // Same viewport-grow trick as the detail panel: the Receiver-stats
+  // dialog runs to a BEAST-feed footer that's well past 844 px on
+  // mobile, so a default-viewport screenshot truncates the polar
+  // heatmap and the BEAST-feed cards. Measure scrollHeight and grow.
+  const statsHeight = await page.evaluate(() => {
+    const d = document.getElementById('stats-dialog');
+    return d ? d.scrollHeight : 0;
+  });
+  const statsTarget = Math.max(device.viewport.height, statsHeight + 60);
+  if (statsTarget > device.viewport.height) {
+    await page.setViewportSize({ width: device.viewport.width, height: statsTarget });
+    await page.waitForTimeout(200);
+  }
   console.log(`-> ${file('stats')}`);
   await page.screenshot({ path: file('stats') });
+  if (statsTarget > device.viewport.height) {
+    await page.setViewportSize(device.viewport);
+    await page.waitForTimeout(200);
+  }
   await page.locator('#stats-dialog .about-close').click();
   await page.waitForTimeout(300);
 

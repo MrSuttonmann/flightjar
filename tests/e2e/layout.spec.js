@@ -161,11 +161,17 @@ test('every dialog fits inside the viewport and the close button is reachable', 
 test('aircraft detail panel opens, fits the viewport, and closes', async ({ page }) => {
   // Inject a fake snapshot + select the aircraft in one atomic step
   // so the real 1 Hz WebSocket tick can't race us and evict the fake
-  // entry before we mark it as selected.
+  // entry before we mark it as selected. Resolve both imports BEFORE
+  // touching state — otherwise the await between update() and
+  // openDetailPanel() yields to the event loop long enough for a WS
+  // snapshot to land and wipe out the injected aircraft, which CI hit
+  // intermittently as `opened === false`.
   const openResult = await page.evaluate(async (snap) => {
-    const uMod = await import('/static/update_loop.js');
+    const [uMod, m] = await Promise.all([
+      import('/static/update_loop.js'),
+      import('/static/detail_panel.js'),
+    ]);
     uMod.update(snap);
-    const m = await import('/static/detail_panel.js');
     m.openDetailPanel('a12345');
     return {
       opened: document.getElementById('detail-panel').classList.contains('open'),
@@ -227,9 +233,11 @@ test('no console errors during a typical UI session', async ({ page }) => {
     await page.evaluate((id) => document.getElementById(id).close(), id);
   }
   await page.evaluate(async (snap) => {
-    const uMod = await import('/static/update_loop.js');
+    const [uMod, m] = await Promise.all([
+      import('/static/update_loop.js'),
+      import('/static/detail_panel.js'),
+    ]);
     uMod.update(snap);
-    const m = await import('/static/detail_panel.js');
     m.openDetailPanel('a12345');
   }, FAKE_SNAPSHOT);
   await page.waitForTimeout(400);
@@ -274,9 +282,11 @@ test('detail panel renders Enhanced Mode S section when comm_b is present', asyn
     }],
   };
   await page.evaluate(async (snap) => {
-    const uMod = await import('/static/update_loop.js');
+    const [uMod, m] = await Promise.all([
+      import('/static/update_loop.js'),
+      import('/static/detail_panel.js'),
+    ]);
     uMod.update(snap);
-    const m = await import('/static/detail_panel.js');
     m.openDetailPanel('a12345');
   }, snapWithMet);
   await page.waitForTimeout(300);
@@ -308,9 +318,11 @@ test('detail panel metric labels carry help icons with explanations', async ({ p
   // Open the panel for a plain aircraft (no comm_b needed — every
   // .panel-meta tile should have a help icon regardless of the data).
   await page.evaluate(async (snap) => {
-    const uMod = await import('/static/update_loop.js');
+    const [uMod, m] = await Promise.all([
+      import('/static/update_loop.js'),
+      import('/static/detail_panel.js'),
+    ]);
     uMod.update(snap);
-    const m = await import('/static/detail_panel.js');
     m.openDetailPanel('a12345');
   }, FAKE_SNAPSHOT);
   await page.waitForTimeout(250);
