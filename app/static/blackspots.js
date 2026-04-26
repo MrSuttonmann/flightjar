@@ -120,6 +120,25 @@ function blockerBounds(blocker, gridDeg) {
   return [[latBase, lonBase], [latBase + gridDeg, lonBase + gridDeg]];
 }
 
+// Stable string key for a blocker bin, derived the same way the backend
+// aggregates obstructions into bins. Used to match blocked cells to the
+// blocker their obstruction sample falls into so hover-highlight can
+// thicken the right cells in O(1) lookup time.
+function blockerBinKey(lat, lon, gridDeg) {
+  return `${Math.floor(lat / gridDeg)},${Math.floor(lon / gridDeg)}`;
+}
+
+// Style override for a cell currently being highlighted by hovering its
+// blocker. Slate stroke at 2.5 px + raised fill opacity makes the
+// affected cells pop without recolouring them — the band colour still
+// communicates "how much taller would I need".
+const HIGHLIGHT_STYLE = {
+  color: '#0f172a',
+  weight: 2.5,
+  opacity: 1.0,
+  fillOpacity: 0.7,
+};
+
 function renderSnapshot(snapshot) {
   const layer = state.blackspotsLayer;
   if (!layer) return;
@@ -137,6 +156,9 @@ function renderSnapshot(snapshot) {
   // shadow shading so the coloured blocked-cell rectangles stay the
   // primary visual. Opacity scales with how many shadowed cells trace
   // back to each obstructing bin, so prominent ridges read darker.
+  // Rectangles are kept around to wire hover-highlight handlers in a
+  // third pass (after the cell→bin lookup is built).
+  const blockerEntries = [];  // {rect, key}
   if (snapshot.blockers?.length) {
     for (const blocker of snapshot.blockers) {
       const shade = blockerShade(blocker.blocked_count);
@@ -147,9 +169,17 @@ function renderSnapshot(snapshot) {
       rect.bindTooltip(blockerTooltipFor(blocker, snapshot.params),
         { direction: 'top', sticky: true });
       rect.addTo(layer);
+      blockerEntries.push({
+        rect,
+        key: blockerBinKey(blocker.lat, blocker.lon, gridDeg),
+      });
     }
   }
 
+  // Cells: build the rectangles + index each by the bin its obstruction
+  // sample lands in, so hovering the blocker can re-style every cell that
+  // traces back to it without scanning the whole list.
+  const cellsByBlockerBin = new Map();
   for (const cell of snapshot.cells) {
     // `required_antenna_msl_m` is the absolute MSL height needed; the band
     // colour reflects how much *above the user's current antenna* that is
@@ -160,19 +190,44 @@ function renderSnapshot(snapshot) {
       ? null
       : cell.required_antenna_msl_m - snapshot.params.antenna_msl_m;
     const band = bandFor(delta);
-    const rect = L.rectangle(cellBounds(cell, gridDeg), {
-      renderer: state.airportsCanvas,
+    // Keep the normal style closure-captured so mouseout can restore it
+    // without us having to recompute the band → style mapping.
+    const normalStyle = {
       color: band.stroke,
       weight: 0.5,
       opacity: 0.55,
       fillColor: band.fill,
       fillOpacity: 0.35,
+    };
+    const rect = L.rectangle(cellBounds(cell, gridDeg), {
+      renderer: state.airportsCanvas,
+      ...normalStyle,
     });
     rect.bindTooltip(tooltipFor(cell, snapshot.params),
       { direction: 'top', sticky: true });
     rect.addTo(layer);
+    if (cell.obstruction_lat != null && cell.obstruction_lon != null) {
+      const key = blockerBinKey(cell.obstruction_lat, cell.obstruction_lon, gridDeg);
+      let bucket = cellsByBlockerBin.get(key);
+      if (!bucket) { bucket = []; cellsByBlockerBin.set(key, bucket); }
+      bucket.push({ rect, normalStyle });
+    }
   }
 
+  // Hover-highlight: for each blocker, look up the cells binned to it and
+  // wire mouseover / mouseout to thicken / restore. Skipped when the
+  // blocker has no associated cells (e.g. a snapshot stitched from old
+  // cells that pre-date obstruction tracking).
+  for (const { rect: blockerRect, key } of blockerEntries) {
+    const linkedCells = cellsByBlockerBin.get(key);
+    if (!linkedCells || linkedCells.length === 0) continue;
+    blockerRect.on('mouseover', () => {
+      for (const { rect } of linkedCells) rect.setStyle(HIGHLIGHT_STYLE);
+    });
+    blockerRect.on('mouseout', () => {
+      for (const { rect, normalStyle } of linkedCells) rect.setStyle(normalStyle);
+    });
+  }
 }
 
 // ---------- slider control ----------
