@@ -528,8 +528,22 @@ notification tokens, the contents of your watchlist.
 Each line is one Mode S / Mode AC message:
 
 ```json
-{"ts_rx":"2026-04-18T10:15:22.413291+00:00","mlat_ticks":127548213984,"type":"mode_s_long","signal":184,"hex":"8d4ca2d158c901a0c0b8a0cbd1e7"}
+{"ts_rx":"2026-04-18T10:15:22.413291+00:00","mlat_ticks":127548213984,"type":"mode_s_long","signal":184,"hex":"8d4ca2d158c901a0c0b8a0cbd1e7","decoded":{"df":17,"icao":"4CA2D1","typecode":11,"altitude":35000}}
 ```
+
+The `decoded` sub-object is added when `BEAST_NO_DECODE=0` (the
+default) and contains whatever fields the Mode S decoder could pull
+from the message — DF, ICAO24, typecode, altitude, callsign, squawk,
+and any decoded Comm-B register payload. Set `BEAST_NO_DECODE=1` to
+log only the raw envelope.
+
+`BEAST_ROTATE` controls log rotation: `none` (single growing file),
+`hourly` (rotates at the top of every UTC hour, suffix
+`.YYYYMMDD-HH`), or `daily` (rotates at UTC midnight, suffix
+`.YYYYMMDD`). `BEAST_ROTATE_KEEP` caps how many rotated files to
+retain. Set `BEAST_STDOUT=1` to mirror every line to stdout (useful
+for piping into another tool); set `BEAST_OUTFILE=""` to disable
+file logging entirely.
 
 A couple of `jq` one-liners to get you started:
 

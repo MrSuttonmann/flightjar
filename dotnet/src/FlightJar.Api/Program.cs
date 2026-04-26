@@ -55,6 +55,23 @@ var frameChannel = Channel.CreateBounded<BeastFrame>(new BoundedChannelOptions(1
 builder.Services.AddSingleton(frameChannel.Writer);
 builder.Services.AddSingleton(frameChannel.Reader);
 
+// Optional second channel for the JSONL writer. Same drop-oldest policy
+// and capacity as the registry channel — disk I/O latency must never
+// backpressure the TCP reader either. Only created when the user has
+// asked for any JSONL output (file or stdout).
+if (JsonlWriterService.IsConfigured(options))
+{
+    var jsonlChannel = Channel.CreateBounded<JsonlFrame>(new BoundedChannelOptions(16384)
+    {
+        FullMode = BoundedChannelFullMode.DropOldest,
+        SingleReader = true,
+        SingleWriter = true,
+    });
+    builder.Services.AddSingleton(jsonlChannel.Writer);
+    builder.Services.AddSingleton(jsonlChannel.Reader);
+    builder.Services.AddHostedService<JsonlWriterService>();
+}
+
 // Data-directory-scoped persistence paths — derived from BEAST_OUTFILE's
 // directory, matching the Python app's /data/ conventions.
 var dataDir = !string.IsNullOrEmpty(options.JsonlPath)
