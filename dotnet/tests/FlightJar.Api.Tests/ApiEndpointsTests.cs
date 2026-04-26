@@ -166,6 +166,39 @@ public class ApiEndpointsTests : IClassFixture<WebApplicationFactory<Program>>
     }
 
     [Fact]
+    public async Task MapConfig_ReportsLayerStatus_WithReasonsWhenGatesClosed()
+    {
+        // Test harness leaves OPENAIP_API_KEY / VFRMAP_CHART_DATE /
+        // LAT_REF unset, so every gated map layer is disabled. The
+        // frontend reads layer_status to render the rows as disabled
+        // with a "why and how to enable" info popover.
+        var client = _factory.CreateClient();
+        var resp = await client.GetAsync("/api/map_config");
+        resp.EnsureSuccessStatusCode();
+        var body = await resp.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(body);
+        var status = doc.RootElement.GetProperty("layer_status");
+        foreach (var gate in new[] { "openaip", "vfrmap", "blackspots" })
+        {
+            var entry = status.GetProperty(gate);
+            Assert.False(entry.GetProperty("enabled").GetBoolean());
+            var reason = entry.GetProperty("reason").GetString();
+            Assert.False(string.IsNullOrWhiteSpace(reason));
+        }
+        // Reasons must name the env var the operator needs to set so the
+        // popover is actually actionable.
+        Assert.Contains(
+            "OPENAIP_API_KEY",
+            status.GetProperty("openaip").GetProperty("reason").GetString());
+        Assert.Contains(
+            "VFRMAP_CHART_DATE",
+            status.GetProperty("vfrmap").GetProperty("reason").GetString());
+        Assert.Contains(
+            "LAT_REF",
+            status.GetProperty("blackspots").GetProperty("reason").GetString());
+    }
+
+    [Fact]
     public async Task Blackspots_Disabled_WhenLatRefNotSet()
     {
         // Test harness leaves LAT_REF / LON_REF unset, so the feature is

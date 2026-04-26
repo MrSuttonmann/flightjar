@@ -105,6 +105,61 @@
     color: var(--accent);
   }
   .leaflet-control-layers-overlays label .airspace-filter-btn svg { display: block; }
+  /* Disabled-layer rows: shown when the backend reports the layer's
+     gate is closed (no API key / no chart cycle / no receiver coords).
+     The row stays visible so the user knows the layer exists, the
+     checkbox/radio is disabled, and an info button next to it opens
+     a popover explaining how to enable it. Applied to both base-layer
+     and overlay rows since the OpenAIP basemap is a base-layer entry. */
+  .leaflet-control-layers-base label.overlay-disabled,
+  .leaflet-control-layers-overlays label.overlay-disabled {
+    color: #9ca3af;
+    font-style: italic;
+  }
+  .leaflet-control-layers-base label.overlay-disabled input,
+  .leaflet-control-layers-overlays label.overlay-disabled input {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+  .leaflet-control-layers-base label .overlay-info-btn,
+  .leaflet-control-layers-overlays label .overlay-info-btn {
+    background: transparent; border: 0; padding: 0 2px;
+    margin-left: 4px; color: #4b5563; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    vertical-align: -2px; line-height: 1;
+  }
+  .leaflet-control-layers-base label .overlay-info-btn:hover,
+  .leaflet-control-layers-overlays label .overlay-info-btn:hover {
+    color: var(--accent);
+  }
+  .leaflet-control-layers-base label .overlay-info-btn svg,
+  .leaflet-control-layers-overlays label .overlay-info-btn svg { display: block; }
+  /* Info popover anchored next to a disabled-layer row's info button.
+     Lives at document body so it's not clipped by the layers control's
+     overflow rules; positioned in viewport coords by JS. Closed on
+     outside click, Escape, or map move/zoom. */
+  .overlay-info-popover {
+    position: fixed;
+    z-index: 1000;
+    max-width: 280px;
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    padding: 0;
+    font-style: normal;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+  .overlay-info-popover-body {
+    padding: 8px 10px;
+  }
+  /* Decorative arrow — not positioned because the popover may flip
+     left/right depending on viewport space. Keep the bubble plain
+     for now; if the team wants a directional arrow later, we can
+     compute it from the JS positioning logic. */
+  .overlay-info-popover-arrow { display: none; }
   /* Non-aircraft point markers (airports / navaids / obstacles /
      reporting points) are rendered as divIcon SVG glyphs. Leaflet's
      default .leaflet-div-icon adds a white background + border we
