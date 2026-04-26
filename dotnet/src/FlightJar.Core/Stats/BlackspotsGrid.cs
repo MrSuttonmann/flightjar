@@ -34,8 +34,31 @@ public sealed record BlackspotsParams(
 /// minimum antenna-tip altitude in metres MSL that would restore LOS to the
 /// target altitude at this cell. Null means "unreachable": LOS was still
 /// blocked at <c>GroundElevationM + MaxAglM</c>.
+///
+/// The <c>Obstruction*</c> fields point to the single worst-offending
+/// terrain sample along the receiver→cell path — the one hill / ridge
+/// actually causing the blockage at the user's *current* antenna height.
+/// Aggregated across cells, these are what the blocker overlay renders.
+/// All three fields are present together or all null (legacy cells).
 /// </summary>
-public sealed record BlackspotCell(double Lat, double Lon, double? RequiredAntennaMslM);
+public sealed record BlackspotCell(double Lat, double Lon, double? RequiredAntennaMslM)
+{
+    public double? ObstructionLat { get; init; }
+    public double? ObstructionLon { get; init; }
+    public double? ObstructionElevMslM { get; init; }
+}
+
+/// <summary>
+/// One bin of obstructing terrain — a grid cell (sized by
+/// <see cref="BlackspotsParams.GridDeg"/>) covering the actual hill / ridge
+/// that's blocking signal to one or more shadowed cells.
+/// <see cref="BlockedCount"/> is how many shadowed cells trace back to a
+/// worst-offender inside this bin; <see cref="MaxElevMslM"/> is the
+/// tallest obstruction sample we recorded inside it. <see cref="Lat"/> and
+/// <see cref="Lon"/> are the coordinates of that tallest sample (so the
+/// marker lands on the actual hilltop, not the bin centre).
+/// </summary>
+public sealed record BlockerCell(double Lat, double Lon, int BlockedCount, double MaxElevMslM);
 
 /// <summary>
 /// Serialisable wire / on-disk payload. Unchanged by the worker — computed
@@ -53,7 +76,9 @@ public sealed record BlackspotsSnapshot(
     DateTimeOffset? ComputedAt,
     int TileCount,
     int TilesWithData,
-    IReadOnlyList<BlackspotCell> Cells);
+    double BlockerGridDeg,
+    IReadOnlyList<BlackspotCell> Cells,
+    IReadOnlyList<BlockerCell> Blockers);
 
 /// <summary>
 /// Pre-computed receiver "blackspots" — grid cells where the radio LOS to a
@@ -65,7 +90,7 @@ public sealed record BlackspotsSnapshot(
 /// </summary>
 public sealed class BlackspotsGrid
 {
-    public const int SchemaVersion = 3;
+    public const int SchemaVersion = 4;
 
     /// <summary>
     /// True if the grid looks credible — either the bbox only needed one SRTM
@@ -82,24 +107,38 @@ public sealed class BlackspotsGrid
     public int TileCount { get; }
     public int TilesWithData { get; }
     public IReadOnlyList<BlackspotCell> Cells { get; }
+    public IReadOnlyList<BlockerCell> Blockers { get; }
+
+    /// <summary>
+    /// Bin size for the blocker-aggregate overlay — half the cell grid size,
+    /// so the obstructing-terrain shading is twice as fine as the shadow
+    /// shading. Lets neighbouring ridges separate visually instead of
+    /// smearing into one slab. Frontend reads this off the snapshot rather
+    /// than assuming the ratio.
+    /// </summary>
+    public double BlockerGridDeg => Params.GridDeg / 2.0;
 
     public BlackspotsGrid(
         BlackspotsParams @params,
         DateTimeOffset computedAt,
         int tileCount,
         int tilesWithData,
-        IReadOnlyList<BlackspotCell> cells)
+        IReadOnlyList<BlackspotCell> cells,
+        IReadOnlyList<BlockerCell>? blockers = null)
     {
         Params = @params;
         ComputedAt = computedAt;
         TileCount = tileCount;
         TilesWithData = tilesWithData;
         Cells = cells;
+        Blockers = blockers ?? Array.Empty<BlockerCell>();
     }
 
     public BlackspotsSnapshot SnapshotView() =>
         new(Enabled: true, Params: Params, ComputedAt: ComputedAt,
-            TileCount: TileCount, TilesWithData: TilesWithData, Cells: Cells);
+            TileCount: TileCount, TilesWithData: TilesWithData,
+            BlockerGridDeg: BlockerGridDeg,
+            Cells: Cells, Blockers: Blockers);
 
     /// <summary>Axis-aligned lat/lon bbox that bounds the computation radius.</summary>
     public static (double MinLat, double MaxLat, double MinLon, double MaxLon) BboxFor(
@@ -199,8 +238,18 @@ public sealed class BlackspotsGrid
                     receiver, target, sampler, ceilingMslM: ceilingMslM);
                 if (result.Blocked)
                 {
-                    local.Add(new BlackspotCell(
-                        Math.Round(lat, 4), Math.Round(lon, 4), result.RequiredAntennaMslM));
+                    var cell = new BlackspotCell(
+                        Math.Round(lat, 4), Math.Round(lon, 4), result.RequiredAntennaMslM);
+                    if (result.Obstruction is LosObstruction ob)
+                    {
+                        cell = cell with
+                        {
+                            ObstructionLat = Math.Round(ob.Lat, 4),
+                            ObstructionLon = Math.Round(ob.Lon, 4),
+                            ObstructionElevMslM = Math.Round(ob.ElevMslM, 1),
+                        };
+                    }
+                    local.Add(cell);
                 }
                 if (onProgress is not null && totalCells > 0)
                 {
@@ -240,7 +289,62 @@ public sealed class BlackspotsGrid
             totalCells, cells.Count, totalCells == 0 ? 0 : cells.Count * 100.0 / totalCells,
             Environment.ProcessorCount);
 
-        return new BlackspotsGrid(@params, time.GetUtcNow(), tileCount, tilesWithData, cells);
+        // Bin blockers at half the cell grid so the obstructing-terrain
+        // shading is twice as fine as the shadow shading — neighbouring
+        // ridges separate visually instead of smearing into one slab.
+        var blockers = AggregateBlockers(cells, @params.GridDeg / 2.0);
+        return new BlackspotsGrid(
+            @params, time.GetUtcNow(), tileCount, tilesWithData, cells, blockers);
+    }
+
+    /// <summary>
+    /// Bin the per-cell worst-offender obstructions onto a grid the same size
+    /// as the cell grid. Each bin keeps the lat/lon of its tallest sample
+    /// (so the marker lands on the actual hilltop rather than the bin centre)
+    /// and the count of shadowed cells that traced back into it. Cells with
+    /// no obstruction (legacy data, or "unreachable" with no recorded sample)
+    /// are skipped.
+    /// </summary>
+    public static IReadOnlyList<BlockerCell> AggregateBlockers(
+        IReadOnlyList<BlackspotCell> cells, double gridDeg)
+    {
+        if (gridDeg <= 0) return Array.Empty<BlockerCell>();
+        var bins = new Dictionary<(int LatBin, int LonBin),
+                                  (double Lat, double Lon, double MaxElev, int Count)>();
+        foreach (var c in cells)
+        {
+            if (c.ObstructionLat is not double oLat || c.ObstructionLon is not double oLon)
+            {
+                continue;
+            }
+            var elev = c.ObstructionElevMslM ?? 0;
+            var key = (
+                LatBin: (int)Math.Floor(oLat / gridDeg),
+                LonBin: (int)Math.Floor(oLon / gridDeg));
+            if (bins.TryGetValue(key, out var b))
+            {
+                if (elev > b.MaxElev)
+                {
+                    bins[key] = (oLat, oLon, elev, b.Count + 1);
+                }
+                else
+                {
+                    bins[key] = (b.Lat, b.Lon, b.MaxElev, b.Count + 1);
+                }
+            }
+            else
+            {
+                bins[key] = (oLat, oLon, elev, 1);
+            }
+        }
+        var blockers = new List<BlockerCell>(bins.Count);
+        foreach (var b in bins.Values)
+        {
+            blockers.Add(new BlockerCell(
+                Math.Round(b.Lat, 4), Math.Round(b.Lon, 4),
+                b.Count, Math.Round(b.MaxElev, 1)));
+        }
+        return blockers;
     }
 
     /// <summary>
@@ -276,7 +380,8 @@ public sealed class BlackspotsGrid
                 }
                 grids.Add(new BlackspotsGrid(
                     entry.Params, entry.ComputedAt, entry.TileCount, entry.TilesWithData,
-                    entry.Cells ?? new List<BlackspotCell>()));
+                    entry.Cells ?? new List<BlackspotCell>(),
+                    entry.Blockers ?? new List<BlockerCell>()));
             }
             return grids;
         }
@@ -322,6 +427,7 @@ public sealed class BlackspotsGrid
                         TileCount = g.TileCount,
                         TilesWithData = g.TilesWithData,
                         Cells = g.Cells.ToList(),
+                        Blockers = g.Blockers.ToList(),
                     }).ToList(),
                 };
                 await JsonSerializer.SerializeAsync(gz, payload, JsonOpts, ct);
@@ -360,5 +466,6 @@ public sealed class BlackspotsGrid
         public int TileCount { get; set; }
         public int TilesWithData { get; set; }
         public List<BlackspotCell>? Cells { get; set; }
+        public List<BlockerCell>? Blockers { get; set; }
     }
 }

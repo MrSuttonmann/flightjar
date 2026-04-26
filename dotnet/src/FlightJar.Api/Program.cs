@@ -662,7 +662,13 @@ app.MapGet("/api/blackspots", async (
 {
     if (!worker.Enabled)
     {
-        return Results.Json(new { enabled = false, cells = Array.Empty<object>() });
+        return Results.Json(new
+        {
+            enabled = false,
+            cells = Array.Empty<object>(),
+            blockers = Array.Empty<object>(),
+            blocker_grid_deg = 0.0,
+        });
     }
     var alt = target_alt_m ?? BlackspotsWorker.DefaultTargetAltitudeM;
     // 0 is a sentinel for "ground level at each cell" — the grid uses
@@ -677,7 +683,14 @@ app.MapGet("/api/blackspots", async (
         var grid = await worker.GetOrComputeAsync(alt, ct);
         if (grid is null)
         {
-            return Results.Json(new { enabled = true, computing = true, cells = Array.Empty<object>() });
+            return Results.Json(new
+            {
+                enabled = true,
+                computing = true,
+                cells = Array.Empty<object>(),
+                blockers = Array.Empty<object>(),
+                blocker_grid_deg = 0.0,
+            });
         }
         return Results.Json(grid.SnapshotView());
     }

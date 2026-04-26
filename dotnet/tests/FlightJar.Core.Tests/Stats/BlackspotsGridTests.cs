@@ -149,4 +149,99 @@ public class BlackspotsGridTests
         // the bbox has to be ~2× wider in longitude to cover the same range.
         Assert.InRange(highLon / lowLon, 1.8, 2.2);
     }
+
+    [Fact]
+    public void AggregateBlockers_groups_by_grid_bin_and_keeps_tallest_sample()
+    {
+        // Three obstructions land in the same 0.1° bin; one lands in a
+        // different bin. The bin with three samples should report count=3
+        // and the lat/lon of the *tallest* of those three (sample C at 800 m).
+        var cells = new[]
+        {
+            // Bin (51.5, -1.5)
+            new BlackspotCell(51.55, -1.55, 80) { ObstructionLat = 51.51, ObstructionLon = -1.49, ObstructionElevMslM = 600 },
+            new BlackspotCell(51.62, -1.41, 90) { ObstructionLat = 51.55, ObstructionLon = -1.45, ObstructionElevMslM = 500 },
+            new BlackspotCell(51.71, -1.32, 110){ ObstructionLat = 51.58, ObstructionLon = -1.42, ObstructionElevMslM = 800 },
+            // Different bin (52.0, -1.0)
+            new BlackspotCell(52.10, -1.05, 75) { ObstructionLat = 52.05, ObstructionLon = -1.02, ObstructionElevMslM = 400 },
+            // Cell with no obstruction (legacy or unreachable-with-no-sample) — skipped.
+            new BlackspotCell(53.00, 0.00, null),
+        };
+
+        var blockers = BlackspotsGrid.AggregateBlockers(cells, gridDeg: 0.1);
+
+        Assert.Equal(2, blockers.Count);
+        var hot = blockers.Single(b => b.BlockedCount == 3);
+        Assert.Equal(800, hot.MaxElevMslM);
+        // Tallest sample's lat/lon (sample C: 51.58, -1.42).
+        Assert.Equal(51.58, hot.Lat, precision: 3);
+        Assert.Equal(-1.42, hot.Lon, precision: 3);
+
+        var cool = blockers.Single(b => b.BlockedCount == 1);
+        Assert.Equal(400, cool.MaxElevMslM);
+    }
+
+    [Fact]
+    public void Snapshot_exposes_blocker_grid_deg_at_half_cell_grid()
+    {
+        // Blockers bin at GridDeg/2 so neighbouring ridges separate visually
+        // — the snapshot ships the bin size explicitly so the frontend
+        // doesn't have to assume the ratio.
+        var p = DefaultParams(gridDeg: 0.05);
+        var grid = BlackspotsGrid.Compute(p, new FlatSampler());
+        Assert.Equal(0.025, grid.BlockerGridDeg, precision: 6);
+        var snap = grid.SnapshotView();
+        Assert.Equal(0.025, snap.BlockerGridDeg, precision: 6);
+    }
+
+    [Fact]
+    public void AggregateBlockers_returns_empty_when_no_cells_have_obstructions()
+    {
+        // All cells legacy (no obstruction recorded).
+        var cells = new[]
+        {
+            new BlackspotCell(51.5, -1.5, 80),
+            new BlackspotCell(51.6, -1.4, 90),
+        };
+        var blockers = BlackspotsGrid.AggregateBlockers(cells, gridDeg: 0.1);
+        Assert.Empty(blockers);
+    }
+
+    [Fact]
+    public async Task Save_and_load_roundtrip_preserves_blockers()
+    {
+        // Hand-build a grid with explicit obstructions so we don't have to
+        // rely on Compute happening to find some — load/save just needs the
+        // round-trip property and the new schema version (4) to load cleanly.
+        var p = DefaultParams();
+        var cells = new[]
+        {
+            new BlackspotCell(51.55, -1.55, 80)
+            {
+                ObstructionLat = 51.51, ObstructionLon = -1.49, ObstructionElevMslM = 600,
+            },
+        };
+        // Compute() bins at GridDeg/2 — match here so the blockers list
+        // mirrors what a real run would produce.
+        var blockers = BlackspotsGrid.AggregateBlockers(cells, p.GridDeg / 2.0);
+        var grid = new BlackspotsGrid(p, DateTimeOffset.UtcNow,
+            tileCount: 1, tilesWithData: 1, cells: cells, blockers: blockers);
+
+        var path = Path.Combine(Path.GetTempPath(), $"blackspots-blockers-{Guid.NewGuid():N}.json.gz");
+        try
+        {
+            await BlackspotsGrid.SaveAllAsync(path, new[] { grid });
+            var loaded = await BlackspotsGrid.LoadAllAsync(path);
+            var only = Assert.Single(loaded);
+            Assert.Single(only.Blockers);
+            Assert.Equal(blockers[0].MaxElevMslM, only.Blockers[0].MaxElevMslM);
+            Assert.Equal(blockers[0].BlockedCount, only.Blockers[0].BlockedCount);
+            // Per-cell obstruction fields also survive the round-trip.
+            Assert.Equal(600, only.Cells[0].ObstructionElevMslM);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }
