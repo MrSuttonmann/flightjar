@@ -243,6 +243,11 @@ function renderPolarHeatmap(data) {
   const bandKm = data.band_km || 25;
   const SIZE = 320;
   const PAD = 18;
+  // Extra strip below the chart for the "outer ring = X km" caption.
+  // Keeping it out of the chart's square keeps the bottom "S" cardinal
+  // label from colliding with the caption text.
+  const CAPTION_GAP = 14;
+  const VIEW_H = SIZE + CAPTION_GAP;
   const CX = SIZE / 2;
   const CY = SIZE / 2;
   const R = SIZE / 2 - PAD;
@@ -257,7 +262,7 @@ function renderPolarHeatmap(data) {
   };
 
   let out =
-    `<svg viewBox="0 0 ${SIZE} ${SIZE}" preserveAspectRatio="xMidYMid meet" ` +
+    `<svg viewBox="0 0 ${SIZE} ${VIEW_H}" preserveAspectRatio="xMidYMid meet" ` +
     `width="100%">`;
 
   // Filled wedges — one per (bucket, band). Innermost band first so the
@@ -330,7 +335,7 @@ function renderPolarHeatmap(data) {
     ? `outer ring = ${outerKm} km · last ${windowDays} days`
     : `outer ring = ${outerKm} km`;
   out +=
-    `<text x="${CX}" y="${SIZE - 4}" text-anchor="middle" ` +
+    `<text x="${CX}" y="${VIEW_H - 4}" text-anchor="middle" ` +
     `font-size="9" fill="currentColor" opacity="0.5">` +
     `${caption}</text>`;
 
