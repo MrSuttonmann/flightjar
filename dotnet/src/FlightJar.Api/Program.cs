@@ -55,6 +55,23 @@ var frameChannel = Channel.CreateBounded<BeastFrame>(new BoundedChannelOptions(1
 builder.Services.AddSingleton(frameChannel.Writer);
 builder.Services.AddSingleton(frameChannel.Reader);
 
+// Optional second channel for the JSONL writer. Same drop-oldest policy
+// and capacity as the registry channel — disk I/O latency must never
+// backpressure the TCP reader either. Only created when the user has
+// asked for any JSONL output (file or stdout).
+if (JsonlWriterService.IsConfigured(options))
+{
+    var jsonlChannel = Channel.CreateBounded<JsonlFrame>(new BoundedChannelOptions(16384)
+    {
+        FullMode = BoundedChannelFullMode.DropOldest,
+        SingleReader = true,
+        SingleWriter = true,
+    });
+    builder.Services.AddSingleton(jsonlChannel.Writer);
+    builder.Services.AddSingleton(jsonlChannel.Reader);
+    builder.Services.AddHostedService<JsonlWriterService>();
+}
+
 // Data-directory-scoped persistence paths — derived from BEAST_OUTFILE's
 // directory, matching the Python app's /data/ conventions.
 var dataDir = !string.IsNullOrEmpty(options.JsonlPath)
@@ -219,13 +236,36 @@ builder.Services.AddSingleton(sp => new InstanceIdStore(
     telemetryPath,
     sp.GetRequiredService<TimeProvider>(),
     sp.GetService<ILogger<InstanceIdStore>>()));
+// Always-on accumulator — RegistryWorker / BeastConsumerService push
+// per-tick samples + reconnect events into it whether telemetry is
+// enabled or not (cost is one lock + a handful of adds per tick). The
+// drain only happens from inside TelemetryWorker, which no-ops when
+// telemetry is off, so the bag just keeps accumulating harmlessly.
+builder.Services.AddSingleton<TelemetryAccumulator>();
 builder.Services.AddHttpClient<PosthogClient>();
 builder.Services.AddSingleton(sp => new PosthogClient(
     sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(PosthogClient)),
     sp.GetService<ILogger<PosthogClient>>()));
 // Register the worker as a singleton AND a hosted service so the reset
 // endpoint can call SendIdentifyAsync directly after rotating the id.
-builder.Services.AddSingleton<TelemetryWorker>();
+var aircraftDbOverridePath = !string.IsNullOrEmpty(dataDir)
+    ? Path.Combine(dataDir, "aircraft_db.csv.gz")
+    : null;
+builder.Services.AddSingleton(sp => new TelemetryWorker(
+    sp.GetRequiredService<AppOptions>(),
+    sp.GetRequiredService<InstanceIdStore>(),
+    sp.GetRequiredService<PosthogClient>(),
+    sp.GetRequiredService<CurrentSnapshot>(),
+    sp.GetRequiredService<SnapshotBroadcaster>(),
+    sp.GetRequiredService<NotificationsConfigStore>(),
+    sp.GetRequiredService<TelemetryAccumulator>(),
+    sp.GetRequiredService<TimeProvider>(),
+    sp.GetRequiredService<ILogger<TelemetryWorker>>(),
+    sp.GetService<RegistryWorker>(),
+    sp.GetService<WatchlistStore>(),
+    sp.GetService<PolarCoverage>(),
+    sp.GetService<TrafficHeatmap>(),
+    aircraftDbOverridePath));
 builder.Services.AddHostedService(sp => sp.GetRequiredService<TelemetryWorker>());
 
 var app = builder.Build();

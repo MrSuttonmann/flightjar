@@ -13,6 +13,7 @@ import {
   ALT_STOPS_M, DEFAULT_STOP_INDEX, bandFor, flLabel, tooltipFor,
 } from './blackspots_format.js';
 import { state } from './state.js';
+import { track } from './telemetry.js';
 
 // ---------- fetch + cache ----------
 
@@ -197,6 +198,14 @@ function makeSliderControl() {
         } else {
           scheduleFetch(altM);
         }
+      });
+      // `change` fires once on commit (release / arrow-key step), unlike
+      // `input` which fires continuously. Telemetry only cares about the
+      // committed value so we don't emit an event per pixel of drag.
+      sliderInput.addEventListener('change', () => {
+        const idx = Number(sliderInput.value);
+        const altM = ALT_STOPS_M[idx];
+        track('blackspots_altitude_changed', { alt_m: altM });
       });
 
       updateLabel(activeAltitudeM);

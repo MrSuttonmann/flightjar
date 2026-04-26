@@ -21,6 +21,7 @@ import {
   wakeClass,
 } from './profile.js';
 import { state } from './state.js';
+import { track } from './telemetry.js';
 import { applyTrailsVisibility } from './trails.js';
 import { trendInfo } from './trend.js';
 import { uconv } from './units.js';
@@ -821,6 +822,10 @@ export function openDetailPanel(icao) {
     a = state.lastSnap.aircraft.find((ac) => ac.icao === icao);
   }
   if (!a) return;
+  // Fire only on a real change of selection — re-rendering the panel
+  // for the same plane on every snapshot tick would otherwise drown
+  // the signal in noise.
+  if (state.selectedIcao !== icao) track('panel_open');
   state.selectedIcao = icao;
   writeDeepLink(icao);
   state.detailContentHost.innerHTML = '';

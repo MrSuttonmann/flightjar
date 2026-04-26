@@ -15,6 +15,7 @@
 import { authedFetch, ensureUnlocked } from './auth.js';
 import { escapeHtml } from './format.js';
 import { lucide } from './icons_lib.js';
+import { track } from './telemetry.js';
 
 const X_ICON = lucide('x', { size: 14, strokeWidth: 2 });
 const CHECK_ICON = lucide('check', { size: 14, strokeWidth: 2 });
@@ -281,6 +282,7 @@ export function initAlertsDialog() {
         emergency_enabled: true,
       });
       await saveConfig();
+      track('notification_channel_added', { type });
       render();
       // Focus the name input of the entry we just added. It'll have a
       // server-assigned id now, so just grab the last row.

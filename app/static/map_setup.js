@@ -12,6 +12,7 @@ import { ALT_STOPS } from './altitude.js';
 import { getUnitSystem, uconv } from './units.js';
 import { showToast } from './toast.js';
 import { state } from './state.js';
+import { track } from './telemetry.js';
 import { initLayerStatus } from './map_layer_status.js';
 
 function slugify(name) {
@@ -313,20 +314,27 @@ export function initMap({ config = {}, ...overlayHandlers } = {}) {
   map.on('baselayerchange', (e) => {
     try { localStorage.setItem('flightjar.basemap', e.name); } catch (_) {}
     applyBasemapClass(e.name);
+    track('map_basemap_changed', { name: e.name });
   });
   map.on('overlayadd', (e) => {
     if (syncingOverlays) return;
     const handler = proxyToHandler.get(e.layer);
-    if (handler) { overlayHandlers[handler]?.(true); return; }
-    const key = tileLayerToKey.get(e.layer);
-    if (key) { try { localStorage.setItem(key, '1'); } catch (_) {} }
+    if (handler) { overlayHandlers[handler]?.(true); }
+    else {
+      const key = tileLayerToKey.get(e.layer);
+      if (key) { try { localStorage.setItem(key, '1'); } catch (_) {} }
+    }
+    track('map_layer_toggled', { layer: e.name, on: true });
   });
   map.on('overlayremove', (e) => {
     if (syncingOverlays) return;
     const handler = proxyToHandler.get(e.layer);
-    if (handler) { overlayHandlers[handler]?.(false); return; }
-    const key = tileLayerToKey.get(e.layer);
-    if (key) { try { localStorage.setItem(key, '0'); } catch (_) {} }
+    if (handler) { overlayHandlers[handler]?.(false); }
+    else {
+      const key = tileLayerToKey.get(e.layer);
+      if (key) { try { localStorage.setItem(key, '0'); } catch (_) {} }
+    }
+    track('map_layer_toggled', { layer: e.name, on: false });
   });
 
   // Publish to the shared state so every other module can reach them

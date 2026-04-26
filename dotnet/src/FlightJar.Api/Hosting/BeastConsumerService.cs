@@ -2,6 +2,7 @@ using System.Buffers;
 using System.IO.Pipelines;
 using System.Net.Sockets;
 using System.Threading.Channels;
+using FlightJar.Api.Telemetry;
 using FlightJar.Core;
 using FlightJar.Core.Configuration;
 using FlightJar.Decoder.Beast;
@@ -19,18 +20,27 @@ public sealed class BeastConsumerService : BackgroundService
     private readonly AppOptions _options;
     private readonly ChannelWriter<BeastFrame> _frames;
     private readonly BeastConnectionState _state;
+    private readonly TimeProvider _time;
     private readonly ILogger<BeastConsumerService> _logger;
+    private readonly ChannelWriter<JsonlFrame>? _jsonlFrames;
+    private readonly TelemetryAccumulator? _telemetry;
 
     public BeastConsumerService(
         AppOptions options,
         ChannelWriter<BeastFrame> frames,
         BeastConnectionState state,
-        ILogger<BeastConsumerService> logger)
+        TimeProvider time,
+        ILogger<BeastConsumerService> logger,
+        ChannelWriter<JsonlFrame>? jsonlFrames = null,
+        TelemetryAccumulator? telemetry = null)
     {
         _options = options;
         _frames = frames;
         _state = state;
+        _time = time;
         _logger = logger;
+        _jsonlFrames = jsonlFrames;
+        _telemetry = telemetry;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -49,6 +59,7 @@ public sealed class BeastConsumerService : BackgroundService
                 await tcp.ConnectAsync(_options.BeastHost, _options.BeastPort, stoppingToken);
                 _logger.LogInformation("connected");
                 _state.Set(true);
+                _telemetry?.RecordReconnect();
                 backoff = TimeSpan.FromSeconds(1);
 
                 try
@@ -107,11 +118,17 @@ public sealed class BeastConsumerService : BackgroundService
                 consumedBytes = BeastFrameReader.ParseMany(contiguous, buffered);
             }
 
+            // Snapshot the wall-clock once per ReadAsync batch — within a
+            // single batch the frames arrived essentially together, so
+            // sub-millisecond differences would only reflect parser cost,
+            // not real RX skew.
+            var rxAt = _jsonlFrames is not null ? _time.GetUtcNow() : default;
             foreach (var frame in buffered)
             {
                 // Drop-oldest bounded channel — a stuck registry must not
                 // back-pressure the TCP reader and wedge the connection.
                 _frames.TryWrite(frame);
+                _jsonlFrames?.TryWrite(new JsonlFrame(frame, rxAt));
             }
 
             reader.AdvanceTo(buffer.GetPosition(consumedBytes), buffer.End);

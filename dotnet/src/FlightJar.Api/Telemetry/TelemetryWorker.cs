@@ -1,6 +1,9 @@
+using System.Diagnostics;
 using FlightJar.Api.Hosting;
 using FlightJar.Core.Configuration;
+using FlightJar.Core.Stats;
 using FlightJar.Persistence.Notifications;
+using FlightJar.Persistence.Watchlist;
 
 namespace FlightJar.Api.Telemetry;
 
@@ -10,15 +13,7 @@ namespace FlightJar.Api.Telemetry;
 /// are in use. Disabled when <c>TELEMETRY_ENABLED=0</c> or when no
 /// <c>POSTHOG_API_KEY</c> has been baked in / configured.
 /// </summary>
-public sealed class TelemetryWorker(
-    AppOptions options,
-    InstanceIdStore instanceStore,
-    PosthogClient posthog,
-    CurrentSnapshot snapshot,
-    SnapshotBroadcaster broadcaster,
-    NotificationsConfigStore notifications,
-    TimeProvider time,
-    ILogger<TelemetryWorker> logger) : BackgroundService
+public sealed class TelemetryWorker : BackgroundService
 {
     public const string PingEvent = "instance_ping";
 
@@ -27,38 +22,90 @@ public sealed class TelemetryWorker(
     /// payload reflects steady-state, not cold-start.</summary>
     public static readonly TimeSpan WarmupDelay = TimeSpan.FromMinutes(5);
 
-    private readonly DateTimeOffset _startedAt = time.GetUtcNow();
+    private readonly AppOptions _options;
+    private readonly InstanceIdStore _instanceStore;
+    private readonly PosthogClient _posthog;
+    private readonly CurrentSnapshot _snapshot;
+    private readonly SnapshotBroadcaster _broadcaster;
+    private readonly NotificationsConfigStore _notifications;
+    private readonly TelemetryAccumulator _accumulator;
+    private readonly RegistryWorker? _registryWorker;
+    private readonly WatchlistStore? _watchlist;
+    private readonly PolarCoverage? _polarCoverage;
+    private readonly TrafficHeatmap? _trafficHeatmap;
+    private readonly string? _aircraftDbOverridePath;
+    private readonly TimeProvider _time;
+    private readonly ILogger<TelemetryWorker> _logger;
+
+    private readonly DateTimeOffset _startedAt;
+    private long _lastFrameCount;
+    private DateTimeOffset _lastPingAt;
+
+    public TelemetryWorker(
+        AppOptions options,
+        InstanceIdStore instanceStore,
+        PosthogClient posthog,
+        CurrentSnapshot snapshot,
+        SnapshotBroadcaster broadcaster,
+        NotificationsConfigStore notifications,
+        TelemetryAccumulator accumulator,
+        TimeProvider time,
+        ILogger<TelemetryWorker> logger,
+        RegistryWorker? registryWorker = null,
+        WatchlistStore? watchlist = null,
+        PolarCoverage? polarCoverage = null,
+        TrafficHeatmap? trafficHeatmap = null,
+        string? aircraftDbOverridePath = null)
+    {
+        _options = options;
+        _instanceStore = instanceStore;
+        _posthog = posthog;
+        _snapshot = snapshot;
+        _broadcaster = broadcaster;
+        _notifications = notifications;
+        _accumulator = accumulator;
+        _registryWorker = registryWorker;
+        _watchlist = watchlist;
+        _polarCoverage = polarCoverage;
+        _trafficHeatmap = trafficHeatmap;
+        _aircraftDbOverridePath = aircraftDbOverridePath;
+        _time = time;
+        _logger = logger;
+        _startedAt = time.GetUtcNow();
+        _lastPingAt = _startedAt;
+    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!options.TelemetryEnabled)
+        if (!_options.TelemetryEnabled)
         {
-            logger.LogInformation("telemetry: disabled (TELEMETRY_ENABLED=0)");
+            _logger.LogInformation("telemetry: disabled (TELEMETRY_ENABLED=0)");
             return;
         }
         if (string.IsNullOrWhiteSpace(TelemetryConfig.ApiKey))
         {
             // No destination baked into this build — silent no-op.
-            logger.LogDebug("telemetry: no destination baked in, skipping");
+            _logger.LogDebug("telemetry: no destination baked in, skipping");
             return;
         }
 
-        await instanceStore.LoadOrCreateAsync(stoppingToken);
-        logger.LogInformation(
+        await _instanceStore.LoadOrCreateAsync(stoppingToken);
+        _logger.LogInformation(
             "telemetry: enabled, instance {InstanceId}",
-            instanceStore.InstanceId);
+            _instanceStore.InstanceId);
 
         // Register the Person profile with PostHog on cold start.
         // Stable per-install attributes (version, feature flags, coarse
-        // region) go into $set; the install's first-seen timestamp goes
-        // into $set_once so it survives version bumps without being
-        // overwritten. Runs before the warmup delay so a Person exists
-        // in PostHog before any per-tick events land against it.
+        // region, install shape) go into $set; the install's first-seen
+        // timestamp goes into $set_once so it survives version bumps
+        // without being overwritten. Runs before the warmup delay so a
+        // Person exists in PostHog before any per-tick events land
+        // against it.
         await SendIdentifyAsync(stoppingToken);
 
         try
         {
-            await Task.Delay(WarmupDelay, time, stoppingToken);
+            await Task.Delay(WarmupDelay, _time, stoppingToken);
         }
         catch (OperationCanceledException) { return; }
 
@@ -67,7 +114,7 @@ public sealed class TelemetryWorker(
             await SendPingAsync(stoppingToken);
             try
             {
-                await Task.Delay(TelemetryConfig.PingInterval, time, stoppingToken);
+                await Task.Delay(TelemetryConfig.PingInterval, _time, stoppingToken);
             }
             catch (OperationCanceledException) { return; }
         }
@@ -75,143 +122,145 @@ public sealed class TelemetryWorker(
 
     internal async Task SendIdentifyAsync(CancellationToken ct)
     {
+        var inputs = BuildInputs(drainAccumulator: false);
         var (set, setOnce) = TelemetryPayloadBuilder.BuildIdentify(
-            options: options,
-            firstSeen: instanceStore.FirstSeen);
+            options: _options,
+            firstSeen: _instanceStore.FirstSeen,
+            inputs: inputs);
 
-        _ = await posthog.IdentifyAsync(
+        _ = await _posthog.IdentifyAsync(
             host: TelemetryConfig.Host,
             apiKey: TelemetryConfig.ApiKey,
-            distinctId: instanceStore.InstanceId,
+            distinctId: _instanceStore.InstanceId,
             setProperties: set,
             setOnceProperties: setOnce,
-            timestamp: time.GetUtcNow(),
+            timestamp: _time.GetUtcNow(),
             ct: ct);
     }
 
     internal async Task SendPingAsync(CancellationToken ct)
     {
+        var inputs = BuildInputs(drainAccumulator: true);
         var props = TelemetryPayloadBuilder.Build(
-            options: options,
-            firstSeen: instanceStore.FirstSeen,
+            options: _options,
+            firstSeen: _instanceStore.FirstSeen,
             startedAt: _startedAt,
-            now: time.GetUtcNow(),
-            aircraftCount: snapshot.Snapshot.Count,
-            aircraftPositioned: snapshot.Snapshot.Positioned,
-            wsSubscribers: broadcaster.SubscriberCount,
-            enabledNotificationChannels: notifications.Channels.Count(c => c.Enabled));
+            now: _time.GetUtcNow(),
+            inputs: inputs);
 
-        _ = await posthog.CaptureAsync(
+        _ = await _posthog.CaptureAsync(
             host: TelemetryConfig.Host,
             apiKey: TelemetryConfig.ApiKey,
             @event: PingEvent,
-            distinctId: instanceStore.InstanceId,
+            distinctId: _instanceStore.InstanceId,
             properties: props,
-            timestamp: time.GetUtcNow(),
+            timestamp: _time.GetUtcNow(),
             ct: ct);
     }
-}
 
-/// <summary>
-/// Pure helper that turns the current app state into a PostHog properties
-/// dictionary. Kept separate from the worker so the payload shape can be
-/// asserted in unit tests without spinning up a background service.
-/// </summary>
-public static class TelemetryPayloadBuilder
-{
-    public static IReadOnlyDictionary<string, object?> Build(
-        AppOptions options,
-        DateTimeOffset firstSeen,
-        DateTimeOffset startedAt,
-        DateTimeOffset now,
-        int aircraftCount,
-        int aircraftPositioned,
-        int wsSubscribers,
-        int enabledNotificationChannels)
+    private TelemetryInputs BuildInputs(bool drainAccumulator)
     {
-        var props = new Dictionary<string, object?>
+        var enabledChannelTypes = _notifications.Channels
+            .Where(c => c.Enabled)
+            .Select(c => c.Type.ToString().ToLowerInvariant())
+            .Distinct()
+            .OrderBy(s => s, StringComparer.Ordinal)
+            .ToArray();
+
+        var (maxKm, p95Km) = ComputePolarStats();
+        var busiestHour = ComputeBusiestHourUtc();
+
+        var now = _time.GetUtcNow();
+        var currentFrames = _registryWorker?.FrameCount ?? 0;
+        long framesDelta;
+        double secondsDelta;
+        if (drainAccumulator)
         {
-            ["$lib"] = "flightjar",
-            ["version"] = Environment.GetEnvironmentVariable("FLIGHTJAR_VERSION") ?? "dev",
-            ["uptime_s"] = (long)(now - startedAt).TotalSeconds,
-            ["first_seen_iso"] = firstSeen.ToString("O"),
-
-            // Tell PostHog not to enrich this event with $geoip_* properties
-            // derived from the source IP, and clear the IP itself. Without
-            // this the Person profile's "location" field gets overwritten
-            // every time the public IP resolves to a different city in
-            // PostHog's geoip database — producing nonsense like "your UK
-            // receiver moved to Sweden". The coarse region_lat_10 /
-            // region_lon_10 below are the only location data we want
-            // associated with the install.
-            ["$geoip_disable"] = true,
-            ["$ip"] = "",
-
-            ["feature_flight_routes"] = options.FlightRoutesEnabled,
-            ["feature_metar"] = options.MetarEnabled,
-            ["feature_openaip"] = !string.IsNullOrWhiteSpace(options.OpenAipApiKey),
-            ["feature_blackspots"] = options.BlackspotsEnabled
-                && options.LatRef is not null && options.LonRef is not null,
-            ["feature_notification_channels"] = enabledNotificationChannels,
-
-            ["aircraft_count"] = aircraftCount,
-            ["aircraft_positioned"] = aircraftPositioned,
-            ["ws_subscribers"] = wsSubscribers,
-        };
-
-        // Coarse 10° region — enough to spot UK vs Europe vs US clustering,
-        // not enough to identify a household. Skip when the receiver
-        // location isn't configured.
-        if (options.LatRef is double lat && options.LonRef is double lon)
+            framesDelta = Math.Max(0, currentFrames - _lastFrameCount);
+            secondsDelta = (now - _lastPingAt).TotalSeconds;
+            _lastFrameCount = currentFrames;
+            _lastPingAt = now;
+        }
+        else
         {
-            props["region_lat_10"] = (int)Math.Round(lat / 10.0) * 10;
-            props["region_lon_10"] = (int)Math.Round(lon / 10.0) * 10;
+            // Identify event runs before the first ping; nothing to derive.
+            framesDelta = 0;
+            secondsDelta = 0;
         }
 
-        return props;
+        var accSnap = drainAccumulator
+            ? _accumulator.DrainAndReset()
+            : new TelemetryAccumulator.Snapshot(0, 0, 0, 0, 0, 0, 0, 0);
+
+        return new TelemetryInputs
+        {
+            AircraftCount = _snapshot.Snapshot.Count,
+            AircraftPositioned = _snapshot.Snapshot.Positioned,
+            WsSubscribers = _broadcaster.SubscriberCount,
+            WatchlistSize = _watchlist?.Count ?? 0,
+            EnabledNotificationChannelTypes = enabledChannelTypes,
+            FramesSinceLastPing = framesDelta,
+            SecondsSinceLastPing = secondsDelta,
+            Accumulator = accSnap,
+            PolarCoverageMaxKm = maxKm,
+            PolarCoverageP95Km = p95Km,
+            HeatmapBusiestHourUtc = busiestHour,
+            ProcessRssBytes = SafeProcessRss(),
+            AircraftDbOverridden = !string.IsNullOrEmpty(_aircraftDbOverridePath)
+                && File.Exists(_aircraftDbOverridePath),
+        };
     }
 
-    /// <summary>
-    /// Build the property pair for a PostHog <c>$identify</c> event.
-    /// <c>$set</c> holds attributes that may change between runs
-    /// (version, feature-flag booleans, coarse region) so the Person
-    /// profile reflects current state. <c>$set_once</c> holds the
-    /// install's first-seen timestamp so the original value sticks
-    /// even if a later run somehow re-sends a different one.
-    /// </summary>
-    public static (IReadOnlyDictionary<string, object?> Set,
-                   IReadOnlyDictionary<string, object?> SetOnce)
-        BuildIdentify(AppOptions options, DateTimeOffset firstSeen)
+    private (double MaxKm, double P95Km) ComputePolarStats()
     {
-        var set = new Dictionary<string, object?>
+        if (_polarCoverage is null) return (0, 0);
+        var view = _polarCoverage.SnapshotView();
+        if (view.Bearings.Count == 0) return (0, 0);
+
+        // Read the per-bucket max distances. Padding zeros for buckets
+        // SnapshotView omitted (those with no observed positions yet)
+        // matters for p95: a lopsided pattern (e.g. mountains north)
+        // is supposed to read as a lower p95 than the absolute max.
+        var values = new double[PolarCoverage.Buckets];
+        foreach (var b in view.Bearings)
         {
-            ["$lib"] = "flightjar",
-            ["version"] = Environment.GetEnvironmentVariable("FLIGHTJAR_VERSION") ?? "dev",
-
-            // Same geoip-disable hint as the per-event payload — without
-            // it PostHog rewrites the Person's location every time the
-            // public IP resolves to a different city.
-            ["$geoip_disable"] = true,
-            ["$ip"] = "",
-
-            ["feature_flight_routes"] = options.FlightRoutesEnabled,
-            ["feature_metar"] = options.MetarEnabled,
-            ["feature_openaip"] = !string.IsNullOrWhiteSpace(options.OpenAipApiKey),
-            ["feature_blackspots"] = options.BlackspotsEnabled
-                && options.LatRef is not null && options.LonRef is not null,
-        };
-
-        if (options.LatRef is double lat && options.LonRef is double lon)
-        {
-            set["region_lat_10"] = (int)Math.Round(lat / 10.0) * 10;
-            set["region_lon_10"] = (int)Math.Round(lon / 10.0) * 10;
+            var idx = (int)Math.Floor(b.Angle / PolarCoverage.BucketDeg) % PolarCoverage.Buckets;
+            if (idx >= 0 && idx < values.Length) values[idx] = b.DistKm;
         }
+        Array.Sort(values);
+        var max = values[^1];
+        var p95Idx = Math.Clamp((int)Math.Floor(0.95 * (values.Length - 1)), 0, values.Length - 1);
+        return (max, values[p95Idx]);
+    }
 
-        var setOnce = new Dictionary<string, object?>
+    private int? ComputeBusiestHourUtc()
+    {
+        if (_trafficHeatmap is null) return null;
+        var view = _trafficHeatmap.SnapshotView();
+        if (view.Total == 0) return null;
+        int best = 0, bestVal = -1;
+        for (var h = 0; h < view.Hours.Count; h++)
         {
-            ["first_seen_iso"] = firstSeen.ToString("O"),
-        };
+            if (view.Hours[h] > bestVal)
+            {
+                best = h;
+                bestVal = view.Hours[h];
+            }
+        }
+        return best;
+    }
 
-        return (set, setOnce);
+    private static long SafeProcessRss()
+    {
+        try
+        {
+            return Process.GetCurrentProcess().WorkingSet64;
+        }
+        catch
+        {
+            // GetCurrentProcess can throw on some constrained sandboxes;
+            // a zero RSS here is fine — the bucket will round to 0.
+            return 0;
+        }
     }
 }

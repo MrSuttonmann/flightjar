@@ -490,14 +490,28 @@ What's included (backend heartbeat):
 
 - A random per-install ID (generated on first run, stored in
   `/data/telemetry.json`; not derived from anything that identifies
-  you).
-- App version, uptime, and the current count of tracked aircraft / WS
-  clients.
+  you). Rotatable from the Settings dialog.
+- App version, uptime, and current snapshot counts (aircraft tracked,
+  positioned aircraft, WebSocket clients).
+- Deployment shape: OS family (`linux` / `windows` / `macos`), CPU
+  architecture (`x64` / `arm64` / …), CPU count, runtime version,
+  and a `container` boolean.
 - Which optional features are turned on (flight routes, METAR,
-  OpenAIP, blackspots, number of notification channels) — booleans /
-  counts only.
+  OpenAIP, blackspots, password-protected, list of enabled
+  notification-channel **types** (e.g. `["telegram","ntfy"]`, never
+  the tokens), bucketed watchlist size).
+- Receiver tuning that helps us spot whether defaults need updating:
+  antenna height (exact metres MSL or AGL), blackspots radius / grid
+  size / max AGL, snapshot interval, receiver-anonymisation radius.
 - A coarse 10°-rounded receiver region (only when `LAT_REF`/`LON_REF`
   are set) so we can spot rough geographic clustering.
+- Rolling stats since the previous heartbeat: average + peak aircraft
+  count, average + peak Comm-B aircraft count, average + peak
+  snapshot-tick duration, BEAST frames per second, BEAST reconnect
+  count.
+- Aggregate operational data: peak polar-coverage range and 95th
+  percentile across bearings (km), busiest hour-of-day from the
+  weekday × hour heatmap, working-set RSS bucketed to 50 MB steps.
 
 What's included (frontend):
 
@@ -507,15 +521,29 @@ What's included (frontend):
 
 What's never included: your exact coordinates, any aircraft positions
 or callsigns, your IP address, your `SITE_NAME`, any API keys or
-notification tokens.
+notification tokens, the contents of your watchlist.
 
 ## The log file
 
 Each line is one Mode S / Mode AC message:
 
 ```json
-{"ts_rx":"2026-04-18T10:15:22.413291+00:00","mlat_ticks":127548213984,"type":"mode_s_long","signal":184,"hex":"8d4ca2d158c901a0c0b8a0cbd1e7"}
+{"ts_rx":"2026-04-18T10:15:22.413291+00:00","mlat_ticks":127548213984,"type":"mode_s_long","signal":184,"hex":"8d4ca2d158c901a0c0b8a0cbd1e7","decoded":{"df":17,"icao":"4CA2D1","typecode":11,"altitude":35000}}
 ```
+
+The `decoded` sub-object is added when `BEAST_NO_DECODE=0` (the
+default) and contains whatever fields the Mode S decoder could pull
+from the message — DF, ICAO24, typecode, altitude, callsign, squawk,
+and any decoded Comm-B register payload. Set `BEAST_NO_DECODE=1` to
+log only the raw envelope.
+
+`BEAST_ROTATE` controls log rotation: `none` (single growing file),
+`hourly` (rotates at the top of every UTC hour, suffix
+`.YYYYMMDD-HH`), or `daily` (rotates at UTC midnight, suffix
+`.YYYYMMDD`). `BEAST_ROTATE_KEEP` caps how many rotated files to
+retain. Set `BEAST_STDOUT=1` to mirror every line to stdout (useful
+for piping into another tool); set `BEAST_OUTFILE=""` to disable
+file logging entirely.
 
 A couple of `jq` one-liners to get you started:
 
