@@ -182,6 +182,19 @@ public class BlackspotsGridTests
     }
 
     [Fact]
+    public void Snapshot_exposes_blocker_grid_deg_at_half_cell_grid()
+    {
+        // Blockers bin at GridDeg/2 so neighbouring ridges separate visually
+        // — the snapshot ships the bin size explicitly so the frontend
+        // doesn't have to assume the ratio.
+        var p = DefaultParams(gridDeg: 0.05);
+        var grid = BlackspotsGrid.Compute(p, new FlatSampler());
+        Assert.Equal(0.025, grid.BlockerGridDeg, precision: 6);
+        var snap = grid.SnapshotView();
+        Assert.Equal(0.025, snap.BlockerGridDeg, precision: 6);
+    }
+
+    [Fact]
     public void AggregateBlockers_returns_empty_when_no_cells_have_obstructions()
     {
         // All cells legacy (no obstruction recorded).
@@ -208,7 +221,9 @@ public class BlackspotsGridTests
                 ObstructionLat = 51.51, ObstructionLon = -1.49, ObstructionElevMslM = 600,
             },
         };
-        var blockers = BlackspotsGrid.AggregateBlockers(cells, p.GridDeg);
+        // Compute() bins at GridDeg/2 — match here so the blockers list
+        // mirrors what a real run would produce.
+        var blockers = BlackspotsGrid.AggregateBlockers(cells, p.GridDeg / 2.0);
         var grid = new BlackspotsGrid(p, DateTimeOffset.UtcNow,
             tileCount: 1, tilesWithData: 1, cells: cells, blockers: blockers);
 

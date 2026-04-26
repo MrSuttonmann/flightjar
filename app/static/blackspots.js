@@ -151,6 +151,11 @@ function renderSnapshot(snapshot) {
     snapshot?.tile_count > 1 && (snapshot?.tiles_with_data ?? 0) <= 1);
   if (!snapshot?.cells?.length || !snapshot.params) return;
   const gridDeg = snapshot.params.grid_deg;
+  // Blockers bin at a finer resolution than cells (default: half the cell
+  // grid), so neighbouring ridges separate visually. The backend ships
+  // the bin size on every snapshot so the frontend doesn't have to assume
+  // the ratio; fall back to half if a stale payload omits it.
+  const blockerGridDeg = snapshot.blocker_grid_deg || gridDeg / 2;
 
   // Blocker shading first — neutral greyscale patches sit underneath the
   // shadow shading so the coloured blocked-cell rectangles stay the
@@ -162,7 +167,7 @@ function renderSnapshot(snapshot) {
   if (snapshot.blockers?.length) {
     for (const blocker of snapshot.blockers) {
       const shade = blockerShade(blocker.blocked_count);
-      const rect = L.rectangle(blockerBounds(blocker, gridDeg), {
+      const rect = L.rectangle(blockerBounds(blocker, blockerGridDeg), {
         renderer: state.airportsCanvas,
         ...shade,
       });
@@ -171,7 +176,7 @@ function renderSnapshot(snapshot) {
       rect.addTo(layer);
       blockerEntries.push({
         rect,
-        key: blockerBinKey(blocker.lat, blocker.lon, gridDeg),
+        key: blockerBinKey(blocker.lat, blocker.lon, blockerGridDeg),
       });
     }
   }
@@ -207,7 +212,7 @@ function renderSnapshot(snapshot) {
       { direction: 'top', sticky: true });
     rect.addTo(layer);
     if (cell.obstruction_lat != null && cell.obstruction_lon != null) {
-      const key = blockerBinKey(cell.obstruction_lat, cell.obstruction_lon, gridDeg);
+      const key = blockerBinKey(cell.obstruction_lat, cell.obstruction_lon, blockerGridDeg);
       let bucket = cellsByBlockerBin.get(key);
       if (!bucket) { bucket = []; cellsByBlockerBin.set(key, bucket); }
       bucket.push({ rect, normalStyle });

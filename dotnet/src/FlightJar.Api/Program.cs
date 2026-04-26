@@ -667,6 +667,7 @@ app.MapGet("/api/blackspots", async (
             enabled = false,
             cells = Array.Empty<object>(),
             blockers = Array.Empty<object>(),
+            blocker_grid_deg = 0.0,
         });
     }
     var alt = target_alt_m ?? BlackspotsWorker.DefaultTargetAltitudeM;
@@ -688,6 +689,7 @@ app.MapGet("/api/blackspots", async (
                 computing = true,
                 cells = Array.Empty<object>(),
                 blockers = Array.Empty<object>(),
+                blocker_grid_deg = 0.0,
             });
         }
         return Results.Json(grid.SnapshotView());

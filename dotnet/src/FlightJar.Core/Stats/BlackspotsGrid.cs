@@ -76,6 +76,7 @@ public sealed record BlackspotsSnapshot(
     DateTimeOffset? ComputedAt,
     int TileCount,
     int TilesWithData,
+    double BlockerGridDeg,
     IReadOnlyList<BlackspotCell> Cells,
     IReadOnlyList<BlockerCell> Blockers);
 
@@ -108,6 +109,15 @@ public sealed class BlackspotsGrid
     public IReadOnlyList<BlackspotCell> Cells { get; }
     public IReadOnlyList<BlockerCell> Blockers { get; }
 
+    /// <summary>
+    /// Bin size for the blocker-aggregate overlay — half the cell grid size,
+    /// so the obstructing-terrain shading is twice as fine as the shadow
+    /// shading. Lets neighbouring ridges separate visually instead of
+    /// smearing into one slab. Frontend reads this off the snapshot rather
+    /// than assuming the ratio.
+    /// </summary>
+    public double BlockerGridDeg => Params.GridDeg / 2.0;
+
     public BlackspotsGrid(
         BlackspotsParams @params,
         DateTimeOffset computedAt,
@@ -127,6 +137,7 @@ public sealed class BlackspotsGrid
     public BlackspotsSnapshot SnapshotView() =>
         new(Enabled: true, Params: Params, ComputedAt: ComputedAt,
             TileCount: TileCount, TilesWithData: TilesWithData,
+            BlockerGridDeg: BlockerGridDeg,
             Cells: Cells, Blockers: Blockers);
 
     /// <summary>Axis-aligned lat/lon bbox that bounds the computation radius.</summary>
@@ -278,7 +289,10 @@ public sealed class BlackspotsGrid
             totalCells, cells.Count, totalCells == 0 ? 0 : cells.Count * 100.0 / totalCells,
             Environment.ProcessorCount);
 
-        var blockers = AggregateBlockers(cells, @params.GridDeg);
+        // Bin blockers at half the cell grid so the obstructing-terrain
+        // shading is twice as fine as the shadow shading — neighbouring
+        // ridges separate visually instead of smearing into one slab.
+        var blockers = AggregateBlockers(cells, @params.GridDeg / 2.0);
         return new BlackspotsGrid(
             @params, time.GetUtcNow(), tileCount, tilesWithData, cells, blockers);
     }
