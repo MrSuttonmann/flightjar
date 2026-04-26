@@ -17,6 +17,7 @@
 //     the next reload's union-merge reconciles. Auth failure does not.
 
 import { authedFetch } from './auth.js';
+import { track } from './telemetry.js';
 
 const STORAGE_KEY = 'flightjar.watchlist';
 const NOTIF_PREF_KEY = 'flightjar.watchlist.notify';
@@ -129,6 +130,7 @@ export function createWatchlist() {
     if (result === 'auth-rejected') return false;
     set.add(key);
     saveSet(set);
+    track('watchlist_add');
     return true;
   }
 
@@ -141,6 +143,7 @@ export function createWatchlist() {
     if (result === 'auth-rejected') return false;
     set.delete(key);
     saveSet(set);
+    track('watchlist_remove');
     return true;
   }
 

@@ -2,6 +2,7 @@ using System.Buffers;
 using System.IO.Pipelines;
 using System.Net.Sockets;
 using System.Threading.Channels;
+using FlightJar.Api.Telemetry;
 using FlightJar.Core;
 using FlightJar.Core.Configuration;
 using FlightJar.Decoder.Beast;
@@ -20,17 +21,20 @@ public sealed class BeastConsumerService : BackgroundService
     private readonly ChannelWriter<BeastFrame> _frames;
     private readonly BeastConnectionState _state;
     private readonly ILogger<BeastConsumerService> _logger;
+    private readonly TelemetryAccumulator? _telemetry;
 
     public BeastConsumerService(
         AppOptions options,
         ChannelWriter<BeastFrame> frames,
         BeastConnectionState state,
-        ILogger<BeastConsumerService> logger)
+        ILogger<BeastConsumerService> logger,
+        TelemetryAccumulator? telemetry = null)
     {
         _options = options;
         _frames = frames;
         _state = state;
         _logger = logger;
+        _telemetry = telemetry;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -49,6 +53,7 @@ public sealed class BeastConsumerService : BackgroundService
                 await tcp.ConnectAsync(_options.BeastHost, _options.BeastPort, stoppingToken);
                 _logger.LogInformation("connected");
                 _state.Set(true);
+                _telemetry?.RecordReconnect();
                 backoff = TimeSpan.FromSeconds(1);
 
                 try

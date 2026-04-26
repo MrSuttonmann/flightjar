@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Threading.Channels;
+using FlightJar.Api.Telemetry;
 using FlightJar.Clients.Adsbdb;
 using FlightJar.Clients.Metar;
 using FlightJar.Core.Configuration;
@@ -38,6 +40,7 @@ public sealed class RegistryWorker : BackgroundService
     private readonly PolarCoverage? _polarCoverage;
     private readonly PolarHeatmap? _polarHeatmap;
     private readonly TrafficHeatmap? _trafficHeatmap;
+    private readonly TelemetryAccumulator? _telemetry;
 
     /// <summary>Persist the registry every Nth snapshot tick (default 30s at 1 Hz).</summary>
     public int PersistEveryNTicks { get; set; } = 30;
@@ -77,7 +80,8 @@ public sealed class RegistryWorker : BackgroundService
         AirlinesDb? airlinesDb = null,
         PolarCoverage? polarCoverage = null,
         TrafficHeatmap? trafficHeatmap = null,
-        PolarHeatmap? polarHeatmap = null)
+        PolarHeatmap? polarHeatmap = null,
+        TelemetryAccumulator? telemetry = null)
     {
         _frames = frames;
         _registry = registry;
@@ -96,6 +100,7 @@ public sealed class RegistryWorker : BackgroundService
         _polarCoverage = polarCoverage;
         _trafficHeatmap = trafficHeatmap;
         _polarHeatmap = polarHeatmap;
+        _telemetry = telemetry;
 
         // Wire registry callbacks into stats collectors. These fire from within
         // Ingest() which runs on this worker's thread, so no locking needed.
@@ -191,6 +196,7 @@ public sealed class RegistryWorker : BackgroundService
 
     private void DoTick()
     {
+        var sw = _telemetry is not null ? Stopwatch.StartNew() : null;
         var nowSec = _time.GetUtcNow().ToUnixTimeMilliseconds() / 1000.0;
         _registry.Cleanup(nowSec);
         var snap = _registry.Snapshot(nowSec);
@@ -198,6 +204,16 @@ public sealed class RegistryWorker : BackgroundService
         var json = JsonSerializer.Serialize(snap, _jsonOpts);
         _current.Set(snap, json);
         _broadcaster.Broadcast(json);
+
+        if (_telemetry is not null && sw is not null)
+        {
+            int commBCount = 0;
+            foreach (var ac in snap.Aircraft)
+            {
+                if (ac.CommB is not null) commBCount++;
+            }
+            _telemetry.RecordTickSample(snap.Aircraft.Count, commBCount, sw.Elapsed.TotalMilliseconds);
+        }
 
         // Phase 4 hooks — watchlist last-seen + alert fan-out.
         if (_watchlist is not null)

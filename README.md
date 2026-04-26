@@ -490,14 +490,28 @@ What's included (backend heartbeat):
 
 - A random per-install ID (generated on first run, stored in
   `/data/telemetry.json`; not derived from anything that identifies
-  you).
-- App version, uptime, and the current count of tracked aircraft / WS
-  clients.
+  you). Rotatable from the Settings dialog.
+- App version, uptime, and current snapshot counts (aircraft tracked,
+  positioned aircraft, WebSocket clients).
+- Deployment shape: OS family (`linux` / `windows` / `macos`), CPU
+  architecture (`x64` / `arm64` / …), CPU count, runtime version,
+  and a `container` boolean.
 - Which optional features are turned on (flight routes, METAR,
-  OpenAIP, blackspots, number of notification channels) — booleans /
-  counts only.
+  OpenAIP, blackspots, password-protected, list of enabled
+  notification-channel **types** (e.g. `["telegram","ntfy"]`, never
+  the tokens), bucketed watchlist size).
+- Receiver tuning that helps us spot whether defaults need updating:
+  antenna height (exact metres MSL or AGL), blackspots radius / grid
+  size / max AGL, snapshot interval, receiver-anonymisation radius.
 - A coarse 10°-rounded receiver region (only when `LAT_REF`/`LON_REF`
   are set) so we can spot rough geographic clustering.
+- Rolling stats since the previous heartbeat: average + peak aircraft
+  count, average + peak Comm-B aircraft count, average + peak
+  snapshot-tick duration, BEAST frames per second, BEAST reconnect
+  count.
+- Aggregate operational data: peak polar-coverage range and 95th
+  percentile across bearings (km), busiest hour-of-day from the
+  weekday × hour heatmap, working-set RSS bucketed to 50 MB steps.
 
 What's included (frontend):
 
@@ -507,7 +521,7 @@ What's included (frontend):
 
 What's never included: your exact coordinates, any aircraft positions
 or callsigns, your IP address, your `SITE_NAME`, any API keys or
-notification tokens.
+notification tokens, the contents of your watchlist.
 
 ## The log file
 
