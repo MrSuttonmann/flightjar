@@ -398,6 +398,18 @@
     position: sticky; top: 0; z-index: 2;
     background: var(--panel);
   }
+  /* Map-key dialog inherits the modal close-button styling that the
+     other dialogs replicate per-id. Without these the X sits left-
+     aligned and over-sized because no flex / sizing rules apply. */
+  #map-key-dialog .about-close-form { margin: 0; padding: 0; display: flex;
+                                      justify-content: flex-end; }
+  #map-key-dialog .about-close { background: transparent; border: 0;
+                                 color: var(--muted); cursor: pointer;
+                                 padding: 2px 4px; margin: -6px -8px 0 0;
+                                 display: inline-flex; align-items: center;
+                                 justify-content: center; }
+  #map-key-dialog .about-close svg { display: block; }
+  #map-key-dialog .about-close:hover { color: var(--text); }
 
   /* Unlock dialog. Same modal shell as the others; minimal form
      because there's only one credential to collect. */
@@ -410,6 +422,8 @@
   #auth-dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
   #auth-dialog h2 { margin: 0 0 8px; font-size: 18px; font-weight: 600; }
   #auth-dialog p { margin: 0 0 12px; color: var(--muted); }
+  #auth-dialog .about-close-form { margin: 0; padding: 0; display: flex;
+                                   justify-content: flex-end; }
   #auth-dialog .about-close { background: transparent; border: 0;
                               color: var(--muted); cursor: pointer;
                               padding: 2px 4px; margin: -6px -8px 0 0;
