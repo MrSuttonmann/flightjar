@@ -242,7 +242,10 @@ for the dev loop.
   max range per bearing), *Terrain blackspots* (precomputed line-of-sight
   shadow: areas where terrain or the Earth's curvature blocks the view to
   a target altitude, with a hover tooltip showing the minimum antenna
-  height that would restore coverage), *Range rings* at 50/100/200 NM, plus
+  height that would restore coverage; the same layer also shades the
+  obstructing terrain itself in subtle greyscale, so you can see at a
+  glance which hills or ridges are doing the blocking), *Range rings*
+  at 50/100/200 NM, plus
   *IFR Low (US)* / *IFR High (US)* FAA enroute charts (cycle date
   auto-discovered from vfrmap.com). When `OPENAIP_API_KEY` is set four
   additional worldwide overlays appear: *Aeronautical (OpenAIP)* (the

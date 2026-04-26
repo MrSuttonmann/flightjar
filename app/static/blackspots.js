@@ -10,7 +10,8 @@
 // client-side, so toggling back and forth between altitudes is instant.
 
 import {
-  ALT_STOPS_M, DEFAULT_STOP_INDEX, bandFor, flLabel, tooltipFor,
+  ALT_STOPS_M, DEFAULT_STOP_INDEX, bandFor, blockerShade,
+  blockerTooltipFor, flLabel, tooltipFor,
 } from './blackspots_format.js';
 import { state } from './state.js';
 import { track } from './telemetry.js';
@@ -109,6 +110,16 @@ function cellBounds(cell, gridDeg) {
   return [[cell.lat - half, cell.lon - half], [cell.lat + half, cell.lon + half]];
 }
 
+// The blocker bin a (lat, lon) sample lands in, expressed as a Leaflet
+// LatLngBounds. The backend bins by floor(coord / gridDeg) so the same
+// floor operation here recovers the cell's bottom-left corner regardless
+// of where inside the bin the tallest sample happened to sit.
+function blockerBounds(blocker, gridDeg) {
+  const latBase = Math.floor(blocker.lat / gridDeg) * gridDeg;
+  const lonBase = Math.floor(blocker.lon / gridDeg) * gridDeg;
+  return [[latBase, lonBase], [latBase + gridDeg, lonBase + gridDeg]];
+}
+
 function renderSnapshot(snapshot) {
   const layer = state.blackspotsLayer;
   if (!layer) return;
@@ -121,6 +132,24 @@ function renderSnapshot(snapshot) {
     snapshot?.tile_count > 1 && (snapshot?.tiles_with_data ?? 0) <= 1);
   if (!snapshot?.cells?.length || !snapshot.params) return;
   const gridDeg = snapshot.params.grid_deg;
+
+  // Blocker shading first — neutral greyscale patches sit underneath the
+  // shadow shading so the coloured blocked-cell rectangles stay the
+  // primary visual. Opacity scales with how many shadowed cells trace
+  // back to each obstructing bin, so prominent ridges read darker.
+  if (snapshot.blockers?.length) {
+    for (const blocker of snapshot.blockers) {
+      const shade = blockerShade(blocker.blocked_count);
+      const rect = L.rectangle(blockerBounds(blocker, gridDeg), {
+        renderer: state.airportsCanvas,
+        ...shade,
+      });
+      rect.bindTooltip(blockerTooltipFor(blocker, snapshot.params),
+        { direction: 'top', sticky: true });
+      rect.addTo(layer);
+    }
+  }
+
   for (const cell of snapshot.cells) {
     // `required_antenna_msl_m` is the absolute MSL height needed; the band
     // colour reflects how much *above the user's current antenna* that is
@@ -143,6 +172,7 @@ function renderSnapshot(snapshot) {
       { direction: 'top', sticky: true });
     rect.addTo(layer);
   }
+
 }
 
 // ---------- slider control ----------

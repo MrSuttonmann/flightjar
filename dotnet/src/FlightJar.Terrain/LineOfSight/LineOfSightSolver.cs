@@ -13,6 +13,15 @@ public readonly record struct LosReceiver(double Lat, double Lon, double Antenna
 public readonly record struct LosTarget(double Lat, double Lon, double AltitudeMslM);
 
 /// <summary>
+/// One terrain sample along the LOS path that the straight line failed to
+/// clear at the receiver's current antenna height. <see cref="ElevMslM"/> is
+/// the *true* terrain elevation (refraction bulge added back), so the value
+/// reads like a topographic map height rather than a corrected internal
+/// quantity.
+/// </summary>
+public readonly record struct LosObstruction(double Lat, double Lon, double ElevMslM);
+
+/// <summary>
 /// Result of a line-of-sight solve.
 ///
 /// <para>
@@ -20,9 +29,13 @@ public readonly record struct LosTarget(double Lat, double Lon, double AltitudeM
 /// MSL height. <see cref="RequiredAntennaMslM"/> is the minimum antenna tip
 /// altitude (MSL) that would clear the obstruction, if one exists within
 /// the <c>ceilingMslM</c> searched; otherwise null (unreachable).
+/// <see cref="Obstruction"/> is the worst-offending terrain sample at the
+/// configured antenna height — the one hill / ridge actually causing the
+/// blockage — populated only when <see cref="Blocked"/> is true.
 /// </para>
 /// </summary>
-public readonly record struct LosResult(bool Blocked, double? RequiredAntennaMslM);
+public readonly record struct LosResult(
+    bool Blocked, double? RequiredAntennaMslM, LosObstruction? Obstruction);
 
 /// <summary>
 /// Radio line-of-sight solver with a 4/3-Earth refraction model. Walks the
@@ -57,7 +70,7 @@ public static class LineOfSightSolver
         var distanceM = GreatCircle.DistanceMetres(receiver.Lat, receiver.Lon, target.Lat, target.Lon);
         if (distanceM <= 0)
         {
-            return new LosResult(false, receiver.AntennaMslM);
+            return new LosResult(false, receiver.AntennaMslM, null);
         }
         var bearingDeg = GreatCircle.InitialBearingDeg(receiver.Lat, receiver.Lon, target.Lat, target.Lon);
 
@@ -70,8 +83,19 @@ public static class LineOfSightSolver
         bool blockedNow = IsBlocked(profile, distanceM, receiver.AntennaMslM, targetEff);
         if (!blockedNow)
         {
-            return new LosResult(false, null);
+            return new LosResult(false, null, null);
         }
+
+        // Identify the single worst-offending sample at the user's *current*
+        // antenna height — the one hill or ridge whose elevation rises most
+        // above the LOS line. That's the actionable answer to "what's blocking
+        // me right now"; aggregating it across cells turns into the blocker
+        // overlay. Searched once (not per bisection iteration) since raising
+        // the antenna mid-bisection doesn't change which sample is worst, only
+        // by how much it offends.
+        var obstruction = FindWorstObstruction(
+            profile, distanceM, receiver.AntennaMslM, targetEff,
+            receiver.Lat, receiver.Lon, bearingDeg);
 
         // Bisect on antenna MSL height to find the minimum that clears. A cell
         // that's still blocked at the ceiling is marked "unreachable"
@@ -80,7 +104,7 @@ public static class LineOfSightSolver
         var hi = ceilingMslM;
         if (hi <= lo || IsBlocked(profile, distanceM, hi, targetEff))
         {
-            return new LosResult(true, null);
+            return new LosResult(true, null, obstruction);
         }
         while ((hi - lo) > bisectionToleranceM)
         {
@@ -94,7 +118,7 @@ public static class LineOfSightSolver
                 hi = mid;
             }
         }
-        return new LosResult(true, hi);
+        return new LosResult(true, hi, obstruction);
     }
 
     /// <summary>
@@ -144,5 +168,39 @@ public static class LineOfSightSolver
             }
         }
         return false;
+    }
+
+    /// <summary>
+    /// Walk the same profile <see cref="IsBlocked"/> walks and return the
+    /// sample with the largest <c>(elev - lineY)</c>. Returns null if no
+    /// intermediate sample offends — caller should only invoke this after
+    /// <see cref="IsBlocked"/> has returned true. Elevation in the result is
+    /// the *true* terrain MSL (refraction bulge added back), so it reads as a
+    /// topographic height rather than an internal corrected value.
+    /// </summary>
+    private static LosObstruction? FindWorstObstruction(
+        (double D, double Elev)[] profile, double distanceM, double rxElev, double targetEff,
+        double rxLat, double rxLon, double bearingDeg)
+    {
+        var worstOverage = 0.0;
+        var worstIdx = -1;
+        for (var i = 1; i < profile.Length - 1; i++)
+        {
+            var (d, elev) = profile[i];
+            var lineY = rxElev + (targetEff - rxElev) * (d / distanceM);
+            var overage = elev - lineY;
+            if (overage > worstOverage)
+            {
+                worstOverage = overage;
+                worstIdx = i;
+            }
+        }
+        if (worstIdx < 0) return null;
+        var sample = profile[worstIdx];
+        var (lat, lon) = GreatCircle.Destination(rxLat, rxLon, bearingDeg, sample.D);
+        // Add the refraction bulge back so the emitted elevation is the
+        // real terrain height, not the corrected one used for LOS math.
+        var trueMsl = sample.Elev + (sample.D * sample.D) / (2.0 * GreatCircle.EffectiveRadiusMetres);
+        return new LosObstruction(lat, lon, trueMsl);
     }
 }

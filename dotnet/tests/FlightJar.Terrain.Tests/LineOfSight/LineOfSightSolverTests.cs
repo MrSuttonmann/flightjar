@@ -93,4 +93,35 @@ public class LineOfSightSolverTests
         Assert.True(result.Blocked);
         Assert.Null(result.RequiredAntennaMslM);
     }
+
+    [Fact]
+    public void Blocked_result_carries_obstruction_at_wall_location_and_height()
+    {
+        // Same setup as the wall-clears test above. The worst-offending sample
+        // must land inside the wall's lat band (the only place terrain rises
+        // above sea level) and report the wall's full 1500 m height.
+        var rx = new LosReceiver(52.0, -1.5, AntennaMslM: 0);
+        var t = new LosTarget(52.36, -1.5, AltitudeMslM: 3_000);
+        var midLat = (52.0 + 52.36) / 2;
+        var wall = new WallSampler(midLat - 0.005, midLat + 0.005, -2.0, -1.0, 1500);
+
+        var result = LineOfSightSolver.Solve(rx, t, wall, ceilingMslM: 10_000);
+        Assert.True(result.Blocked);
+        Assert.NotNull(result.Obstruction);
+        var ob = result.Obstruction!.Value;
+        Assert.InRange(ob.Lat, midLat - 0.005, midLat + 0.005);
+        // Bearing is due north so longitude should stay at -1.5 ± numerical noise.
+        Assert.InRange(ob.Lon, -1.51, -1.49);
+        Assert.Equal(1500, ob.ElevMslM, precision: 0);
+    }
+
+    [Fact]
+    public void Clear_result_has_no_obstruction()
+    {
+        var rx = new LosReceiver(52.0, -1.5, AntennaMslM: 10);
+        var t = new LosTarget(52.45, -1.5, AltitudeMslM: 10_000);
+        var result = LineOfSightSolver.Solve(rx, t, new FlatSampler());
+        Assert.False(result.Blocked);
+        Assert.Null(result.Obstruction);
+    }
 }

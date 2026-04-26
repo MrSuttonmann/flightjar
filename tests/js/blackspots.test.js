@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  ALT_STOPS_M, DEFAULT_STOP_INDEX, bandFor, flLabel, tooltipFor,
+  ALT_STOPS_M, DEFAULT_STOP_INDEX, bandFor, blockerShade,
+  blockerTooltipFor, flLabel, tooltipFor,
 } from '../../app/static/blackspots_format.js';
 
 test('bandFor picks the right band by threshold', () => {
@@ -79,4 +80,39 @@ test('ALT_STOPS_M is strictly increasing', () => {
     assert.ok(ALT_STOPS_M[i] > ALT_STOPS_M[i - 1],
       `stop ${i} (${ALT_STOPS_M[i]}) should exceed stop ${i - 1} (${ALT_STOPS_M[i - 1]})`);
   }
+});
+
+test('blockerShade uses neutral grey and scales opacity with blocked count', () => {
+  const s1 = blockerShade(1);
+  const s8 = blockerShade(8);
+  const s64 = blockerShade(64);
+  const s10000 = blockerShade(10000);
+  // Neutral grey across the board — colour stays constant, opacity carries
+  // the magnitude. No competing hue with the coloured shadow rectangles.
+  assert.equal(s1.fillColor, '#1f2937');
+  assert.equal(s64.fillColor, '#1f2937');
+  // Opacity scales monotonically with the cell count.
+  assert.ok(s8.fillOpacity > s1.fillOpacity);
+  assert.ok(s64.fillOpacity > s8.fillOpacity);
+  // And caps at 0.55 so very prominent ridges don't render as a black hole.
+  assert.ok(s10000.fillOpacity <= 0.55);
+  // Stroke is suppressed — adjacent blocker bins should read as one
+  // continuous shaded region, not a grid.
+  assert.equal(s1.weight, 0);
+});
+
+test('blockerTooltipFor describes the obstruction with elevation and cell count', () => {
+  const blocker = { lat: 51.5, lon: -1.4, blocked_count: 7, max_elev_msl_m: 423.6 };
+  const params = { target_altitude_m: 3048, antenna_msl_m: 50, ground_elevation_m: 40, max_agl_m: 100 };
+  const tip = blockerTooltipFor(blocker, params);
+  assert.match(tip, /Obstruction at 424 m MSL/);
+  assert.match(tip, /Blocking 7 cells/);
+  assert.match(tip, /FL100/);
+});
+
+test('blockerTooltipFor uses singular cell label for single-cell offenders', () => {
+  const blocker = { lat: 51.5, lon: -1.4, blocked_count: 1, max_elev_msl_m: 200 };
+  const params = { target_altitude_m: 305, antenna_msl_m: 5, ground_elevation_m: 0, max_agl_m: 100 };
+  const tip = blockerTooltipFor(blocker, params);
+  assert.match(tip, /Blocking 1 cell\b/);  // word-boundary so "cells" doesn't match
 });

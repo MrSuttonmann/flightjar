@@ -73,3 +73,32 @@ export function tooltipFor(cell, params) {
     + `Needs antenna ≥ ${neededMsl} m MSL (+${delta} m)<br>`
     + `You have ${currentMsl} m MSL (${currentAgl} m AGL)`;
 }
+
+// Subtle greyscale shading for the blocker-aggregate cells. The intent
+// is "see at a glance which terrain is doing the work" without competing
+// visually with the coloured shadow shading on top — neutral grey reads
+// as "context", not "alert". Opacity scales with `blocked_count`: a
+// single-cell offender is barely there; a hundred-cell ridge is a clear
+// dark patch. Pure log scaling so the visual difference between 1 and 5
+// is similar to between 50 and 250.
+export function blockerShade(blockedCount) {
+  const n = Math.max(1, blockedCount);
+  // log2(1)=0 → opacity 0.10; log2(8)=3 → 0.25; log2(64)=6 → 0.40; cap 0.55.
+  const opacity = Math.min(0.55, 0.10 + 0.05 * Math.log2(n));
+  return {
+    fillColor: '#1f2937',  // neutral slate-800
+    fillOpacity: opacity,
+    color: '#1f2937',
+    weight: 0,             // no stroke — blocker patches abut and a stroke would grid them up
+    opacity: 0,
+  };
+}
+
+export function blockerTooltipFor(blocker, params) {
+  const altLabel = flLabel(params.target_altitude_m);
+  const elev = Math.round(blocker.max_elev_msl_m);
+  const cells = blocker.blocked_count;
+  const cellsLabel = cells === 1 ? 'cell' : 'cells';
+  return `<b>Obstruction at ${elev} m MSL</b><br>`
+    + `Blocking ${cells} ${cellsLabel} at ${escapeHtml(altLabel)}`;
+}
