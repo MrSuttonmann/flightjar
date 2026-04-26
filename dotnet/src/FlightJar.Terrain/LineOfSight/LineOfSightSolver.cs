@@ -171,36 +171,54 @@ public static class LineOfSightSolver
     }
 
     /// <summary>
-    /// Walk the same profile <see cref="IsBlocked"/> walks and return the
-    /// sample with the largest <c>(elev - lineY)</c>. Returns null if no
-    /// intermediate sample offends — caller should only invoke this after
-    /// <see cref="IsBlocked"/> has returned true. Elevation in the result is
-    /// the *true* terrain MSL (refraction bulge added back), so it reads as a
-    /// topographic height rather than an internal corrected value.
+    /// Pick the sample defining the silhouette ridge from the receiver's
+    /// perspective: the one with the maximum angular elevation
+    /// <c>(elev - rxElev) / d</c>. By construction nothing closer to the
+    /// receiver is taller in angular terms, so the picked sample isn't
+    /// hidden behind a nearer hill — a far peak that's geometrically above
+    /// the LOS line but obscured by a nearer ridge would have lower angular
+    /// elevation and lose to the ridge. Samples whose true terrain MSL is at
+    /// or below sea level are skipped: SRTM ocean tiles and no-data voids
+    /// both report 0 m, and they aren't real obstacles even when earth
+    /// curvature mathematically puts them above a long, low-target LOS line.
+    /// Returns null when no intermediate sample qualifies — the cell stays
+    /// blocked (per <see cref="IsBlocked"/>) but the blocker overlay simply
+    /// has no real-terrain obstruction to attribute the shadow to. The
+    /// emitted elevation is true terrain MSL (refraction bulge added back)
+    /// so it reads as a topographic height rather than an internal
+    /// corrected value.
     /// </summary>
     private static LosObstruction? FindWorstObstruction(
         (double D, double Elev)[] profile, double distanceM, double rxElev, double targetEff,
         double rxLat, double rxLon, double bearingDeg)
     {
-        var worstOverage = 0.0;
-        var worstIdx = -1;
+        var bestAngular = double.NegativeInfinity;
+        var bestIdx = -1;
         for (var i = 1; i < profile.Length - 1; i++)
         {
             var (d, elev) = profile[i];
-            var lineY = rxElev + (targetEff - rxElev) * (d / distanceM);
-            var overage = elev - lineY;
-            if (overage > worstOverage)
+            var trueMsl = elev + (d * d) / (2.0 * GreatCircle.EffectiveRadiusMetres);
+            if (trueMsl <= 0)
             {
-                worstOverage = overage;
-                worstIdx = i;
+                continue;
+            }
+            var angular = (elev - rxElev) / d;
+            if (angular > bestAngular)
+            {
+                bestAngular = angular;
+                bestIdx = i;
             }
         }
-        if (worstIdx < 0) return null;
-        var sample = profile[worstIdx];
+        if (bestIdx < 0) return null;
+        // The silhouette ridge among real terrain might not itself break the
+        // line to the target — IsBlocked may have triggered on a sea-level
+        // sample we just filtered out. Only report when the ridge actually
+        // exceeds the LOS slope to the target.
+        var lineSlope = (targetEff - rxElev) / distanceM;
+        if (bestAngular <= lineSlope) return null;
+        var sample = profile[bestIdx];
         var (lat, lon) = GreatCircle.Destination(rxLat, rxLon, bearingDeg, sample.D);
-        // Add the refraction bulge back so the emitted elevation is the
-        // real terrain height, not the corrected one used for LOS math.
-        var trueMsl = sample.Elev + (sample.D * sample.D) / (2.0 * GreatCircle.EffectiveRadiusMetres);
-        return new LosObstruction(lat, lon, trueMsl);
+        var trueMslOut = sample.Elev + (sample.D * sample.D) / (2.0 * GreatCircle.EffectiveRadiusMetres);
+        return new LosObstruction(lat, lon, trueMslOut);
     }
 }

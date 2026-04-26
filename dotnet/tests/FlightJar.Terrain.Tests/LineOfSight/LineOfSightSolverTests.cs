@@ -124,4 +124,56 @@ public class LineOfSightSolverTests
         Assert.False(result.Blocked);
         Assert.Null(result.Obstruction);
     }
+
+    [Fact]
+    public void Sea_level_only_blockage_reports_no_obstruction()
+    {
+        // Long-range, low-target case where only earth curvature blocks the
+        // line — the "obstruction" along the path is sea-level terrain (SRTM
+        // ocean / no-data / bathymetry). Cell still reads blocked, but no
+        // phantom 0 m hill should be emitted into the blocker overlay.
+        var rx = new LosReceiver(52.0, -1.5, AntennaMslM: 10);
+        var t = new LosTarget(54.7, -1.5, AltitudeMslM: 500);
+        var result = LineOfSightSolver.Solve(rx, t, new FlatSampler(), ceilingMslM: 110);
+        Assert.True(result.Blocked);
+        Assert.Null(result.Obstruction);
+    }
+
+    [Fact]
+    public void Hidden_far_peak_loses_to_nearer_taller_silhouette()
+    {
+        // Two real hills along the path: a tall nearer ridge and a taller far
+        // peak that's geometrically above the LOS line but hidden behind the
+        // ridge from the receiver's perspective. The reported obstruction
+        // must be the nearer ridge, not the far peak — under the old
+        // max-overage logic, the far peak (with more elev above the line)
+        // would have won despite being invisible from the antenna.
+        var rx = new LosReceiver(52.0, -1.5, AntennaMslM: 0);
+        // ~40 km due north target at low altitude so the line slopes gently
+        // and both hills sit above it.
+        var t = new LosTarget(52.36, -1.5, AltitudeMslM: 50);
+        // Nearer ridge: 5 km out, 400 m tall. Angular = 0.08 rad.
+        var nearLat = 52.0 + 5.0 / 111.0;
+        var near = new WallSampler(nearLat - 0.005, nearLat + 0.005, -2.0, -1.0, 400);
+        // Far peak: 30 km out, 1000 m tall. Angular = 0.033 rad — well below
+        // the nearer ridge's silhouette, so RX physically can't see it.
+        var farLat = 52.0 + 30.0 / 111.0;
+        var far = new WallSampler(farLat - 0.005, farLat + 0.005, -2.0, -1.0, 1000);
+        var sampler = new CombinedSampler(near, far);
+
+        var result = LineOfSightSolver.Solve(rx, t, sampler, ceilingMslM: 10_000);
+        Assert.True(result.Blocked);
+        Assert.NotNull(result.Obstruction);
+        var ob = result.Obstruction!.Value;
+        // Must land on the nearer ridge's lat band, not the far peak's.
+        Assert.InRange(ob.Lat, nearLat - 0.01, nearLat + 0.01);
+        Assert.Equal(400, ob.ElevMslM, precision: 0);
+    }
+
+    /// <summary>Returns the max elevation across two underlying samplers.</summary>
+    private sealed class CombinedSampler(ITerrainSampler a, ITerrainSampler b) : ITerrainSampler
+    {
+        public double ElevationMetres(double lat, double lon) =>
+            Math.Max(a.ElevationMetres(lat, lon), b.ElevationMetres(lat, lon));
+    }
 }
