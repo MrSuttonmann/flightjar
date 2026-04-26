@@ -3,7 +3,7 @@
 // the update loop can call when relevant.
 
 import { applyWatchStateToPanel, selectAircraft } from './detail_panel.js';
-import { authedFetch, ensureUnlocked } from './auth.js';
+import { authedFetch, ensureUnlocked, getAuthStatus, subscribeAuth } from './auth.js';
 import { resetTelemetry } from './telemetry.js';
 import { countHistory, renderSidebar, setRenderStats } from './sidebar.js';
 import { COUNT_HISTORY_LEN, state } from './state.js';
@@ -53,10 +53,24 @@ function maybePrependWrightBrothersNote() {
   }
 }
 
+// Hide the whole "Reset telemetry ID" block when the server requires
+// auth and the user hasn't unlocked. The reset endpoint is itself
+// gated, so an unauthed click would just pop the unlock prompt — but
+// surfacing a danger-styled button you can't actually use is worse
+// UX than just not showing it.
+function applyTelemetryResetVisibility(snap) {
+  const section = document.getElementById('telemetry-reset-section');
+  if (!section) return;
+  section.hidden = snap.required && !snap.unlocked;
+}
+
 function wireTelemetryReset() {
   const btn = document.getElementById('telemetry-reset-btn');
   const status = document.getElementById('telemetry-reset-status');
   if (!btn || !status) return;
+
+  applyTelemetryResetVisibility(getAuthStatus());
+  subscribeAuth(applyTelemetryResetVisibility);
 
   function setStatus(text, kind) {
     status.textContent = text;
