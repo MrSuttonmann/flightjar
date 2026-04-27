@@ -65,6 +65,12 @@ public sealed class BlackspotsWorker : BackgroundService
     private readonly LinkedList<BlackspotsGrid> _cacheOrder = new();
     private readonly Dictionary<int, LinkedListNode<BlackspotsGrid>> _nodes = new();
 
+    // Parallel cache for the high-resolution "blocking face" raster, keyed
+    // on altitude same as the grid cache. Lives in memory only — the bytes
+    // are too big to persist (a few hundred KB per altitude after PNG
+    // compression) and the compute is fast enough to redo on demand.
+    private readonly Dictionary<int, BlockerFaceRaster> _faceCache = new();
+
     // Once-loaded per-active-session tile set + ground elevation. Cleared
     // by idle eviction so re-engaging the feature reloads from disk fresh
     // (avoids stale state if the on-disk SRTM tiles changed underneath us).
@@ -231,6 +237,74 @@ public sealed class BlackspotsWorker : BackgroundService
         lock (_progressGate)
         {
             return _activeAltitudeKey == key ? (true, _activeProgress) : (false, 0.0);
+        }
+    }
+
+    /// <summary>
+    /// Return the high-resolution "blocking face" raster for the given
+    /// altitude — the per-pixel companion to the coarse cell grid that
+    /// <see cref="GetOrComputeAsync"/> serves. Reuses the same SRTM tile
+    /// preload + ground-elevation sample, so once tiles are warm the
+    /// face compute pays only the per-pixel viewshed (~1-3 s).
+    /// </summary>
+    public async Task<BlockerFaceRaster?> GetOrComputeFaceAsync(double targetAltM, CancellationToken ct)
+    {
+        if (!Enabled)
+        {
+            return null;
+        }
+        Interlocked.Exchange(ref _lastAccessTicks, _time.GetUtcNow().UtcTicks);
+
+        var key = AltitudeKey(targetAltM);
+        lock (_cacheGate)
+        {
+            if (_faceCache.TryGetValue(key, out var cached))
+            {
+                return cached;
+            }
+        }
+        await _computeGate.WaitAsync(ct);
+        try
+        {
+            lock (_cacheGate)
+            {
+                if (_faceCache.TryGetValue(key, out var filled))
+                {
+                    return filled;
+                }
+            }
+            await EnsurePreloadedAsync(ct);
+            if (_groundElevM is not double groundElev)
+            {
+                return null;
+            }
+            var (loaded, empty) = _tiles.TileLoadSummary();
+            var tilesWithData = loaded - empty;
+            if (_tileCount > 1 && tilesWithData <= 1)
+            {
+                return null;
+            }
+            var faceParams = new BlockerFaceParams(
+                ReceiverLat: _options.LatRef!.Value,
+                ReceiverLon: _options.LonRef!.Value,
+                AntennaMslM: ResolveAntennaMslM(groundElev),
+                TargetAltitudeM: targetAltM,
+                RadiusKm: _options.BlackspotsRadiusKm,
+                GridDeg: _options.BlackspotsFaceGridDeg);
+            _logger.LogInformation(
+                "blackspots: computing face raster — antenna {Ant:F0} m MSL, target {Alt:F0} m MSL",
+                faceParams.AntennaMslM, faceParams.TargetAltitudeM);
+            var raster = await Task.Run(
+                () => BlockerFaceCompute.Compute(faceParams, _tiles), ct);
+            lock (_cacheGate)
+            {
+                _faceCache[key] = raster;
+            }
+            return raster;
+        }
+        finally
+        {
+            _computeGate.Release();
         }
     }
 
@@ -589,6 +663,7 @@ public sealed class BlackspotsWorker : BackgroundService
         {
             _cacheOrder.Clear();
             _nodes.Clear();
+            _faceCache.Clear();
         }
     }
 }

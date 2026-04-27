@@ -212,8 +212,10 @@
     font-variant-numeric: tabular-nums; margin-bottom: 6px;
   }
   .blackspots-slider input[type="range"] {
-    -webkit-appearance: slider-vertical;
-    appearance: slider-vertical;
+    /* Standard vertical-range syntax — writing-mode: vertical-lr +
+       direction: rtl gives a bottom-to-top range input across all
+       modern browsers without the deprecated `appearance: slider-vertical`
+       (which Chrome warns about and is slated for removal). */
     writing-mode: vertical-lr; direction: rtl;
     width: 24px; height: 160px;
     margin: 0;
