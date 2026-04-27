@@ -54,6 +54,22 @@ public sealed record AppOptions
 
     public double BlackspotsRadiusKm { get; init; } = 400.0;
     public double BlackspotsGridDeg { get; init; } = 0.05;
+
+    /// <summary>
+    /// Pixel size (in degrees) of the "blocking face" raster — the
+    /// per-pixel companion to the coarser <see cref="BlackspotsGridDeg"/>
+    /// shadow grid. 0.005° ≈ 555 m N–S / ~360 m E–W at 50° N — fine
+    /// enough to read individual ridges, while keeping the PNG payload
+    /// small enough to ship over JSON without choking the browser.
+    /// At the default 400 km radius this lands at ~3 M pixels per
+    /// buffer; halving it to 0.0025° quadruples that. Don't go below
+    /// ~0.002° at the default radius — the encoder allocates a raw
+    /// scanline buffer and the browser has to decode each PNG, so
+    /// blowing past ~20 M pixels regularly stalls the slider on
+    /// commodity hardware.
+    /// </summary>
+    public double BlackspotsFaceGridDeg { get; init; } = 0.005;
+
     public double BlackspotsMaxAglM { get; init; } = 100.0;
     public string TerrainCacheDir { get; init; } = "/data/terrain";
 

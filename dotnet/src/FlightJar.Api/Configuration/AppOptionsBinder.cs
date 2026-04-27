@@ -71,6 +71,12 @@ public static class AppOptionsBinder
             throw new ConfigException(
                 $"BLACKSPOTS_GRID_DEG={gridDeg.ToString(CultureInfo.InvariantCulture)}: must be in (0, 1]");
         }
+        var faceGridDeg = FloatRequired(get, "BLACKSPOTS_FACE_GRID_DEG", 0.005);
+        if (faceGridDeg <= 0 || faceGridDeg > 0.05)
+        {
+            throw new ConfigException(
+                $"BLACKSPOTS_FACE_GRID_DEG={faceGridDeg.ToString(CultureInfo.InvariantCulture)}: must be in (0, 0.05]");
+        }
         var maxAgl = FloatRequired(get, "BLACKSPOTS_MAX_AGL_M", 100.0);
         if (maxAgl <= 0)
         {
@@ -109,6 +115,7 @@ public static class AppOptionsBinder
             BlackspotsAntennaMslM = antennaMsl,
             BlackspotsRadiusKm = radiusKm,
             BlackspotsGridDeg = gridDeg,
+            BlackspotsFaceGridDeg = faceGridDeg,
             BlackspotsMaxAglM = maxAgl,
             BlackspotsIdleTimeoutMinutes = idleTimeoutMin,
             TerrainCacheDir = NullIfEmpty(Str(get, "TERRAIN_CACHE_DIR", "")) ?? "/data/terrain",

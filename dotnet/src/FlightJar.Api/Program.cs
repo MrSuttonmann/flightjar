@@ -710,6 +710,56 @@ app.MapPost("/api/blackspots/recompute", (BlackspotsWorker worker) =>
     return Results.Ok(new { ok = true });
 });
 
+// Hillshaded blocking-face raster — single RGBA PNG covering the
+// receiver's bbox. Sea/no-data pixels are transparent; land pixels show
+// greyscale relief (Lambertian hillshade); pixels above the LOS line to
+// the target altitude AND visible from the antenna are tinted red in
+// proportion to how steeply they rise above the LOS plane. Returns
+// base64'd inside JSON so the frontend can drop it straight into a
+// Leaflet image overlay.
+app.MapGet("/api/blackspots/faces", async (
+    BlackspotsWorker worker, double? target_alt_m, CancellationToken ct) =>
+{
+    if (!worker.Enabled)
+    {
+        return Results.Json(new { enabled = false });
+    }
+    var alt = target_alt_m ?? BlackspotsWorker.DefaultTargetAltitudeM;
+    if (alt < 0 || alt > 20_000)
+    {
+        return Results.BadRequest(new { error = "target_alt_m out of range [0, 20000]" });
+    }
+    try
+    {
+        var raster = await worker.GetOrComputeFaceAsync(alt, ct);
+        if (raster is null)
+        {
+            return Results.Json(new { enabled = true, computing = true });
+        }
+        var png = FlightJar.Core.Imaging.PngWriter.EncodeRgba(
+            raster.Width, raster.Height, raster.Rgba);
+        return Results.Json(new
+        {
+            enabled = true,
+            bounds = new
+            {
+                min_lat = raster.MinLat,
+                max_lat = raster.MaxLat,
+                min_lon = raster.MinLon,
+                max_lon = raster.MaxLon,
+            },
+            width = raster.Width,
+            height = raster.Height,
+            grid_deg = raster.Params.GridDeg,
+            png_base64 = Convert.ToBase64String(png),
+        });
+    }
+    catch (OperationCanceledException) when (ct.IsCancellationRequested)
+    {
+        return Results.Empty;
+    }
+});
+
 // Live progress poll for the currently-running compute at a given altitude.
 // Designed to be hit every ~300 ms by the frontend while awaiting a fresh
 // grid; returns {active: false} when the altitude is cached / queued /

@@ -2,7 +2,9 @@
 // to a user-selected target altitude is blocked by terrain or the Earth's
 // curvature, with a hover tooltip showing the minimum antenna height
 // (AGL from the receiver's ground elevation) that would clear the
-// obstruction.
+// obstruction. The same payload powers a hillshaded "blocker face"
+// raster: greyscale UK relief tinted red on the receiver-facing slopes
+// that are doing the blocking.
 //
 // A vertical altitude slider (Leaflet control, right edge of the map)
 // drives the target altitude. Slider moves are debounced so a drag
@@ -10,8 +12,8 @@
 // client-side, so toggling back and forth between altitudes is instant.
 
 import {
-  ALT_STOPS_M, DEFAULT_STOP_INDEX, bandFor, blockerShade,
-  blockerTooltipFor, flLabel, tooltipFor,
+  ALT_STOPS_M, DEFAULT_STOP_INDEX, bandFor, blockerTooltipFor,
+  flLabel, tooltipFor,
 } from './blackspots_format.js';
 import { state } from './state.js';
 import { track } from './telemetry.js';
@@ -21,6 +23,9 @@ import { track } from './telemetry.js';
 // Per-altitude cache of the backend payload. Keyed by the integer metres
 // value sent to the server so slider round-trips don't ever re-fetch.
 const gridCache = new Map();
+// Parallel cache for the high-resolution face raster (hillshaded PNG +
+// bbox). Same keys as gridCache so they stay in lockstep.
+const faceCache = new Map();
 
 let activeAltitudeM = ALT_STOPS_M[DEFAULT_STOP_INDEX];
 let pendingController = null;
@@ -28,8 +33,8 @@ let fetchDebounce = null;
 let progressPoll = null;
 
 async function fetchForAltitude(altM) {
-  if (gridCache.has(altM)) {
-    renderSnapshot(gridCache.get(altM));
+  if (gridCache.has(altM) && faceCache.has(altM)) {
+    renderSnapshot(gridCache.get(altM), faceCache.get(altM));
     setSliderBusy(false);
     return;
   }
@@ -39,23 +44,35 @@ async function fetchForAltitude(altM) {
   setSliderBusy(true);
   startProgressPoll(altM, ctrl.signal);
   try {
-    const r = await fetch(`/api/blackspots?target_alt_m=${altM}`, { signal: ctrl.signal });
-    if (!r.ok) return;
-    const data = await r.json();
+    // Grid (per-cell shadows + obstruction bins) and face raster fetched
+    // in parallel; they share the same backend tile preload but compute
+    // independently. Both must finish before we render so the layer
+    // doesn't flash a half-drawn state.
+    const [gridRes, faceRes] = await Promise.all([
+      fetch(`/api/blackspots?target_alt_m=${altM}`, { signal: ctrl.signal }),
+      fetch(`/api/blackspots/faces?target_alt_m=${altM}`, { signal: ctrl.signal }),
+    ]);
+    if (!gridRes.ok || !faceRes.ok) return;
+    const data = await gridRes.json();
+    const faceData = await faceRes.json();
     if (data.enabled === false) {
-      renderSnapshot(null);
+      renderSnapshot(null, null);
       return;
     }
-    if (data.computing) {
-      // Backend is still running the initial preload. Retry once after a
-      // short delay — typical preload takes a few seconds on a fresh start.
+    if (data.computing || faceData.computing) {
       setTimeout(() => {
         if (activeAltitudeM === altM && state.showBlackspots) fetchForAltitude(altM);
       }, 3000);
       return;
     }
     gridCache.set(altM, data);
-    if (activeAltitudeM === altM) renderSnapshot(data);
+    faceCache.set(altM, faceData.enabled === false || !faceData.png_base64
+      ? null
+      : {
+          bounds: faceData.bounds,
+          dataUrl: `data:image/png;base64,${faceData.png_base64}`,
+        });
+    if (activeAltitudeM === altM) renderSnapshot(data, faceCache.get(altM));
   } catch (e) {
     if (e.name !== 'AbortError') console.warn('blackspots fetch failed', e);
   } finally {
@@ -105,6 +122,18 @@ function scheduleFetch(altM) {
 
 // ---------- rendering ----------
 
+// One-time pane setup so the face raster sits *below* the canvas-
+// rendered cells/blockers regardless of when the shared airports
+// canvas was first created. zIndex=350 places it between tilePane (200)
+// and overlayPane (400), and pointerEvents=none lets hover fall through
+// to the (invisible) blocker rectangles in the overlayPane canvas.
+function ensureFaceRasterPane() {
+  if (state.map.getPane('blackspotsFaceRaster')) return;
+  const pane = state.map.createPane('blackspotsFaceRaster');
+  pane.style.zIndex = '350';
+  pane.style.pointerEvents = 'none';
+}
+
 function cellBounds(cell, gridDeg) {
   const half = gridDeg / 2;
   return [[cell.lat - half, cell.lon - half], [cell.lat + half, cell.lon + half]];
@@ -129,9 +158,9 @@ function blockerBinKey(lat, lon, gridDeg) {
 }
 
 // Style override for a cell currently being highlighted by hovering its
-// blocker. Slate stroke at 2.5 px + raised fill opacity makes the
-// affected cells pop without recolouring them — the band colour still
-// communicates "how much taller would I need".
+// blocker. Slate stroke + raised fill opacity makes the affected cells
+// pop without recolouring them — the band colour still communicates
+// "how much taller would I need".
 const HIGHLIGHT_STYLE = {
   color: '#0f172a',
   weight: 2.5,
@@ -139,16 +168,35 @@ const HIGHLIGHT_STYLE = {
   fillOpacity: 0.7,
 };
 
-function renderSnapshot(snapshot) {
+function renderSnapshot(snapshot, face) {
   const layer = state.blackspotsLayer;
   if (!layer) return;
   layer.clearLayers();
-  // Warn the user when the grid is suspicious: a multi-tile bbox where
-  // almost nothing returned elevation data usually means the container
-  // can't reach the SRTM bucket, and what renders is just the earth-
-  // curvature horizon (= a perfect circle).
+  // Tile-coverage warning: snapshot.tile_count / tiles_with_data come
+  // from the cells endpoint; a multi-tile bbox with almost no terrain
+  // data usually means the container can't reach the SRTM bucket.
   setSliderTileWarning(
     snapshot?.tile_count > 1 && (snapshot?.tiles_with_data ?? 0) <= 1);
+
+  // Hillshaded face raster: greyscale relief everywhere there's land,
+  // tinted red on the receiver-facing slopes that block the LOS to the
+  // selected altitude. Single PNG, semi-transparent so the basemap
+  // shows through and the relief stays readable at small zoom levels.
+  // Lives in its own pane below the cell/blocker canvas.
+  if (face?.dataUrl && face?.bounds) {
+    ensureFaceRasterPane();
+    const b = face.bounds;
+    L.imageOverlay(face.dataUrl,
+      [[b.min_lat, b.min_lon], [b.max_lat, b.max_lon]],
+      {
+        opacity: 0.75,
+        interactive: false,
+        pane: 'blackspotsFaceRaster',
+        className: 'blackspots-face-raster',
+      })
+      .addTo(layer);
+  }
+
   if (!snapshot?.cells?.length || !snapshot.params) return;
   const gridDeg = snapshot.params.grid_deg;
   // Blockers bin at a finer resolution than cells (default: half the cell
@@ -157,19 +205,20 @@ function renderSnapshot(snapshot) {
   // the ratio; fall back to half if a stale payload omits it.
   const blockerGridDeg = snapshot.blocker_grid_deg || gridDeg / 2;
 
-  // Blocker shading first — neutral greyscale patches sit underneath the
-  // shadow shading so the coloured blocked-cell rectangles stay the
-  // primary visual. Opacity scales with how many shadowed cells trace
-  // back to each obstructing bin, so prominent ridges read darker.
-  // Rectangles are kept around to wire hover-highlight handlers in a
-  // third pass (after the cell→bin lookup is built).
-  const blockerEntries = [];  // {rect, key}
+  // Invisible blocker bins — the face raster handles the visual job
+  // now, but we keep the rectangles in the canvas so hovering an
+  // obstructing pixel still shows its tooltip ("Obstruction at X m
+  // MSL, blocking N cells") and triggers the cell-highlight pass below.
+  // fill:true with fillOpacity:0 keeps Leaflet's hit-test alive.
+  const blockerEntries = [];
   if (snapshot.blockers?.length) {
     for (const blocker of snapshot.blockers) {
-      const shade = blockerShade(blocker.blocked_count);
       const rect = L.rectangle(blockerBounds(blocker, blockerGridDeg), {
         renderer: state.airportsCanvas,
-        ...shade,
+        fill: true,
+        fillOpacity: 0,
+        opacity: 0,
+        weight: 0,
       });
       rect.bindTooltip(blockerTooltipFor(blocker, snapshot.params),
         { direction: 'top', sticky: true });
@@ -181,9 +230,11 @@ function renderSnapshot(snapshot) {
     }
   }
 
-  // Cells: build the rectangles + index each by the bin its obstruction
-  // sample lands in, so hovering the blocker can re-style every cell that
-  // traces back to it without scanning the whole list.
+  // Cells = the blackspots themselves: coloured rectangles indicating
+  // where the LOS is blocked, banded by how much extra antenna height
+  // would be needed. Indexed by the bin its obstruction sample lands in
+  // so hovering the matching blocker can re-style every cell that traces
+  // back to it without scanning the whole list.
   const cellsByBlockerBin = new Map();
   for (const cell of snapshot.cells) {
     // `required_antenna_msl_m` is the absolute MSL height needed; the band
@@ -195,8 +246,6 @@ function renderSnapshot(snapshot) {
       ? null
       : cell.required_antenna_msl_m - snapshot.params.antenna_msl_m;
     const band = bandFor(delta);
-    // Keep the normal style closure-captured so mouseout can restore it
-    // without us having to recompute the band → style mapping.
     const normalStyle = {
       color: band.stroke,
       weight: 0.5,
@@ -219,8 +268,8 @@ function renderSnapshot(snapshot) {
     }
   }
 
-  // Hover-highlight: for each blocker, look up the cells binned to it and
-  // wire mouseover / mouseout to thicken / restore. Skipped when the
+  // Hover-highlight: for each blocker, look up the cells binned to it
+  // and wire mouseover / mouseout to thicken / restore. Skipped when the
   // blocker has no associated cells (e.g. a snapshot stitched from old
   // cells that pre-date obstruction tracking).
   for (const { rect: blockerRect, key } of blockerEntries) {
@@ -253,7 +302,7 @@ function makeSliderControl() {
       container.innerHTML = `
         <div class="blackspots-slider-title">Altitude</div>
         <div class="blackspots-slider-label"></div>
-        <input type="range" min="0" max="${ALT_STOPS_M.length - 1}" value="${DEFAULT_STOP_INDEX}" step="1" orient="vertical" aria-label="Target altitude">
+        <input type="range" min="0" max="${ALT_STOPS_M.length - 1}" value="${DEFAULT_STOP_INDEX}" step="1" aria-label="Target altitude">
         <div class="blackspots-slider-status" role="status" aria-label="Computing blackspots">
           <div class="blackspots-slider-spinner"></div>
           <div class="blackspots-slider-progress"></div>
@@ -282,9 +331,9 @@ function makeSliderControl() {
         // Instant-path for cached altitudes so the displayed grid updates
         // as the user drags; uncached altitudes debounce through the
         // backend on drag-end.
-        if (gridCache.has(altM)) {
+        if (gridCache.has(altM) && faceCache.has(altM)) {
           clearTimeout(fetchDebounce);
-          renderSnapshot(gridCache.get(altM));
+          renderSnapshot(gridCache.get(altM), faceCache.get(altM));
         } else {
           scheduleFetch(altM);
         }
