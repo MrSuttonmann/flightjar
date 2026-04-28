@@ -21,7 +21,7 @@ namespace FlightJar.Api.Hosting;
 /// <see cref="AppOptions.SnapshotInterval"/>. Publishes the latest snapshot +
 /// its JSON projection to <see cref="CurrentSnapshot"/>.
 /// </summary>
-public sealed class RegistryWorker : BackgroundService
+public sealed class RegistryWorker : BackgroundService, IBeastFrameStats
 {
     private readonly ChannelReader<BeastFrame> _frames;
     private readonly AircraftRegistry _registry;
@@ -33,14 +33,19 @@ public sealed class RegistryWorker : BackgroundService
     private readonly AlertWatcher? _alerts;
     private readonly WatchlistStore? _watchlist;
     private readonly StateSnapshotStore? _statePersister;
-    private readonly AdsbdbClient? _adsbdb;
-    private readonly MetarClient? _metar;
-    private readonly AirportsDb? _airportsDb;
-    private readonly AirlinesDb? _airlinesDb;
-    private readonly PolarCoverage? _polarCoverage;
-    private readonly PolarHeatmap? _polarHeatmap;
-    private readonly TrafficHeatmap? _trafficHeatmap;
     private readonly TelemetryAccumulator? _telemetry;
+    private readonly RegistrySnapshotEnrichers _enrichers;
+    private readonly RegistryStatsCollectors _stats;
+
+    // Convenience aliases — the original code referenced bare fields, so
+    // forwarding through these keeps the body unchanged after the bundle.
+    private AdsbdbClient? _adsbdb => _enrichers.Adsbdb;
+    private MetarClient? _metar => _enrichers.Metar;
+    private AirportsDb? _airportsDb => _enrichers.Airports;
+    private AirlinesDb? _airlinesDb => _enrichers.Airlines;
+    private PolarCoverage? _polarCoverage => _stats.PolarCoverage;
+    private PolarHeatmap? _polarHeatmap => _stats.PolarHeatmap;
+    private TrafficHeatmap? _trafficHeatmap => _stats.TrafficHeatmap;
 
     /// <summary>Persist the registry every Nth snapshot tick (default 30s at 1 Hz).</summary>
     public int PersistEveryNTicks { get; set; } = 30;
@@ -71,16 +76,11 @@ public sealed class RegistryWorker : BackgroundService
         AppOptions options,
         TimeProvider time,
         ILogger<RegistryWorker> logger,
+        RegistrySnapshotEnrichers? enrichers = null,
+        RegistryStatsCollectors? stats = null,
         AlertWatcher? alerts = null,
         WatchlistStore? watchlist = null,
         StateSnapshotStore? statePersister = null,
-        AdsbdbClient? adsbdb = null,
-        MetarClient? metar = null,
-        AirportsDb? airportsDb = null,
-        AirlinesDb? airlinesDb = null,
-        PolarCoverage? polarCoverage = null,
-        TrafficHeatmap? trafficHeatmap = null,
-        PolarHeatmap? polarHeatmap = null,
         TelemetryAccumulator? telemetry = null)
     {
         _frames = frames;
@@ -90,27 +90,22 @@ public sealed class RegistryWorker : BackgroundService
         _options = options;
         _time = time;
         _logger = logger;
+        _enrichers = enrichers ?? new RegistrySnapshotEnrichers();
+        _stats = stats ?? new RegistryStatsCollectors();
         _alerts = alerts;
         _watchlist = watchlist;
         _statePersister = statePersister;
-        _adsbdb = adsbdb;
-        _metar = metar;
-        _airportsDb = airportsDb;
-        _airlinesDb = airlinesDb;
-        _polarCoverage = polarCoverage;
-        _trafficHeatmap = trafficHeatmap;
-        _polarHeatmap = polarHeatmap;
         _telemetry = telemetry;
 
         // Wire registry callbacks into stats collectors. These fire from within
         // Ingest() which runs on this worker's thread, so no locking needed.
         if (_trafficHeatmap is not null)
         {
-            _registry.OnNewAircraft = (_icao, ts) => _trafficHeatmap.Observe(ts);
+            _registry.OnNewAircraft += (_icao, ts) => _trafficHeatmap.Observe(ts);
         }
         if (_polarCoverage is not null || _polarHeatmap is not null)
         {
-            _registry.OnPosition = (lat, lon) =>
+            _registry.OnPosition += (lat, lon) =>
             {
                 _polarCoverage?.Observe(lat, lon);
                 _polarHeatmap?.Observe(lat, lon);

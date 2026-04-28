@@ -35,12 +35,17 @@ public sealed class NtfyNotifier : INotifier
         _logger = logger;
     }
 
-    public async Task SendAsync(NotificationMessage msg, NotificationChannel channel, CancellationToken ct)
+    public Task SendAsync(NotificationMessage msg, NotificationChannel channel, CancellationToken ct)
     {
-        if (channel.Type != NotificationChannelType.Ntfy || !channel.IsReady())
+        if (channel is not NtfyChannel n || !n.IsReady())
         {
-            return;
+            return Task.CompletedTask;
         }
+        return SendAsync(msg, n, ct);
+    }
+
+    private async Task SendAsync(NotificationMessage msg, NtfyChannel channel, CancellationToken ct)
+    {
         var url = channel.Url.TrimEnd('/');
         using var req = new HttpRequestMessage(HttpMethod.Post, url)
         {

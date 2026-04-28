@@ -39,12 +39,17 @@ public sealed class TelegramNotifier : INotifier
         return sb.ToString();
     }
 
-    public async Task SendAsync(NotificationMessage msg, NotificationChannel channel, CancellationToken ct)
+    public Task SendAsync(NotificationMessage msg, NotificationChannel channel, CancellationToken ct)
     {
-        if (channel.Type != NotificationChannelType.Telegram || !channel.IsReady())
+        if (channel is not TelegramChannel tg || !tg.IsReady())
         {
-            return;
+            return Task.CompletedTask;
         }
+        return SendAsync(msg, tg, ct);
+    }
+
+    private async Task SendAsync(NotificationMessage msg, TelegramChannel channel, CancellationToken ct)
+    {
         var text = $"*{EscapeMarkdownV2(msg.Title)}*\n{EscapeMarkdownV2(msg.Body)}";
         if (!string.IsNullOrEmpty(msg.Url))
         {

@@ -489,7 +489,7 @@ public class AircraftRegistryTests
     {
         var reg = MakeRegistry();
         var seen = new List<(string Icao, double Ts)>();
-        reg.OnNewAircraft = (icao, ts) => seen.Add((icao, ts));
+        reg.OnNewAircraft += (icao, ts) => seen.Add((icao, ts));
         reg.Ingest("ID01aaaa", now: 100.0);
         reg.Ingest("ID01bbbb", now: 101.0);
         Assert.Single(seen);
@@ -501,7 +501,7 @@ public class AircraftRegistryTests
     {
         var reg = MakeRegistry(latRef: 52.0, lonRef: -1.0);
         var seen = new List<(double Lat, double Lon)>();
-        reg.OnPosition = (lat, lon) => seen.Add((lat, lon));
+        reg.OnPosition += (lat, lon) => seen.Add((lat, lon));
         reg.Ingest("AP01aaaa", now: 10.0);
         reg.Ingest("AP01bbbb", now: 11.0);
         Assert.Equal(2, seen.Count);
@@ -517,7 +517,7 @@ public class AircraftRegistryTests
     {
         var reg = MakeRegistry(latRef: 52.0, lonRef: -1.0);
         var seen = new List<(double, double)>();
-        reg.OnPosition = (lat, lon) => seen.Add((lat, lon));
+        reg.OnPosition += (lat, lon) => seen.Add((lat, lon));
         reg.Ingest("VL01xxxx", now: 1.0); // velocity
         reg.Ingest("AC01xxxx", now: 2.0); // DF4 altcode
         reg.Ingest("SQ01xxxx", now: 3.0); // DF5 squawk
@@ -528,7 +528,7 @@ public class AircraftRegistryTests
     public void OnPosition_SwallowsExceptions()
     {
         var reg = MakeRegistry(latRef: 52.0, lonRef: -1.0);
-        reg.OnPosition = (_, _) => throw new InvalidOperationException("boom");
+        reg.OnPosition += (_, _) => throw new InvalidOperationException("boom");
         Assert.True(reg.Ingest("AP01aaaa", now: 1.0));
     }
 

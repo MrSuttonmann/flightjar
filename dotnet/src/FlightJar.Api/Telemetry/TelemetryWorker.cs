@@ -29,17 +29,19 @@ public sealed class TelemetryWorker : BackgroundService
     private readonly SnapshotBroadcaster _broadcaster;
     private readonly NotificationsConfigStore _notifications;
     private readonly TelemetryAccumulator _accumulator;
-    private readonly RegistryWorker? _registryWorker;
-    private readonly WatchlistStore? _watchlist;
-    private readonly PolarCoverage? _polarCoverage;
-    private readonly TrafficHeatmap? _trafficHeatmap;
-    private readonly string? _aircraftDbOverridePath;
+    private readonly TelemetrySources _sources;
     private readonly TimeProvider _time;
     private readonly ILogger<TelemetryWorker> _logger;
 
     private readonly DateTimeOffset _startedAt;
     private long _lastFrameCount;
     private DateTimeOffset _lastPingAt;
+
+    private IBeastFrameStats? _frameStats => _sources.FrameStats;
+    private WatchlistStore? _watchlist => _sources.Watchlist;
+    private PolarCoverage? _polarCoverage => _sources.PolarCoverage;
+    private TrafficHeatmap? _trafficHeatmap => _sources.TrafficHeatmap;
+    private string? _aircraftDbOverridePath => _sources.AircraftDbOverridePath;
 
     public TelemetryWorker(
         AppOptions options,
@@ -51,11 +53,7 @@ public sealed class TelemetryWorker : BackgroundService
         TelemetryAccumulator accumulator,
         TimeProvider time,
         ILogger<TelemetryWorker> logger,
-        RegistryWorker? registryWorker = null,
-        WatchlistStore? watchlist = null,
-        PolarCoverage? polarCoverage = null,
-        TrafficHeatmap? trafficHeatmap = null,
-        string? aircraftDbOverridePath = null)
+        TelemetrySources? sources = null)
     {
         _options = options;
         _instanceStore = instanceStore;
@@ -64,11 +62,7 @@ public sealed class TelemetryWorker : BackgroundService
         _broadcaster = broadcaster;
         _notifications = notifications;
         _accumulator = accumulator;
-        _registryWorker = registryWorker;
-        _watchlist = watchlist;
-        _polarCoverage = polarCoverage;
-        _trafficHeatmap = trafficHeatmap;
-        _aircraftDbOverridePath = aircraftDbOverridePath;
+        _sources = sources ?? new TelemetrySources();
         _time = time;
         _logger = logger;
         _startedAt = time.GetUtcNow();
@@ -171,7 +165,7 @@ public sealed class TelemetryWorker : BackgroundService
         var busiestHour = ComputeBusiestHourUtc();
 
         var now = _time.GetUtcNow();
-        var currentFrames = _registryWorker?.FrameCount ?? 0;
+        var currentFrames = _frameStats?.FrameCount ?? 0;
         long framesDelta;
         double secondsDelta;
         if (drainAccumulator)
