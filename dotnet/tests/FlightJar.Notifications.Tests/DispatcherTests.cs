@@ -42,9 +42,9 @@ public class DispatcherTests
         var (dispatcher, config, handler) = BuildDispatcher();
         config.Replace(new[]
         {
-            new NotificationChannel
+            new WebhookChannel
             {
-                Id = "a", Type = NotificationChannelType.Webhook,
+                Id = "a",
                 Url = "https://example.com/hook",
                 Enabled = false,
             },
@@ -61,11 +61,12 @@ public class DispatcherTests
         var (dispatcher, config, handler) = BuildDispatcher();
         config.Replace(new[]
         {
-            new NotificationChannel
+            new WebhookChannel
             {
-                Id = "a", Type = NotificationChannelType.Webhook,
+                Id = "a",
                 Url = "https://example.com/hook",
-                WatchlistEnabled = false, EmergencyEnabled = true,
+                WatchlistEnabled = false,
+                EmergencyEnabled = true,
             },
         });
         Assert.Equal(0, await dispatcher.DispatchAsync(new("T", "B"), AlertCategory.Watchlist));
@@ -78,11 +79,11 @@ public class DispatcherTests
     {
         var (dispatcher, config, handler) = BuildDispatcher();
         handler.Handler = _ => new HttpResponseMessage(HttpStatusCode.OK);
-        config.Replace(new[]
+        config.Replace(new NotificationChannel[]
         {
-            new NotificationChannel { Id = "1", Type = NotificationChannelType.Telegram, BotToken = "t", ChatId = "c" },
-            new NotificationChannel { Id = "2", Type = NotificationChannelType.Ntfy, Url = "https://ntfy.sh/x" },
-            new NotificationChannel { Id = "3", Type = NotificationChannelType.Webhook, Url = "https://hook.example/x" },
+            new TelegramChannel { Id = "1", BotToken = "t", ChatId = "c" },
+            new NtfyChannel { Id = "2", Url = "https://ntfy.sh/x" },
+            new WebhookChannel { Id = "3", Url = "https://hook.example/x" },
         });
         var sent = await dispatcher.DispatchAsync(new("T", "B"), AlertCategory.Emergency);
         Assert.Equal(3, sent);
@@ -96,10 +97,10 @@ public class DispatcherTests
         handler.Handler = req => req.RequestUri!.AbsoluteUri.Contains("telegram.org")
             ? new HttpResponseMessage(HttpStatusCode.InternalServerError)
             : new HttpResponseMessage(HttpStatusCode.OK);
-        config.Replace(new[]
+        config.Replace(new NotificationChannel[]
         {
-            new NotificationChannel { Id = "1", Type = NotificationChannelType.Telegram, BotToken = "t", ChatId = "c" },
-            new NotificationChannel { Id = "2", Type = NotificationChannelType.Webhook, Url = "https://hook.example/x" },
+            new TelegramChannel { Id = "1", BotToken = "t", ChatId = "c" },
+            new WebhookChannel { Id = "2", Url = "https://hook.example/x" },
         });
         var sent = await dispatcher.DispatchAsync(new("T", "B"), AlertCategory.Watchlist);
         Assert.Equal(2, sent); // both attempted
@@ -120,7 +121,7 @@ public class DispatcherTests
         handler.Handler = _ => new HttpResponseMessage(HttpStatusCode.OK);
         config.Replace(new[]
         {
-            new NotificationChannel { Id = "hook", Type = NotificationChannelType.Webhook, Url = "https://hook.example/x" },
+            new WebhookChannel { Id = "hook", Url = "https://hook.example/x" },
         });
         Assert.True(await dispatcher.TestChannelAsync("hook"));
         Assert.Equal(1, handler.CallCount);
@@ -133,7 +134,7 @@ public class DispatcherTests
         handler.Handler = _ => new HttpResponseMessage(HttpStatusCode.OK);
         config.Replace(new[]
         {
-            new NotificationChannel { Id = "t", Type = NotificationChannelType.Telegram, BotToken = "bot", ChatId = "42" },
+            new TelegramChannel { Id = "t", BotToken = "bot", ChatId = "42" },
         });
         await dispatcher.DispatchAsync(
             new("Hi", "body", PhotoUrl: "https://cdn/pic.jpg"),
@@ -149,10 +150,11 @@ public class DispatcherTests
         handler.Handler = _ => new HttpResponseMessage(HttpStatusCode.OK);
         config.Replace(new[]
         {
-            new NotificationChannel
+            new NtfyChannel
             {
-                Id = "n", Type = NotificationChannelType.Ntfy,
-                Url = "https://ntfy.sh/alerts", Token = "secret",
+                Id = "n",
+                Url = "https://ntfy.sh/alerts",
+                Token = "secret",
             },
         });
         await dispatcher.DispatchAsync(
@@ -174,7 +176,7 @@ public class DispatcherTests
         handler.Handler = _ => new HttpResponseMessage(HttpStatusCode.OK);
         config.Replace(new[]
         {
-            new NotificationChannel { Id = "h", Type = NotificationChannelType.Webhook, Url = "https://hook.example/x" },
+            new WebhookChannel { Id = "h", Url = "https://hook.example/x" },
         });
         await dispatcher.DispatchAsync(
             new("T", "B", Level: AlertLevel.Warning),
@@ -187,11 +189,11 @@ public class DispatcherTests
     public void ConfiguredSummary_CountsByType()
     {
         var (dispatcher, config, _) = BuildDispatcher();
-        config.Replace(new[]
+        config.Replace(new NotificationChannel[]
         {
-            new NotificationChannel { Id = "1", Type = NotificationChannelType.Telegram, BotToken = "t", ChatId = "c" },
-            new NotificationChannel { Id = "2", Type = NotificationChannelType.Telegram, BotToken = "t2", ChatId = "c2" },
-            new NotificationChannel { Id = "3", Type = NotificationChannelType.Webhook, Url = "https://hook" },
+            new TelegramChannel { Id = "1", BotToken = "t", ChatId = "c" },
+            new TelegramChannel { Id = "2", BotToken = "t2", ChatId = "c2" },
+            new WebhookChannel { Id = "3", Url = "https://hook" },
         });
         Assert.Equal(new[] { "telegramx2", "webhookx1" }, dispatcher.ConfiguredSummary());
     }

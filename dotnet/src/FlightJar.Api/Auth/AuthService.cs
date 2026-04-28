@@ -167,6 +167,42 @@ public sealed class AuthService : IDisposable
         _rateLimits.TryRemove(clientIp ?? "", out _);
     }
 
+    /// <summary>
+    /// Set the session cookie. HttpOnly so JS cannot read it (an XSS
+    /// foothold can't steal a token), SameSite=Strict so cross-site
+    /// POSTs can't smuggle it back, Secure on HTTPS requests so browsers
+    /// refuse to leak it over plain HTTP. Localhost-over-HTTP still
+    /// works (IsHttps is false → cookie set without Secure).
+    /// </summary>
+    public static void SetSessionCookie(HttpContext ctx, string token, TimeSpan lifetime)
+    {
+        ctx.Response.Cookies.Append(CookieName, token, new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = IsRequestSecure(ctx),
+            SameSite = SameSiteMode.Strict,
+            Path = "/",
+            MaxAge = lifetime,
+        });
+    }
+
+    public static void ClearSessionCookie(HttpContext ctx)
+    {
+        ctx.Response.Cookies.Append(CookieName, "", new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = IsRequestSecure(ctx),
+            SameSite = SameSiteMode.Strict,
+            Path = "/",
+            Expires = DateTimeOffset.UnixEpoch,
+        });
+    }
+
+    private static bool IsRequestSecure(HttpContext ctx) =>
+        ctx.Request.IsHttps
+        || (ctx.Request.Headers.TryGetValue("X-Forwarded-Proto", out var p)
+            && string.Equals(p.ToString(), "https", StringComparison.OrdinalIgnoreCase));
+
     /// <summary>Test hook: count of live (non-expired) sessions. Tests use
     /// this to assert that logout / sweep actually evicted the token.</summary>
     public int SessionCount => _sessions.Count;

@@ -24,7 +24,7 @@ public class AlertWatcherTests
         var cfg = new NotificationsConfigStore();
         cfg.Replace(new[]
         {
-            new NotificationChannel { Id = "h", Type = NotificationChannelType.Webhook, Url = "https://hook.example/x" },
+            new WebhookChannel { Id = "h", Url = "https://hook.example/x" },
         });
         var dispatcher = new NotifierDispatcher(
             cfg,

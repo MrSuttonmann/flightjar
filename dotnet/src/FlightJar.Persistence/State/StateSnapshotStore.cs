@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Text.Json;
+using FlightJar.Core.State.Persistence;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 

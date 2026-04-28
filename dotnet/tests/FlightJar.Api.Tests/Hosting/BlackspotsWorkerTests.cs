@@ -108,10 +108,15 @@ public class BlackspotsWorkerTests
             time.Advance(TimeSpan.FromMinutes(20));
 
             // Set _groundElevM so EvictIfIdle has something to clear
-            // (otherwise it short-circuits as "already evicted").
-            typeof(BlackspotsWorker)
+            // (otherwise it short-circuits as "already evicted"). The
+            // field moved onto BlackspotsCompute as part of the M2 split,
+            // so reach it via the worker's `_compute` field.
+            var computeField = typeof(BlackspotsWorker).GetField(
+                "_compute", BindingFlags.NonPublic | BindingFlags.Instance)!;
+            var compute = computeField.GetValue(worker)!;
+            compute.GetType()
                 .GetField("_groundElevM", BindingFlags.NonPublic | BindingFlags.Instance)!
-                .SetValue(worker, 50.0);
+                .SetValue(compute, 50.0);
 
             Assert.True(worker.EvictIfIdle(TimeSpan.FromMinutes(15)));
 

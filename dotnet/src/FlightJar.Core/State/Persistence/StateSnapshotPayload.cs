@@ -1,7 +1,9 @@
-namespace FlightJar.Persistence.State;
+namespace FlightJar.Core.State.Persistence;
 
 /// <summary>Full serialised <c>AircraftRegistry</c> state — the payload
-/// round-tripped through <see cref="StateSnapshotStore"/>.</summary>
+/// round-tripped through <c>FlightJar.Persistence.State.StateSnapshotStore</c>.
+/// Lives in Core so the registry can reference it without inverting the
+/// project graph.</summary>
 public sealed class StateSnapshotPayload
 {
     public int Version { get; set; } = 1;

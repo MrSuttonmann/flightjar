@@ -1,3 +1,4 @@
+using FlightJar.Core.State.Persistence;
 using FlightJar.Persistence.State;
 
 namespace FlightJar.Persistence.Tests.State;

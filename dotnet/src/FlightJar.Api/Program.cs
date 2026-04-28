@@ -1,9 +1,8 @@
-using System.Net.WebSockets;
-using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
 using FlightJar.Api.Auth;
 using FlightJar.Api.Configuration;
+using FlightJar.Api.Endpoints;
 using FlightJar.Api.Hosting;
 using FlightJar.Api.Telemetry;
 using FlightJar.Clients.Adsbdb;
@@ -208,11 +207,24 @@ builder.Services.AddSingleton<INotifier, WebhookNotifier>();
 builder.Services.AddSingleton<NotifierDispatcher>();
 builder.Services.AddSingleton<AlertWatcher>();
 
+// Optional-dependency bundles for the registry worker. Composed lazily from
+// already-registered singletons; null members opt out of their own pass.
+builder.Services.AddSingleton(sp => new RegistrySnapshotEnrichers(
+    Adsbdb: sp.GetService<AdsbdbClient>(),
+    Metar: sp.GetService<MetarClient>(),
+    Airports: sp.GetService<AirportsDb>(),
+    Airlines: sp.GetService<AirlinesDb>()));
+builder.Services.AddSingleton(sp => new RegistryStatsCollectors(
+    PolarCoverage: sp.GetService<PolarCoverage>(),
+    TrafficHeatmap: sp.GetService<TrafficHeatmap>(),
+    PolarHeatmap: sp.GetService<PolarHeatmap>()));
+
 // Hosted services. Register as singleton first so endpoints can resolve them
 // (AddHostedService alone only registers IHostedService, not the concrete type).
 builder.Services.AddSingleton<BeastConsumerService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<BeastConsumerService>());
 builder.Services.AddSingleton<RegistryWorker>();
+builder.Services.AddSingleton<IBeastFrameStats>(sp => sp.GetRequiredService<RegistryWorker>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<RegistryWorker>());
 builder.Services.AddHostedService<VfrmapCycleRefresher>();
 
@@ -251,6 +263,12 @@ builder.Services.AddSingleton(sp => new PosthogClient(
 var aircraftDbOverridePath = !string.IsNullOrEmpty(dataDir)
     ? Path.Combine(dataDir, "aircraft_db.csv.gz")
     : null;
+builder.Services.AddSingleton(sp => new TelemetrySources(
+    FrameStats: sp.GetService<IBeastFrameStats>(),
+    Watchlist: sp.GetService<WatchlistStore>(),
+    PolarCoverage: sp.GetService<PolarCoverage>(),
+    TrafficHeatmap: sp.GetService<TrafficHeatmap>(),
+    AircraftDbOverridePath: aircraftDbOverridePath));
 builder.Services.AddSingleton(sp => new TelemetryWorker(
     sp.GetRequiredService<AppOptions>(),
     sp.GetRequiredService<InstanceIdStore>(),
@@ -261,11 +279,7 @@ builder.Services.AddSingleton(sp => new TelemetryWorker(
     sp.GetRequiredService<TelemetryAccumulator>(),
     sp.GetRequiredService<TimeProvider>(),
     sp.GetRequiredService<ILogger<TelemetryWorker>>(),
-    sp.GetService<RegistryWorker>(),
-    sp.GetService<WatchlistStore>(),
-    sp.GetService<PolarCoverage>(),
-    sp.GetService<TrafficHeatmap>(),
-    aircraftDbOverridePath));
+    sp.GetService<TelemetrySources>()));
 builder.Services.AddHostedService(sp => sp.GetRequiredService<TelemetryWorker>());
 
 var app = builder.Build();
@@ -370,671 +384,20 @@ if (staticRoot is not null)
     });
 }
 
-app.MapGet("/healthz", (IBeastConnectionState state) =>
-    state.IsConnected
-        ? Results.Ok(new { status = "ok" })
-        : Results.Json(new { status = "disconnected" }, statusCode: StatusCodes.Status503ServiceUnavailable));
-
-app.MapGet("/api/aircraft", (CurrentSnapshot current) =>
-    Results.Content(current.Json, "application/json; charset=utf-8"));
-
-app.MapGet("/api/stats", (
-    [Microsoft.AspNetCore.Mvc.FromServices] AppOptions opts,
-    [Microsoft.AspNetCore.Mvc.FromServices] IBeastConnectionState state,
-    [Microsoft.AspNetCore.Mvc.FromServices] RegistryWorker worker,
-    [Microsoft.AspNetCore.Mvc.FromServices] SnapshotBroadcaster broadcaster,
-    [Microsoft.AspNetCore.Mvc.FromServices] CurrentSnapshot current) =>
-    Results.Json(new
-    {
-        site_name = opts.SiteName,
-        beast_host = opts.BeastHost,
-        beast_port = opts.BeastPort,
-        beast_target = $"{opts.BeastHost}:{opts.BeastPort}",
-        beast_connected = state.IsConnected,
-        frames = worker.FrameCount,
-        websocket_clients = broadcaster.SubscriberCount,
-        aircraft = current.Snapshot.Count,
-        positioned = current.Snapshot.Positioned,
-        uptime_s = (int)(DateTime.UtcNow - _startedAt).TotalSeconds,
-        version = Environment.GetEnvironmentVariable("FLIGHTJAR_VERSION") ?? "dev",
-    }));
-
-app.MapGet("/metrics", (
-    [Microsoft.AspNetCore.Mvc.FromServices] IBeastConnectionState state,
-    [Microsoft.AspNetCore.Mvc.FromServices] RegistryWorker worker,
-    [Microsoft.AspNetCore.Mvc.FromServices] SnapshotBroadcaster broadcaster,
-    [Microsoft.AspNetCore.Mvc.FromServices] CurrentSnapshot current) =>
-{
-    var sb = new StringBuilder();
-    sb.Append("# HELP flightjar_beast_connected 1 if the BEAST feed is currently connected\n");
-    sb.Append("# TYPE flightjar_beast_connected gauge\n");
-    sb.Append("flightjar_beast_connected ").Append(state.IsConnected ? 1 : 0).Append('\n');
-    sb.Append("# HELP flightjar_frames_total BEAST frames ingested since startup\n");
-    sb.Append("# TYPE flightjar_frames_total counter\n");
-    sb.Append("flightjar_frames_total ").Append(worker.FrameCount).Append('\n');
-    sb.Append("# HELP flightjar_aircraft Tracked aircraft in the current snapshot\n");
-    sb.Append("# TYPE flightjar_aircraft gauge\n");
-    sb.Append("flightjar_aircraft ").Append(current.Snapshot.Count).Append('\n');
-    sb.Append("# HELP flightjar_ws_clients Connected WebSocket clients\n");
-    sb.Append("# TYPE flightjar_ws_clients gauge\n");
-    sb.Append("flightjar_ws_clients ").Append(broadcaster.SubscriberCount).Append('\n');
-    return Results.Text(sb.ToString(), "text/plain; version=0.0.4");
-});
-
-// ----- Map config / airports / navaids -----
-
-// `layer_status` reports each gated map layer's `{enabled, reason}` so
-// the frontend can render disabled rows in the layers control with an
-// info icon explaining why and how to enable them — instead of silently
-// hiding overlays whose backing config is missing.
-app.MapGet("/api/map_config", (AppOptions opts, VfrmapCycle vfrmap) =>
-{
-    var openAipKey = opts.OpenAipApiKey;
-    var vfrmapDate = vfrmap.CurrentDate ?? opts.VfrmapChartDate;
-    var openAipEnabled = !string.IsNullOrWhiteSpace(openAipKey);
-    var vfrmapEnabled = !string.IsNullOrWhiteSpace(vfrmapDate);
-    var blackspotsEnabled = opts.BlackspotsEnabled
-        && opts.LatRef is not null && opts.LonRef is not null;
-
-    string? blackspotsReason = blackspotsEnabled ? null
-        : !opts.BlackspotsEnabled
-            ? "Set BLACKSPOTS_ENABLED=1 to enable."
-            : "Set LAT_REF and LON_REF to enable.";
-
-    return Results.Json(new
-    {
-        openaip_api_key = openAipKey,
-        vfrmap_chart_date = vfrmapDate,
-        layer_status = new
-        {
-            openaip = new
-            {
-                enabled = openAipEnabled,
-                reason = openAipEnabled ? null
-                    : "Set OPENAIP_API_KEY to enable. Free key at openaip.net.",
-            },
-            vfrmap = new
-            {
-                enabled = vfrmapEnabled,
-                reason = vfrmapEnabled ? null
-                    : "Set VFRMAP_CHART_DATE, or check internet for auto-discovery.",
-            },
-            blackspots = new
-            {
-                enabled = blackspotsEnabled,
-                reason = blackspotsReason,
-            },
-        },
-    });
-});
-
-// Frontend telemetry init payload. Same opt-out as the backend ping
-// (TELEMETRY_ENABLED=0) and same destination (baked phc_* key). Returns
-// {enabled:false} when off so the frontend skips loading posthog-js
-// entirely; otherwise returns the distinct_id from the install's
-// InstanceIdStore so frontend events tie back to the same Person as
-// the backend ping.
-app.MapGet("/api/telemetry_config", (AppOptions opts, InstanceIdStore instance) =>
-{
-    if (!opts.TelemetryEnabled || string.IsNullOrWhiteSpace(TelemetryConfig.ApiKey))
-    {
-        return Results.Json(new { enabled = false });
-    }
-    return Results.Json(new
-    {
-        enabled = true,
-        host = TelemetryConfig.Host,
-        api_key = TelemetryConfig.ApiKey,
-        distinct_id = instance.InstanceId,
-    });
-});
-
-// Rotate the install's PostHog distinct_id. Mints a new instance id +
-// resets first_seen to now, persists, then fires a fresh $identify so
-// the new Person registers upstream without waiting for the next
-// scheduled tick. Gated behind the same auth as the watchlist —
-// reset is irreversible and visible to the maintainer's analytics.
-app.MapPost("/api/telemetry/reset", async (
-    AppOptions opts,
-    InstanceIdStore instance,
-    TelemetryWorker telemetry,
-    CancellationToken ct) =>
-{
-    await instance.ResetAsync(ct);
-    var posthogActive = opts.TelemetryEnabled
-        && !string.IsNullOrWhiteSpace(TelemetryConfig.ApiKey);
-    if (posthogActive)
-    {
-        // Fire-and-forget so the response doesn't block on the upstream
-        // POST. IdentifyAsync swallows network failures, and the next
-        // 24h tick retries anyway.
-        _ = telemetry.SendIdentifyAsync(CancellationToken.None);
-    }
-    return Results.Ok(new
-    {
-        ok = true,
-        distinct_id = instance.InstanceId,
-        telemetry_enabled = posthogActive,
-    });
-}).RequireAuthSession();
-
-app.MapGet("/api/airports", (
-    [Microsoft.AspNetCore.Mvc.FromServices] AirportsDb db,
-    double? min_lat, double? max_lat, double? min_lon, double? max_lon, int? limit) =>
-{
-    if (min_lat is not double mnLat || max_lat is not double mxLat
-        || min_lon is not double mnLon || max_lon is not double mxLon)
-    {
-        return Results.BadRequest(new { error = "min_lat/max_lat/min_lon/max_lon required" });
-    }
-    if (mnLat < -90 || mnLat > 90 || mxLat < -90 || mxLat > 90
-        || mnLon < -180 || mnLon > 180 || mxLon < -180 || mxLon > 180)
-    {
-        return Results.BadRequest(new { error = "lat/lon out of range" });
-    }
-    var hits = db.Bbox(mnLat, mnLon, mxLat, mxLon, limit: Math.Clamp(limit ?? 2000, 1, 5000));
-    return Results.Json(hits);
-});
-
-app.MapGet("/api/navaids", (
-    [Microsoft.AspNetCore.Mvc.FromServices] NavaidsDb db,
-    double? min_lat, double? max_lat, double? min_lon, double? max_lon, int? limit) =>
-{
-    if (min_lat is not double mnLat || max_lat is not double mxLat
-        || min_lon is not double mnLon || max_lon is not double mxLon)
-    {
-        return Results.BadRequest(new { error = "min_lat/max_lat/min_lon/max_lon required" });
-    }
-    if (mnLat < -90 || mnLat > 90 || mxLat < -90 || mxLat > 90
-        || mnLon < -180 || mnLon > 180 || mxLon < -180 || mxLon > 180)
-    {
-        return Results.BadRequest(new { error = "lat/lon out of range" });
-    }
-    var hits = db.Bbox(mnLat, mnLon, mxLat, mxLon, limit: Math.Clamp(limit ?? 2000, 1, 5000));
-    return Results.Json(hits);
-});
-
-// OpenAIP bbox overlays — backed by OpenAipClient's disk cache. The frontend
-// fires one request per moveend and aborts the previous one mid-flight when
-// the user pans, which trips the request's cancellation token and bubbles an
-// OperationCanceledException out of the throttle's semaphore wait. That's
-// expected — swallow it so it doesn't spam Kestrel's error log.
-static (double mnLat, double mxLat, double mnLon, double mxLon)? ReadBbox(
-    double? minLat, double? maxLat, double? minLon, double? maxLon)
-{
-    if (minLat is not double mnLat || maxLat is not double mxLat
-        || minLon is not double mnLon || maxLon is not double mxLon) return null;
-    if (mnLat < -90 || mnLat > 90 || mxLat < -90 || mxLat > 90
-        || mnLon < -180 || mnLon > 180 || mxLon < -180 || mxLon > 180) return null;
-    return (mnLat, mxLat, mnLon, mxLon);
-}
-
-static async Task<IResult> ServeOpenAip<T>(
-    Func<double, double, double, double, CancellationToken, Task<IReadOnlyList<T>>> fetch,
-    string endpoint,
-    ILogger logger,
-    double? min_lat, double? max_lat, double? min_lon, double? max_lon,
-    CancellationToken ct)
-{
-    var bbox = ReadBbox(min_lat, max_lat, min_lon, max_lon);
-    if (bbox is null)
-    {
-        logger.LogInformation(
-            "openaip /api/openaip/{Endpoint} rejected: bbox missing or out of range",
-            endpoint);
-        return Results.BadRequest(new { error = "min_lat/max_lat/min_lon/max_lon required, in range" });
-    }
-    var (mnLat, mxLat, mnLon, mxLon) = bbox.Value;
-    try
-    {
-        var items = await fetch(mnLat, mnLon, mxLat, mxLon, ct);
-        logger.LogInformation(
-            "openaip /api/openaip/{Endpoint} bbox=({MnLat:0.###},{MnLon:0.###})-({MxLat:0.###},{MxLon:0.###}) → {Count} items",
-            endpoint, mnLat, mnLon, mxLat, mxLon, items.Count);
-        return Results.Json(items);
-    }
-    catch (OperationCanceledException)
-    {
-        // OCE here covers two cases. The usual one is our own `ct` firing
-        // — the map pan aborted this request, Kestrel won't be able to
-        // write the response anyway. The less-obvious one: OpenAipClient
-        // shares an in-flight fetch across concurrent callers via
-        // `inflight.GetOrAdd`, so if a *sibling* request's ct cancelled
-        // the fetch task, we inherit its OCE even though our own ct is
-        // fine. In both cases the client will re-request on the next
-        // moveend, so returning Empty is the right recovery — and it
-        // keeps Kestrel's error log from filling with benign noise.
-        return Results.Empty;
-    }
-}
-
-app.MapGet("/api/openaip/airspaces", (
-    [Microsoft.AspNetCore.Mvc.FromServices] OpenAipClient client,
-    [Microsoft.AspNetCore.Mvc.FromServices] ILogger<OpenAipClient> logger,
-    double? min_lat, double? max_lat, double? min_lon, double? max_lon,
-    CancellationToken ct) =>
-    ServeOpenAip<Airspace>(client.GetAirspacesAsync, "airspaces", logger, min_lat, max_lat, min_lon, max_lon, ct));
-
-app.MapGet("/api/openaip/obstacles", (
-    [Microsoft.AspNetCore.Mvc.FromServices] OpenAipClient client,
-    [Microsoft.AspNetCore.Mvc.FromServices] ILogger<OpenAipClient> logger,
-    double? min_lat, double? max_lat, double? min_lon, double? max_lon,
-    CancellationToken ct) =>
-    ServeOpenAip<Obstacle>(client.GetObstaclesAsync, "obstacles", logger, min_lat, max_lat, min_lon, max_lon, ct));
-
-app.MapGet("/api/openaip/reporting_points", (
-    [Microsoft.AspNetCore.Mvc.FromServices] OpenAipClient client,
-    [Microsoft.AspNetCore.Mvc.FromServices] ILogger<OpenAipClient> logger,
-    double? min_lat, double? max_lat, double? min_lon, double? max_lon,
-    CancellationToken ct) =>
-    ServeOpenAip<ReportingPoint>(client.GetReportingPointsAsync, "reporting_points", logger, min_lat, max_lat, min_lon, max_lon, ct));
-
-// ----- Coverage + heatmap -----
-
-app.MapGet("/api/coverage", (PolarCoverage coverage) => Results.Json(coverage.SnapshotView()));
-app.MapPost("/api/coverage/reset", (PolarCoverage coverage) =>
-{
-    coverage.Reset();
-    return Results.Ok(new { ok = true });
-});
-
-app.MapGet("/api/heatmap", (TrafficHeatmap hm) => Results.Json(hm.SnapshotView()));
-app.MapPost("/api/heatmap/reset", (TrafficHeatmap hm) =>
-{
-    hm.Reset();
-    return Results.Ok(new { ok = true });
-});
-
-app.MapGet("/api/polar_heatmap", (PolarHeatmap ph) => Results.Json(ph.SnapshotView()));
-app.MapPost("/api/polar_heatmap/reset", (PolarHeatmap ph) =>
-{
-    ph.Reset();
-    return Results.Ok(new { ok = true });
-});
-
-// ----- Blackspots (terrain LOS) -----
-
-// Target altitude comes from the frontend slider; unset means "use the
-// default the worker prewarmed at startup" (FL100 / 3048 m MSL). Bounds
-// are wide enough for anything from surface GA to high-level airliners.
-app.MapGet("/api/blackspots", async (
-    BlackspotsWorker worker, double? target_alt_m, CancellationToken ct) =>
-{
-    if (!worker.Enabled)
-    {
-        return Results.Json(new
-        {
-            enabled = false,
-            cells = Array.Empty<object>(),
-            blockers = Array.Empty<object>(),
-            blocker_grid_deg = 0.0,
-        });
-    }
-    var alt = target_alt_m ?? BlackspotsWorker.DefaultTargetAltitudeM;
-    // 0 is a sentinel for "ground level at each cell" — the grid uses
-    // sampled DEM elevation + a 2 m fuselage offset per cell instead of
-    // a fixed MSL value. Anything positive is treated as absolute MSL.
-    if (alt < 0 || alt > 20_000)
-    {
-        return Results.BadRequest(new { error = "target_alt_m out of range [0, 20000]" });
-    }
-    try
-    {
-        var grid = await worker.GetOrComputeAsync(alt, ct);
-        if (grid is null)
-        {
-            return Results.Json(new
-            {
-                enabled = true,
-                computing = true,
-                cells = Array.Empty<object>(),
-                blockers = Array.Empty<object>(),
-                blocker_grid_deg = 0.0,
-            });
-        }
-        return Results.Json(grid.SnapshotView());
-    }
-    catch (OperationCanceledException) when (ct.IsCancellationRequested)
-    {
-        return Results.Empty;
-    }
-});
-
-app.MapPost("/api/blackspots/recompute", (BlackspotsWorker worker) =>
-{
-    if (!worker.Enabled)
-    {
-        return Results.Json(new { enabled = false });
-    }
-    worker.TriggerRecompute();
-    return Results.Ok(new { ok = true });
-});
-
-// Hillshaded blocking-face raster — single RGBA PNG covering the
-// receiver's bbox. Sea/no-data pixels are transparent; land pixels show
-// greyscale relief (Lambertian hillshade); pixels above the LOS line to
-// the target altitude AND visible from the antenna are tinted red in
-// proportion to how steeply they rise above the LOS plane. Returns
-// base64'd inside JSON so the frontend can drop it straight into a
-// Leaflet image overlay.
-app.MapGet("/api/blackspots/faces", async (
-    BlackspotsWorker worker, double? target_alt_m, CancellationToken ct) =>
-{
-    if (!worker.Enabled)
-    {
-        return Results.Json(new { enabled = false });
-    }
-    var alt = target_alt_m ?? BlackspotsWorker.DefaultTargetAltitudeM;
-    if (alt < 0 || alt > 20_000)
-    {
-        return Results.BadRequest(new { error = "target_alt_m out of range [0, 20000]" });
-    }
-    try
-    {
-        var raster = await worker.GetOrComputeFaceAsync(alt, ct);
-        if (raster is null)
-        {
-            return Results.Json(new { enabled = true, computing = true });
-        }
-        var png = FlightJar.Core.Imaging.PngWriter.EncodeRgba(
-            raster.Width, raster.Height, raster.Rgba);
-        return Results.Json(new
-        {
-            enabled = true,
-            bounds = new
-            {
-                min_lat = raster.MinLat,
-                max_lat = raster.MaxLat,
-                min_lon = raster.MinLon,
-                max_lon = raster.MaxLon,
-            },
-            width = raster.Width,
-            height = raster.Height,
-            grid_deg = raster.Params.GridDeg,
-            png_base64 = Convert.ToBase64String(png),
-        });
-    }
-    catch (OperationCanceledException) when (ct.IsCancellationRequested)
-    {
-        return Results.Empty;
-    }
-});
-
-// Live progress poll for the currently-running compute at a given altitude.
-// Designed to be hit every ~300 ms by the frontend while awaiting a fresh
-// grid; returns {active: false} when the altitude is cached / queued /
-// disabled so the caller can stop polling.
-app.MapGet("/api/blackspots/progress", (BlackspotsWorker worker, double? target_alt_m) =>
-{
-    if (!worker.Enabled)
-    {
-        return Results.Json(new { active = false });
-    }
-    var alt = target_alt_m ?? BlackspotsWorker.DefaultTargetAltitudeM;
-    var (active, progress) = worker.GetProgress(alt);
-    return Results.Json(new { active, progress });
-});
-
-// ----- Flight route + aircraft details (adsbdb + planespotters) -----
-
-app.MapGet("/api/flight/{callsign}", async (
-    string callsign, AdsbdbClient adsbdb, CancellationToken ct) =>
-{
-    var info = await adsbdb.LookupRouteAsync(callsign, ct);
-    if (info is null)
-    {
-        return Results.Json(new
-        {
-            callsign,
-            origin = (string?)null,
-            destination = (string?)null,
-            error = "no route data",
-        });
-    }
-    return Results.Json(new
-    {
-        callsign,
-        origin = info.Origin,
-        destination = info.Destination,
-    });
-});
-
-app.MapGet("/api/aircraft/{icao24}", async (
-    string icao24,
-    AdsbdbClient adsbdb,
-    PlanespottersClient planespotters,
-    CancellationToken ct) =>
-{
-    if (AdsbdbClient.NormaliseIcao(icao24) is null)
-    {
-        return Results.BadRequest(new { error = "bad ICAO24" });
-    }
-    var record = await adsbdb.LookupAircraftAsync(icao24, ct);
-    var registration = record?.Registration?.Trim();
-    var photo = !string.IsNullOrEmpty(registration)
-        ? await planespotters.LookupAsync(registration, ct)
-        : null;
-    return Results.Json(new
-    {
-        registration = record?.Registration,
-        type = record?.Type,
-        icao_type = record?.IcaoType,
-        manufacturer = record?.Manufacturer,
-        @operator = record?.Operator,
-        operator_country = record?.OperatorCountry,
-        operator_country_iso = record?.OperatorCountryIso,
-        photo_url = photo?.Large ?? record?.PhotoUrl,
-        photo_thumbnail = photo?.Thumbnail ?? record?.PhotoThumbnail,
-        photo_link = photo?.Link,
-        photo_photographer = photo?.Photographer,
-    });
-});
-
-// ----- Auth (optional shared-secret gate) -----
-
-// Cookie carrying the session token. HttpOnly so JS cannot read it (an
-// XSS foothold can't steal a token), SameSite=Strict so cross-site
-// POSTs can't smuggle the cookie back, Secure on HTTPS requests so
-// browsers refuse to leak it over plain HTTP. Localhost-over-HTTP still
-// works (IsHttps is false → cookie set without Secure).
-static void SetSessionCookie(HttpContext ctx, string token, TimeSpan lifetime)
-{
-    var secure = ctx.Request.IsHttps
-        || (ctx.Request.Headers.TryGetValue("X-Forwarded-Proto", out var p)
-            && string.Equals(p.ToString(), "https", StringComparison.OrdinalIgnoreCase));
-    ctx.Response.Cookies.Append(AuthService.CookieName, token, new CookieOptions
-    {
-        HttpOnly = true,
-        Secure = secure,
-        SameSite = SameSiteMode.Strict,
-        Path = "/",
-        MaxAge = lifetime,
-    });
-}
-
-static void ClearSessionCookie(HttpContext ctx)
-{
-    var secure = ctx.Request.IsHttps
-        || (ctx.Request.Headers.TryGetValue("X-Forwarded-Proto", out var p)
-            && string.Equals(p.ToString(), "https", StringComparison.OrdinalIgnoreCase));
-    ctx.Response.Cookies.Append(AuthService.CookieName, "", new CookieOptions
-    {
-        HttpOnly = true,
-        Secure = secure,
-        SameSite = SameSiteMode.Strict,
-        Path = "/",
-        Expires = DateTimeOffset.UnixEpoch,
-    });
-}
-
-// {required} tells the UI whether to show a lock indicator at all.
-// {unlocked} is informational only — the server never trusts it for
-// access control, the gating filter re-checks the cookie on every
-// request. Always 200 so the UI can read it on first paint.
-app.MapGet("/api/auth/status", (HttpContext ctx, AuthService auth) =>
-{
-    var cookie = ctx.Request.Cookies[AuthService.CookieName];
-    var unlocked = auth.Required && auth.ValidateSession(cookie);
-    return Results.Json(new { required = auth.Required, unlocked });
-});
-
-app.MapPost("/api/auth/login", async (HttpContext ctx, AuthService auth) =>
-{
-    if (!auth.Required)
-    {
-        return Results.NotFound(new { error = "auth not configured" });
-    }
-    var clientIp = ctx.Connection.RemoteIpAddress?.ToString() ?? "";
-    if (!auth.TryRecordLoginAttempt(clientIp))
-    {
-        ctx.Response.Headers["Retry-After"] = "60";
-        return Results.StatusCode(StatusCodes.Status429TooManyRequests);
-    }
-    string? candidate = null;
-    try
-    {
-        using var doc = await JsonDocument.ParseAsync(ctx.Request.Body, cancellationToken: ctx.RequestAborted);
-        if (doc.RootElement.ValueKind == JsonValueKind.Object
-            && doc.RootElement.TryGetProperty("password", out var pw)
-            && pw.ValueKind == JsonValueKind.String)
-        {
-            candidate = pw.GetString();
-        }
-    }
-    catch (JsonException)
-    {
-        return Results.BadRequest(new { error = "expected JSON {password: string}" });
-    }
-    if (!auth.VerifyPassword(candidate))
-    {
-        // Don't log the candidate. Log the IP so abuse leaves a trail.
-        ctx.RequestServices.GetService<ILogger<Program>>()
-            ?.LogWarning("auth: bad password from {Ip}", clientIp);
-        return Results.StatusCode(StatusCodes.Status401Unauthorized);
-    }
-    auth.ResetRateLimit(clientIp);
-    var token = auth.MintSession();
-    SetSessionCookie(ctx, token, AuthService.SessionLifetime);
-    return Results.Ok(new { ok = true });
-});
-
-app.MapPost("/api/auth/logout", (HttpContext ctx, AuthService auth) =>
-{
-    var cookie = ctx.Request.Cookies[AuthService.CookieName];
-    auth.InvalidateSession(cookie);
-    ClearSessionCookie(ctx);
-    return Results.Ok(new { ok = true });
-});
-
-// ----- Watchlist -----
-
-app.MapGet("/api/watchlist", (WatchlistStore store) =>
-{
-    var snap = store.Snapshot();
-    return Results.Json(new { icao24s = snap.Icao24s, last_seen = snap.LastSeen });
-}).RequireAuthSession();
-
-app.MapPost("/api/watchlist", async (HttpContext ctx, WatchlistStore store) =>
-{
-    using var doc = await JsonDocument.ParseAsync(ctx.Request.Body, cancellationToken: ctx.RequestAborted);
-    var root = doc.RootElement;
-    var arr = root.ValueKind == JsonValueKind.Object && root.TryGetProperty("icao24s", out var a)
-        ? a
-        : root;
-    if (arr.ValueKind != JsonValueKind.Array)
-    {
-        return Results.BadRequest(new { error = "expected array or {icao24s: array}" });
-    }
-    if (arr.GetArrayLength() > 10_000)
-    {
-        return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
-    }
-    var incoming = new List<string>();
-    foreach (var v in arr.EnumerateArray())
-    {
-        if (v.ValueKind == JsonValueKind.String && v.GetString() is string s)
-        {
-            incoming.Add(s);
-        }
-    }
-    var snap = store.Replace(incoming);
-    return Results.Json(new { icao24s = snap.Icao24s, last_seen = snap.LastSeen });
-}).RequireAuthSession();
-
-// ----- Notifications config -----
-
-app.MapGet("/api/notifications/config", (NotificationsConfigStore store) =>
-    Results.Json(new
-    {
-        version = NotificationsConfigStore.SchemaVersion,
-        channels = store.Channels,
-    })).RequireAuthSession();
-
-app.MapPost("/api/notifications/config", async (HttpContext ctx, NotificationsConfigStore store) =>
-{
-    using var doc = await JsonDocument.ParseAsync(ctx.Request.Body, cancellationToken: ctx.RequestAborted);
-    var root = doc.RootElement;
-    var arr = root.ValueKind == JsonValueKind.Object && root.TryGetProperty("channels", out var a)
-        ? a
-        : root;
-    if (arr.ValueKind != JsonValueKind.Array)
-    {
-        return Results.BadRequest(new { error = "expected array or {channels: array}" });
-    }
-    if (arr.GetArrayLength() > 100)
-    {
-        return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
-    }
-    var channels = new List<NotificationChannel?>();
-    foreach (var item in arr.EnumerateArray())
-    {
-        channels.Add(item.Deserialize<NotificationChannel>(JsonOpts));
-    }
-    var updated = store.Replace(channels);
-    return Results.Json(new { channels = updated });
-}).RequireAuthSession();
-
-app.MapPost("/api/notifications/test/{channelId}", async (string channelId, NotifierDispatcher dispatcher, CancellationToken ct) =>
-{
-    var ok = await dispatcher.TestChannelAsync(channelId, ct);
-    return ok ? Results.Ok(new { ok = true }) : Results.NotFound(new { error = "unknown channel" });
-}).RequireAuthSession();
-
-app.Map("/ws", async (HttpContext ctx, SnapshotBroadcaster broadcaster, CurrentSnapshot current, ILogger<Program> log) =>
-{
-    if (!ctx.WebSockets.IsWebSocketRequest)
-    {
-        return Results.StatusCode(StatusCodes.Status400BadRequest);
-    }
-    using var socket = await ctx.WebSockets.AcceptWebSocketAsync();
-    var sub = broadcaster.Subscribe();
-    try
-    {
-        await SendAsync(socket, current.Json, ctx.RequestAborted);
-        await foreach (var payload in sub.ReadAllAsync(ctx.RequestAborted))
-        {
-            await SendAsync(socket, payload, ctx.RequestAborted);
-        }
-    }
-    catch (OperationCanceledException) { }
-    catch (WebSocketException ex)
-    {
-        log.LogDebug(ex, "ws client disconnected");
-    }
-    finally
-    {
-        broadcaster.Unsubscribe(sub.Id);
-    }
-    return Results.Empty;
-});
+// ----- Endpoint groups (live in FlightJar.Api/Endpoints/) -----
+app.MapStatsEndpoints();
+app.MapMapConfigEndpoints();
+app.MapTelemetryEndpoints();
+app.MapOpenAipEndpoints();
+app.MapStatsHistoryEndpoints();
+app.MapBlackspotsEndpoints();
+app.MapAircraftEndpoints();
+app.MapAuthEndpoints();
+app.MapWatchlistEndpoints();
+app.MapNotificationsEndpoints();
+app.MapWsEndpoint();
 
 app.Run();
-
-static async Task SendAsync(WebSocket socket, string payload, CancellationToken ct)
-{
-    var bytes = Encoding.UTF8.GetBytes(payload);
-    await socket.SendAsync(bytes, WebSocketMessageType.Text, endOfMessage: true, ct);
-}
 
 static string? ResolveStaticRoot(AppOptions options)
 {
@@ -1066,17 +429,7 @@ static string? ResolveStaticRoot(AppOptions options)
 
 public partial class Program
 {
-    private static readonly DateTime _startedAt = DateTime.UtcNow;
-    private static readonly JsonSerializerOptions JsonOpts = BuildJsonOpts();
-
-    private static JsonSerializerOptions BuildJsonOpts()
-    {
-        var opts = new JsonSerializerOptions(JsonSerializerDefaults.Web)
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-        };
-        opts.Converters.Add(
-            new System.Text.Json.Serialization.JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower));
-        return opts;
-    }
+    /// <summary>Process start time. Read by <see cref="StatsEndpoints"/>
+    /// for the <c>uptime_s</c> field on <c>/api/stats</c>.</summary>
+    internal static readonly DateTime StartedAt = DateTime.UtcNow;
 }

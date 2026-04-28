@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -7,8 +6,10 @@ namespace FlightJar.Persistence.Notifications;
 
 /// <summary>
 /// Persistent UI-managed notification channel configuration.
-/// Ports <c>app/notifications_config.py</c>. Validates on load + replace;
-/// unknown / malformed entries are silently dropped.
+/// Validates on load + replace; unknown / malformed entries are silently
+/// dropped. Wire format is v1 flat-shape, snake_case keys, discriminated
+/// by the <c>type</c> field — see
+/// <see cref="NotificationChannelJsonConverter"/>.
 /// </summary>
 public sealed class NotificationsConfigStore
 {
@@ -85,7 +86,7 @@ public sealed class NotificationsConfigStore
         try
         {
             var raw = await File.ReadAllTextAsync(_path, ct);
-            var payload = JsonSerializer.Deserialize<PersistedPayload>(raw, JsonOpts);
+            var payload = JsonSerializer.Deserialize<PersistedPayload>(raw, NotificationsJson.Options);
             var channels = payload?.Channels ?? new List<NotificationChannel?>();
             lock (_gate)
             {
@@ -108,46 +109,38 @@ public sealed class NotificationsConfigStore
         }
     }
 
+    /// <summary>
+    /// Normalise a freshly-deserialised channel: assign a missing id,
+    /// fill in a default name, and trim per-type fields. Cross-type
+    /// field stripping is intrinsic to the polymorphic model — each
+    /// subclass only carries its own fields.
+    /// </summary>
     private static NotificationChannel? Clean(NotificationChannel? raw)
     {
         if (raw is null)
         {
             return null;
         }
-        // Known enum values only.
-        if (!Enum.IsDefined(raw.Type))
-        {
-            return null;
-        }
         var id = string.IsNullOrWhiteSpace(raw.Id) ? GenerateId() : raw.Id.Trim();
         var defaultName = raw.Type.ToString().ToLowerInvariant() + " channel";
         var name = string.IsNullOrWhiteSpace(raw.Name) ? defaultName : raw.Name.Trim();
+        var common = raw with { Id = id, Name = name };
 
-        // Preserve only type-relevant fields (strip leaked cross-type values).
-        var cleaned = new NotificationChannel
+        return common switch
         {
-            Id = id,
-            Type = raw.Type,
-            Name = name,
-            Enabled = raw.Enabled,
-            WatchlistEnabled = raw.WatchlistEnabled,
-            EmergencyEnabled = raw.EmergencyEnabled,
-        };
-        return raw.Type switch
-        {
-            NotificationChannelType.Telegram => cleaned with
+            TelegramChannel tg => tg with
             {
-                BotToken = (raw.BotToken ?? "").Trim(),
-                ChatId = (raw.ChatId ?? "").Trim(),
+                BotToken = (tg.BotToken ?? "").Trim(),
+                ChatId = (tg.ChatId ?? "").Trim(),
             },
-            NotificationChannelType.Ntfy => cleaned with
+            NtfyChannel n => n with
             {
-                Url = (raw.Url ?? "").Trim(),
-                Token = (raw.Token ?? "").Trim(),
+                Url = (n.Url ?? "").Trim(),
+                Token = (n.Token ?? "").Trim(),
             },
-            NotificationChannelType.Webhook => cleaned with
+            WebhookChannel w => w with
             {
-                Url = (raw.Url ?? "").Trim(),
+                Url = (w.Url ?? "").Trim(),
             },
             _ => null,
         };
@@ -178,7 +171,7 @@ public sealed class NotificationsConfigStore
                 };
             }
             var tmp = _path + ".tmp";
-            File.WriteAllText(tmp, JsonSerializer.Serialize(payload, JsonOpts));
+            File.WriteAllText(tmp, JsonSerializer.Serialize(payload, NotificationsJson.Options));
             File.Move(tmp, _path, overwrite: true);
         }
         catch (Exception ex)
@@ -186,17 +179,6 @@ public sealed class NotificationsConfigStore
             _logger.LogWarning(ex, "couldn't persist notifications config");
         }
     }
-
-    // Matches the HTTP API's serializer (snake_case property names + snake_case
-    // string enums) so the on-disk shape is identical to what `/api/notifications/config`
-    // emits and accepts. The string-enum converter is also what the legacy
-    // Python writer produced, so existing /data/notifications.json files
-    // load without a migration.
-    private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web)
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },
-    };
 
     private sealed class PersistedPayload
     {

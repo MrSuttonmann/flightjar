@@ -19,12 +19,17 @@ public sealed class WebhookNotifier : INotifier
         _logger = logger;
     }
 
-    public async Task SendAsync(NotificationMessage msg, NotificationChannel channel, CancellationToken ct)
+    public Task SendAsync(NotificationMessage msg, NotificationChannel channel, CancellationToken ct)
     {
-        if (channel.Type != NotificationChannelType.Webhook || !channel.IsReady())
+        if (channel is not WebhookChannel w || !w.IsReady())
         {
-            return;
+            return Task.CompletedTask;
         }
+        return SendAsync(msg, w, ct);
+    }
+
+    private async Task SendAsync(NotificationMessage msg, WebhookChannel channel, CancellationToken ct)
+    {
         var payload = new
         {
             title = msg.Title,
