@@ -1,5 +1,6 @@
 using FlightJar.Core.Stats;
 using FlightJar.Terrain;
+using FlightJar.Terrain.LineOfSight;
 
 namespace FlightJar.Core.Tests.Stats;
 
@@ -232,6 +233,49 @@ public class BlockerFaceRasterTests
         var p = DefaultParams(radiusKm: 50, gridDeg: 0.01, targetAltMslM: 3000);
         var raster = BlockerFaceCompute.Compute(p, sampler);
         Assert.All(raster.Alpha, b => Assert.Equal((byte)0, b));
+    }
+
+    [Fact]
+    public void Hillshade_rgba_is_transparent_outside_the_radius_circle()
+    {
+        // The bbox is square but the rendered raster should be circular —
+        // pixels in the bbox corners (well outside the receiver's radius)
+        // must come back fully transparent so the disc matches the
+        // outermost ring of blackspot cells.
+        var sampler = new RidgeSampler(51.5, bandDeg: 90, elevM: 200); // land everywhere
+        var p = DefaultParams(radiusKm: 50, gridDeg: 0.01, targetAltMslM: 5000);
+        var raster = BlockerFaceCompute.Compute(p, sampler);
+
+        var radiusM = p.RadiusKm * 1000.0;
+        // Test reconstructs lat with the lat-linear bbox spacing while the
+        // raster spaces rows in Mercator-y, so allow a small boundary band.
+        // Pixels well outside the radius (≥ 5% margin) must be transparent;
+        // pixels well inside (≤ 95%) must be opaque.
+        var transparentOutside = 0;
+        var opaqueOutside = 0;
+        var opaqueInside = 0;
+        for (var y = 0; y < raster.Height; y++)
+        {
+            var lat = raster.MaxLat - (y + 0.5) * p.GridDeg;
+            for (var x = 0; x < raster.Width; x++)
+            {
+                var lon = raster.MinLon + (x + 0.5) * p.GridDeg;
+                var d = GreatCircle.DistanceMetres(p.ReceiverLat, p.ReceiverLon, lat, lon);
+                var a = raster.Rgba[(y * raster.Width + x) * 4 + 3];
+                if (d > radiusM * 1.05)
+                {
+                    if (a == 0) transparentOutside++;
+                    else opaqueOutside++;
+                }
+                else if (d < radiusM * 0.95 && a == 255)
+                {
+                    opaqueInside++;
+                }
+            }
+        }
+        Assert.True(transparentOutside > 0, "bbox corners outside the radius should exist and be transparent");
+        Assert.Equal(0, opaqueOutside);
+        Assert.True(opaqueInside > 0, "interior land pixels must still render opaque hillshade");
     }
 
     /// <summary>Hill at <see cref="HillLat"/>,<see cref="HillLon"/>;

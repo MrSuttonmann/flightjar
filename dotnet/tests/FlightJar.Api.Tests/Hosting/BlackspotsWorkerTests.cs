@@ -144,4 +144,49 @@ public class BlackspotsWorkerTests
 
         Assert.False(worker.EvictIfIdle(TimeSpan.Zero));
     }
+
+    private static BlackspotsWorker NewWorkerForRadius(AppOptions options)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var tiles = new SrtmTileStore(new HttpClient(), dir);
+        return new BlackspotsWorker(
+            options, tiles, new FakeTimeProvider(T0),
+            NullLogger<BlackspotsWorker>.Instance, persistPath: null);
+    }
+
+    [Fact]
+    public void EffectiveRadiusKm_LowAltitudeWithinFloor_ReturnsConfiguredFloor()
+    {
+        // FL050 (1524 m) target → curvature horizon ≈ 161 km, well inside the
+        // 200 km configured floor. The floor must win so we don't shrink the
+        // grid below what the operator asked for.
+        var opts = Options() with { BlackspotsRadiusKm = 200.0 };
+        var worker = NewWorkerForRadius(opts);
+        var r = worker.EffectiveRadiusKm(antennaMslM: 50, targetAltM: 1524, groundElevM: 50);
+        Assert.Equal(200.0, r, 6);
+    }
+
+    [Fact]
+    public void EffectiveRadiusKm_HighAltitudeBeyondFloor_ExtendsToHorizon()
+    {
+        // FL400 (12 192 m) target with a sea-level antenna → horizon ≈ 454 km.
+        // With a 200 km configured floor the grid must extend past the floor
+        // to ~horizon × 1.05 so the unreachable-cells ring closes.
+        var opts = Options() with { BlackspotsRadiusKm = 200.0 };
+        var worker = NewWorkerForRadius(opts);
+        var r = worker.EffectiveRadiusKm(antennaMslM: 0, targetAltM: 12192, groundElevM: 0);
+        Assert.InRange(r, 470.0, 500.0); // ~454 × 1.05 = 477
+    }
+
+    [Fact]
+    public void EffectiveRadiusKm_StratosphericTarget_CapsAt1000km()
+    {
+        // An 80 km MSL target gives horizon × 1.05 ≈ 1224 km — the env
+        // validator hard-caps the operator-configured radius at 1000 km,
+        // and the auto-extension must respect the same ceiling.
+        var opts = Options() with { BlackspotsRadiusKm = 100.0 };
+        var worker = NewWorkerForRadius(opts);
+        var r = worker.EffectiveRadiusKm(antennaMslM: 0, targetAltM: 80_000, groundElevM: 0);
+        Assert.Equal(1000.0, r, 6);
+    }
 }

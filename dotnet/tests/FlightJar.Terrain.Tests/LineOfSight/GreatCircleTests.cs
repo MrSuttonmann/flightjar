@@ -58,4 +58,35 @@ public class GreatCircleTests
     {
         Assert.Equal(4.0 / 3.0 * GreatCircle.EarthRadiusMetres, GreatCircle.EffectiveRadiusMetres, 6);
     }
+
+    [Fact]
+    public void RadioHorizon_sea_level_antenna_FL100_target_is_about_227_km()
+    {
+        // sqrt(2 · 4/3 · 6_371_008.8 · 3048) ≈ 227.4 km. The closed-form is
+        // exact for the chosen refraction model, so the tolerance here is
+        // tight (5 m) — we're checking the formula, not the model.
+        var d = GreatCircle.RadioHorizonDistanceMetres(0, 3048);
+        var expected = Math.Sqrt(2.0 * GreatCircle.EffectiveRadiusMetres * 3048);
+        Assert.Equal(expected, d, 1.0);
+        Assert.InRange(d / 1000.0, 226.0, 228.0);
+    }
+
+    [Fact]
+    public void RadioHorizon_adds_antenna_and_target_slices()
+    {
+        var antennaOnly = GreatCircle.RadioHorizonDistanceMetres(100, 0);
+        var targetOnly = GreatCircle.RadioHorizonDistanceMetres(0, 3048);
+        var combined = GreatCircle.RadioHorizonDistanceMetres(100, 3048);
+        Assert.Equal(antennaOnly + targetOnly, combined, 1e-6);
+    }
+
+    [Fact]
+    public void RadioHorizon_treats_negative_inputs_as_zero()
+    {
+        // Sub-ground antennas / targets can't see further than ground level —
+        // the formula must clamp rather than blow up under sqrt of a negative.
+        var d = GreatCircle.RadioHorizonDistanceMetres(-50, 3048);
+        var expected = GreatCircle.RadioHorizonDistanceMetres(0, 3048);
+        Assert.Equal(expected, d, 1e-6);
+    }
 }
