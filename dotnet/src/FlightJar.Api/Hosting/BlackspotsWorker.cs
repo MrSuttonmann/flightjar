@@ -1,5 +1,6 @@
 using FlightJar.Core.Configuration;
 using FlightJar.Core.Stats;
+using FlightJar.Terrain.LineOfSight;
 using FlightJar.Terrain.Srtm;
 
 namespace FlightJar.Api.Hosting;
@@ -284,12 +285,13 @@ public sealed class BlackspotsWorker : BackgroundService
             {
                 return null;
             }
+            var antennaMslM = ResolveAntennaMslM(groundElev);
             var faceParams = new BlockerFaceParams(
                 ReceiverLat: _options.LatRef!.Value,
                 ReceiverLon: _options.LonRef!.Value,
-                AntennaMslM: ResolveAntennaMslM(groundElev),
+                AntennaMslM: antennaMslM,
                 TargetAltitudeM: targetAltM,
-                RadiusKm: _options.BlackspotsRadiusKm,
+                RadiusKm: EffectiveRadiusKm(antennaMslM, targetAltM, groundElev),
                 GridDeg: _options.BlackspotsFaceGridDeg);
             _logger.LogInformation(
                 "blackspots: computing face raster — antenna {Ant:F0} m MSL, target {Alt:F0} m MSL",
@@ -413,7 +415,6 @@ public sealed class BlackspotsWorker : BackgroundService
     {
         if (_persistPath is null) return;
 
-        var wantParams = BuildParams(DefaultTargetAltitudeM, groundElevM: 0);
         var loaded = await BlackspotsGrid.LoadAllAsync(_persistPath, _logger, ct);
         if (loaded.Count == 0)
         {
@@ -422,7 +423,7 @@ public sealed class BlackspotsWorker : BackgroundService
         var kept = 0;
         foreach (var grid in loaded)
         {
-            if (!ParamsMatchIgnoringGround(grid.Params, wantParams)) continue;
+            if (!PersistedGridMatchesLiveConfig(grid.Params)) continue;
             if (!grid.IsValid) continue;
             // _groundElevM / _tileCount stay null on purpose — they're
             // the "tiles are in memory" sentinel for EnsurePreloadedAsync.
@@ -600,26 +601,55 @@ public sealed class BlackspotsWorker : BackgroundService
     private double ResolveAntennaMslM(double groundElevM) =>
         _options.BlackspotsAntennaMslM ?? (groundElevM + _options.BlackspotsAntennaAglM);
 
-    private BlackspotsParams BuildParams(double targetAltM, double groundElevM) =>
-        new(
+    private BlackspotsParams BuildParams(double targetAltM, double groundElevM)
+    {
+        var antennaMslM = ResolveAntennaMslM(groundElevM);
+        return new(
             ReceiverLat: _options.LatRef!.Value,
             ReceiverLon: _options.LonRef!.Value,
             GroundElevationM: groundElevM,
-            AntennaMslM: ResolveAntennaMslM(groundElevM),
+            AntennaMslM: antennaMslM,
             TargetAltitudeM: targetAltM,
-            RadiusKm: _options.BlackspotsRadiusKm,
+            RadiusKm: EffectiveRadiusKm(antennaMslM, targetAltM, groundElevM),
             GridDeg: _options.BlackspotsGridDeg,
             MaxAglM: _options.BlackspotsMaxAglM);
+    }
 
     /// <summary>
-    /// Ground elevation + target altitude are allowed to differ — everything
-    /// else (receiver coords, antenna height, radius, grid, max AGL) must
-    /// match exactly. Used on startup to decide whether a persisted default-
-    /// altitude grid is still usable.
+    /// Per-altitude grid radius. Floors at the operator-configured
+    /// <see cref="AppOptions.BlackspotsRadiusKm"/> and grows up to the radio
+    /// horizon for this antenna / target pair so the unreachable-cells ring
+    /// always closes — at high target altitudes the curvature horizon would
+    /// otherwise fall outside a fixed radius and leave an open arc. The 1.05
+    /// margin guarantees at least one row of definitely-unreachable cells
+    /// outside the horizon. Capped at <see cref="MaxRadiusKm"/> (= the env
+    /// validator's hard ceiling) so a stratospheric target doesn't blow the
+    /// compute up to absurd sizes.
     /// </summary>
-    private static bool ParamsMatchIgnoringGround(BlackspotsParams persisted, BlackspotsParams live) =>
-        persisted with { GroundElevationM = 0, TargetAltitudeM = 0 }
-            == live with { GroundElevationM = 0, TargetAltitudeM = 0 };
+    internal double EffectiveRadiusKm(double antennaMslM, double targetAltM, double groundElevM)
+    {
+        var horizonM = GreatCircle.RadioHorizonDistanceMetres(
+            antennaHeightAglM: antennaMslM - groundElevM,
+            targetHeightAglM: targetAltM - groundElevM);
+        var horizonKm = horizonM / 1000.0 * 1.05;
+        return Math.Clamp(
+            Math.Max(_options.BlackspotsRadiusKm, horizonKm),
+            _options.BlackspotsRadiusKm, MaxRadiusKm);
+    }
+
+    /// <summary>Hard cap matching the env validator (AppOptionsBinder.cs).</summary>
+    private const double MaxRadiusKm = 1000.0;
+
+    /// <summary>
+    /// Decide whether a persisted grid is still usable given the current env
+    /// configuration. Rebuilds the live params for the persisted grid's own
+    /// altitude + ground (since <see cref="BlackspotsParams.RadiusKm"/> is
+    /// altitude-dependent — the radio horizon for FL400 differs from FL100)
+    /// and asks for full record equality. Mismatch ⇒ user changed antenna /
+    /// radius / grid / max-AGL config since the grid was written.
+    /// </summary>
+    private bool PersistedGridMatchesLiveConfig(BlackspotsParams persisted) =>
+        persisted == BuildParams(persisted.TargetAltitudeM, persisted.GroundElevationM);
 
     private static int AltitudeKey(double altM) => (int)Math.Round(altM);
 

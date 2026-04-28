@@ -13,6 +13,22 @@ public static class GreatCircle
     /// <summary>Refractive ("4/3 earth") radius used for radio line-of-sight.</summary>
     public const double EffectiveRadiusMetres = 4.0 / 3.0 * EarthRadiusMetres;
 
+    /// <summary>
+    /// Radio horizon distance in metres for an antenna and a target separated by the
+    /// 4/3-Earth bulge. Both heights are AGL relative to a flat-mean-elevation plane —
+    /// the antenna's slice (sqrt(2·R_eff·h_a)) plus the target's slice
+    /// (sqrt(2·R_eff·h_t)) is how far each side can see the shared horizon. Negative
+    /// inputs are treated as zero (a sub-ground antenna or target sees no farther
+    /// than ground level itself).
+    /// </summary>
+    public static double RadioHorizonDistanceMetres(double antennaHeightAglM, double targetHeightAglM)
+    {
+        var ha = Math.Max(0.0, antennaHeightAglM);
+        var ht = Math.Max(0.0, targetHeightAglM);
+        return Math.Sqrt(2.0 * EffectiveRadiusMetres * ha)
+             + Math.Sqrt(2.0 * EffectiveRadiusMetres * ht);
+    }
+
     /// <summary>Great-circle arc distance in metres between two points.</summary>
     public static double DistanceMetres(double lat1, double lon1, double lat2, double lon2)
     {

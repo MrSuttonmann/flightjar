@@ -90,7 +90,12 @@ public sealed record BlackspotsSnapshot(
 /// </summary>
 public sealed class BlackspotsGrid
 {
-    public const int SchemaVersion = 4;
+    // v5: BlackspotsParams.RadiusKm broadened from "the configured radius"
+    // to "the radius this grid was actually computed at" — radius is now
+    // altitude-dependent (extends out to the radio horizon for the target
+    // altitude), so v4 grids written with a smaller fixed radius would no
+    // longer match a freshly-built liveParams record at high target alts.
+    public const int SchemaVersion = 5;
 
     /// <summary>
     /// True if the grid looks credible — either the bbox only needed one SRTM

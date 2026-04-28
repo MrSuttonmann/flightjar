@@ -267,6 +267,12 @@ public static class BlockerFaceCompute
         var sunAlt = HillshadeSunAltitudeDeg * Math.PI / 180.0;
         var sinSunAlt = Math.Sin(sunAlt);
         var cosSunAlt = Math.Cos(sunAlt);
+        // Circular crop: the raster bbox is square but the data we render
+        // should match the cell-grid disc, so pixels outside the receiver's
+        // RadiusKm circle stay fully transparent. Same radius the cell grid
+        // uses, so the hillshaded disc and the outermost ring of cells
+        // share a boundary.
+        var radiusM = p.RadiusKm * 1000.0;
 
         Parallel.For(0, height, y =>
         {
@@ -282,8 +288,15 @@ public static class BlockerFaceCompute
             for (var x = 0; x < width; x++)
             {
                 var lon = minLon + (x + 0.5) * step;
-                var z = sampler.ElevationMetres(lat, lon);
                 var idx4 = (y * width + x) * 4;
+                if (GreatCircle.DistanceMetres(p.ReceiverLat, p.ReceiverLon, lat, lon) > radiusM)
+                {
+                    // Outside the disc — leave fully transparent and skip
+                    // the elevation samples. ~21% of pixels in a square
+                    // circumscribing a circle, so this is also a real win.
+                    continue;
+                }
+                var z = sampler.ElevationMetres(lat, lon);
                 if (z <= 0)
                 {
                     // Sea / no-data — transparent so the basemap shows through.
