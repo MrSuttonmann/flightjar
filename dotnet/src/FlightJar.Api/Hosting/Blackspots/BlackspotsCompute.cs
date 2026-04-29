@@ -31,6 +31,7 @@ internal sealed class BlackspotsCompute
     private readonly object _progressGate = new();
     private int? _activeAltitudeKey;
     private double _activeProgress;
+    private BlackspotsProgressPhase _activePhase = BlackspotsProgressPhase.Idle;
 
     public BlackspotsCompute(
         AppOptions options, SrtmTileStore tiles, TimeProvider time, ILogger logger)
@@ -60,15 +61,19 @@ internal sealed class BlackspotsCompute
     }
 
     /// <summary>Live progress snapshot for the compute currently running at
-    /// <paramref name="targetAltM"/>. Returns <c>(false, 0)</c> when that
-    /// altitude is cached, queued behind a different compute, or the
-    /// feature is idle.</summary>
-    public (bool Active, double Progress) GetProgress(double targetAltM)
+    /// <paramref name="targetAltM"/>. Returns
+    /// <c>(false, 0, Idle)</c> when that altitude is cached, queued behind a
+    /// different compute, or the feature is idle. Phase + fraction together
+    /// describe the user-visible step the compute is in (downloading SRTM,
+    /// solving cells, rendering relief).</summary>
+    public BlackspotsProgressSnapshot GetProgress(double targetAltM)
     {
         var key = AltitudeKey(targetAltM);
         lock (_progressGate)
         {
-            return _activeAltitudeKey == key ? (true, _activeProgress) : (false, 0.0);
+            return _activeAltitudeKey == key
+                ? new(true, _activeProgress, _activePhase)
+                : new(false, 0.0, BlackspotsProgressPhase.Idle);
         }
     }
 
@@ -79,46 +84,50 @@ internal sealed class BlackspotsCompute
     /// </summary>
     public async Task<BlackspotsGrid?> ComputeAtAsync(double targetAltM, CancellationToken ct)
     {
-        await EnsurePreloadedAsync(ct);
-        if (_groundElevM is not double groundElev)
-        {
-            return null;
-        }
-        var fullParams = BuildParams(targetAltM, groundElev);
-        var antennaAgl = fullParams.AntennaMslM - fullParams.GroundElevationM;
-        var (loaded, empty) = _tiles.TileLoadSummary();
-        var tilesWithData = loaded - empty;
-
-        // Skip the per-cell LOS solve when the tile preload came back
-        // degenerate — a multi-tile bbox with ≤1 tile returning elevation
-        // data almost always means SRTM downloads are blocked, and the
-        // compute would spend 1-2 s producing an earth-curvature-only
-        // "perfect circle" that's actively misleading. Emit an empty grid
-        // with the same tile-coverage stats so the frontend surfaces the
-        // warning banner; IsValid = false keeps it out of persistence.
-        if (_tileCount > 1 && tilesWithData <= 1)
-        {
-            _logger.LogWarning(
-                "blackspots: skipping compute at {Alt:F0} m MSL — only {DataTiles}/{Expected} SRTM tile(s) have elevation data (downloads likely blocked)",
-                targetAltM, tilesWithData, _tileCount);
-            return new BlackspotsGrid(
-                fullParams, _time.GetUtcNow(), _tileCount, tilesWithData,
-                Array.Empty<BlackspotCell>());
-        }
-
-        _logger.LogInformation(
-            "blackspots: computing grid — receiver ({Lat:F4}, {Lon:F4}), ground {Elev:F0} m MSL, antenna {AntMsl:F0} m MSL ({AntAgl:F1} m AGL), target {Alt:F0} m MSL, radius {Radius:F0} km",
-            fullParams.ReceiverLat, fullParams.ReceiverLon,
-            fullParams.GroundElevationM, fullParams.AntennaMslM, antennaAgl,
-            fullParams.TargetAltitudeM, fullParams.RadiusKm);
-
         var altKey = AltitudeKey(targetAltM);
-        SetProgress(altKey, 0);
+        // Claim the progress slot before we start blocking on preload so
+        // the frontend's poll sees `active=true` from the very first tick
+        // — otherwise it would stay blank for the entire SRTM download.
+        SetProgress(altKey, 0, BlackspotsProgressPhase.LoadingTerrain);
         try
         {
+            await EnsurePreloadedAsync(altKey, ct);
+            if (_groundElevM is not double groundElev)
+            {
+                return null;
+            }
+            var fullParams = BuildParams(targetAltM, groundElev);
+            var antennaAgl = fullParams.AntennaMslM - fullParams.GroundElevationM;
+            var (loaded, empty) = _tiles.TileLoadSummary();
+            var tilesWithData = loaded - empty;
+
+            // Skip the per-cell LOS solve when the tile preload came back
+            // degenerate — a multi-tile bbox with ≤1 tile returning elevation
+            // data almost always means SRTM downloads are blocked, and the
+            // compute would spend 1-2 s producing an earth-curvature-only
+            // "perfect circle" that's actively misleading. Emit an empty grid
+            // with the same tile-coverage stats so the frontend surfaces the
+            // warning banner; IsValid = false keeps it out of persistence.
+            if (_tileCount > 1 && tilesWithData <= 1)
+            {
+                _logger.LogWarning(
+                    "blackspots: skipping compute at {Alt:F0} m MSL — only {DataTiles}/{Expected} SRTM tile(s) have elevation data (downloads likely blocked)",
+                    targetAltM, tilesWithData, _tileCount);
+                return new BlackspotsGrid(
+                    fullParams, _time.GetUtcNow(), _tileCount, tilesWithData,
+                    Array.Empty<BlackspotCell>());
+            }
+
+            _logger.LogInformation(
+                "blackspots: computing grid — receiver ({Lat:F4}, {Lon:F4}), ground {Elev:F0} m MSL, antenna {AntMsl:F0} m MSL ({AntAgl:F1} m AGL), target {Alt:F0} m MSL, radius {Radius:F0} km",
+                fullParams.ReceiverLat, fullParams.ReceiverLon,
+                fullParams.GroundElevationM, fullParams.AntennaMslM, antennaAgl,
+                fullParams.TargetAltitudeM, fullParams.RadiusKm);
+
+            SetProgress(altKey, 0, BlackspotsProgressPhase.ComputingGrid);
             return await Task.Run(() => BlackspotsGrid.Compute(
                 fullParams, _tiles, _tileCount, tilesWithData, _time, _logger,
-                onProgress: frac => SetProgress(altKey, frac),
+                onProgress: frac => SetProgress(altKey, frac, BlackspotsProgressPhase.ComputingGrid),
                 ct: ct), ct);
         }
         finally
@@ -133,30 +142,44 @@ internal sealed class BlackspotsCompute
     /// </summary>
     public async Task<BlockerFaceRaster?> ComputeFaceAsync(double targetAltM, CancellationToken ct)
     {
-        await EnsurePreloadedAsync(ct);
-        if (_groundElevM is not double groundElev)
+        var altKey = AltitudeKey(targetAltM);
+        SetProgress(altKey, 0, BlackspotsProgressPhase.LoadingTerrain);
+        try
         {
-            return null;
+            await EnsurePreloadedAsync(altKey, ct);
+            if (_groundElevM is not double groundElev)
+            {
+                return null;
+            }
+            var (loaded, empty) = _tiles.TileLoadSummary();
+            var tilesWithData = loaded - empty;
+            if (_tileCount > 1 && tilesWithData <= 1)
+            {
+                return null;
+            }
+            var antennaMslM = ResolveAntennaMslM(groundElev);
+            var faceParams = new BlockerFaceParams(
+                ReceiverLat: _options.LatRef!.Value,
+                ReceiverLon: _options.LonRef!.Value,
+                AntennaMslM: antennaMslM,
+                TargetAltitudeM: targetAltM,
+                RadiusKm: EffectiveRadiusKm(antennaMslM, targetAltM, groundElev),
+                GridDeg: _options.BlackspotsFaceGridDeg);
+            _logger.LogInformation(
+                "blackspots: computing face raster — antenna {Ant:F0} m MSL, target {Alt:F0} m MSL",
+                faceParams.AntennaMslM, faceParams.TargetAltitudeM);
+            SetProgress(altKey, 0, BlackspotsProgressPhase.ComputingFace);
+            return await Task.Run(
+                () => BlockerFaceCompute.Compute(
+                    faceParams, _tiles,
+                    onProgress: frac => SetProgress(altKey, frac, BlackspotsProgressPhase.ComputingFace),
+                    ct: ct),
+                ct);
         }
-        var (loaded, empty) = _tiles.TileLoadSummary();
-        var tilesWithData = loaded - empty;
-        if (_tileCount > 1 && tilesWithData <= 1)
+        finally
         {
-            return null;
+            ClearProgress(altKey);
         }
-        var antennaMslM = ResolveAntennaMslM(groundElev);
-        var faceParams = new BlockerFaceParams(
-            ReceiverLat: _options.LatRef!.Value,
-            ReceiverLon: _options.LonRef!.Value,
-            AntennaMslM: antennaMslM,
-            TargetAltitudeM: targetAltM,
-            RadiusKm: EffectiveRadiusKm(antennaMslM, targetAltM, groundElev),
-            GridDeg: _options.BlackspotsFaceGridDeg);
-        _logger.LogInformation(
-            "blackspots: computing face raster — antenna {Ant:F0} m MSL, target {Alt:F0} m MSL",
-            faceParams.AntennaMslM, faceParams.TargetAltitudeM);
-        return await Task.Run(
-            () => BlockerFaceCompute.Compute(faceParams, _tiles), ct);
     }
 
     /// <summary>Re-derive a persisted grid's params at the live config and
@@ -214,12 +237,21 @@ internal sealed class BlackspotsCompute
 
     private static int AltitudeKey(double altM) => (int)Math.Round(altM);
 
-    private void SetProgress(int altKey, double fraction)
+    private void SetProgress(int altKey, double fraction, BlackspotsProgressPhase phase)
     {
         lock (_progressGate)
         {
+            // Keep the previously-reported phase if a stale callback fires
+            // late from an earlier phase (Parallel.For workers can deliver
+            // their last few onProgress hits after the next phase has set
+            // its own phase value). Frontend sees monotonic phase progression.
+            if (_activeAltitudeKey == altKey && phase < _activePhase)
+            {
+                return;
+            }
             _activeAltitudeKey = altKey;
             _activeProgress = fraction;
+            _activePhase = phase;
         }
     }
 
@@ -231,6 +263,7 @@ internal sealed class BlackspotsCompute
             {
                 _activeAltitudeKey = null;
                 _activeProgress = 0.0;
+                _activePhase = BlackspotsProgressPhase.Idle;
             }
         }
     }
@@ -239,9 +272,10 @@ internal sealed class BlackspotsCompute
     /// Download / load the SRTM tiles covering the receiver's bbox and
     /// sample the receiver's ground elevation. Idempotent — after the
     /// first successful call <see cref="_groundElevM"/> is set and this
-    /// is a no-op.
+    /// is a no-op. <paramref name="altKey"/> tags the progress slot so
+    /// each tile-load tick lands on the right active altitude.
     /// </summary>
-    private async Task EnsurePreloadedAsync(CancellationToken ct)
+    private async Task EnsurePreloadedAsync(int altKey, CancellationToken ct)
     {
         if (_groundElevM is not null)
         {
@@ -260,7 +294,16 @@ internal sealed class BlackspotsCompute
             _logger.LogInformation(
                 "blackspots: loading {Tiles} SRTM tile(s) for bbox [{MinLat:F2}, {MinLon:F2}]–[{MaxLat:F2}, {MaxLon:F2}]",
                 neededTiles.Count, minLat, minLon, maxLat, maxLon);
-            await _tiles.EnsureLoadedAsync(neededTiles, ct: ct);
+            await _tiles.EnsureLoadedAsync(
+                neededTiles,
+                onTileLoaded: (loaded, total) =>
+                {
+                    if (total > 0)
+                    {
+                        SetProgress(altKey, (double)loaded / total, BlackspotsProgressPhase.LoadingTerrain);
+                    }
+                },
+                ct: ct);
             _tileCount = neededTiles.Count;
             _groundElevM = _tiles.ElevationMetres(_options.LatRef!.Value, _options.LonRef!.Value);
 

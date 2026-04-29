@@ -221,29 +221,52 @@
     margin: 0;
   }
   .blackspots-slider-status {
-    margin-top: 6px; min-height: 16px; display: flex;
-    flex-direction: column; align-items: center;
-    justify-content: center; gap: 2px;
-  }
-  .blackspots-slider-spinner {
-    width: 14px; height: 14px; border-radius: 50%;
-    border: 2px solid #e5e7eb; border-top-color: var(--accent);
+    margin-top: 6px; width: 48px; display: flex;
+    flex-direction: column; align-items: stretch;
+    justify-content: flex-start; gap: 3px;
     visibility: hidden;
   }
-  .blackspots-slider-status.busy .blackspots-slider-spinner {
-    visibility: visible;
-    animation: blackspots-spin 0.9s linear infinite;
+  .blackspots-slider-status.busy { visibility: visible; }
+  .blackspots-slider-bar {
+    height: 4px; border-radius: 2px; overflow: hidden;
+    background: #e5e7eb; position: relative;
   }
-  .blackspots-slider-progress {
-    font-size: 10px; font-variant-numeric: tabular-nums;
-    color: #6b7280; min-height: 12px;
+  /* Indeterminate sliding stripe for the moments when the backend is
+     working but hasn't yet ticked the bar past 0 — a multi-tile SRTM
+     preload can sit at 0 for a couple of seconds while the first
+     download lands. The stripe is overlaid on the empty track so the
+     user always sees motion. CSS-only; the JS is unchanged. */
+  .blackspots-slider-status.busy .blackspots-slider-bar::before {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(90deg,
+      transparent 0%, rgba(99,102,241,0.45) 50%, transparent 100%);
+    animation: blackspots-shimmer 1.2s ease-in-out infinite;
+  }
+  .blackspots-slider-bar-fill {
+    height: 100%; width: 0%;
+    background: var(--accent); position: relative; z-index: 1;
+    /* Smooth advance between polls so 150 ms ticks read as a fluid
+       crawl instead of stepping; keep transitions fast enough that
+       the bar doesn't lag behind a fast-moving compute. */
+    transition: width 180ms linear;
+  }
+  /* When the indicator is hidden (idle), kill the transition so the
+     next show-from-zero doesn't animate a stale fraction back to 0. */
+  .blackspots-slider-status:not(.busy) .blackspots-slider-bar-fill {
+    transition: none;
+  }
+  @keyframes blackspots-shimmer {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+  .blackspots-slider-phase {
+    font-size: 9px; line-height: 1.1; min-height: 11px;
+    color: #6b7280; text-align: center;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .blackspots-slider-warning {
     margin-top: 6px; font-size: 10px; line-height: 1.2;
     color: #b45309; text-align: center; cursor: help;
-  }
-  @keyframes blackspots-spin {
-    to { transform: rotate(360deg); }
   }
   .airport-icon { background: transparent !important; border: none !important; }
   .airport-dot { width: 8px; height: 8px; border-radius: 50%;

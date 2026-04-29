@@ -237,4 +237,20 @@ public class ApiEndpointsTests : IClassFixture<WebApplicationFactory<Program>>
         using var doc = JsonDocument.Parse(body);
         Assert.False(doc.RootElement.GetProperty("enabled").GetBoolean());
     }
+
+    [Fact]
+    public async Task Blackspots_Progress_HasShapeForFrontendPolling()
+    {
+        // Frontend polls this every ~150 ms while waiting for a fresh grid.
+        // Even when the feature is disabled the response shape must be
+        // consistent so the JS poll loop doesn't have to special-case it.
+        var client = _factory.CreateClient();
+        var resp = await client.GetAsync("/api/blackspots/progress");
+        resp.EnsureSuccessStatusCode();
+        var body = await resp.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(body);
+        Assert.False(doc.RootElement.GetProperty("active").GetBoolean());
+        Assert.Equal(0.0, doc.RootElement.GetProperty("progress").GetDouble());
+        Assert.Equal("idle", doc.RootElement.GetProperty("phase").GetString());
+    }
 }

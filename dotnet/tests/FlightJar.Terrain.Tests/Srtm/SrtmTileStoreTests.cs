@@ -66,4 +66,52 @@ public class SrtmTileStoreTests
         store.EvictAll();
         Assert.Equal(0, store.LoadedCount);
     }
+
+    [Fact]
+    public async Task EnsureLoadedAsync_FiresProgressCallback_PerTile()
+    {
+        // Caller drives the blackspots progress UI off this — the callback
+        // must fire at least once per requested tile so the spinner doesn't
+        // sit at 0 % through a multi-tile preload.
+        var cacheDir = Path.Combine(Path.GetTempPath(), $"srtm-progress-{Guid.NewGuid():N}");
+        try
+        {
+            var keys = new[]
+            {
+                new SrtmTileKey(52, -2),
+                new SrtmTileKey(52, -1),
+                new SrtmTileKey(53, -2),
+            };
+            foreach (var k in keys) await SeedTileOnDiskAsync(cacheDir, k);
+            var store = new SrtmTileStore(new HttpClient(), cacheDir);
+
+            var ticks = new List<(int Loaded, int Total)>();
+            var ticksGate = new object();
+            await store.EnsureLoadedAsync(
+                keys,
+                onTileLoaded: (loaded, total) =>
+                {
+                    lock (ticksGate) ticks.Add((loaded, total));
+                });
+
+            Assert.Equal(3, store.LoadedCount);
+            // Final tick must report fully done so the bar can pin to 100 %
+            // before the caller hands off to the next phase.
+            Assert.Contains((3, 3), ticks);
+            // Total stays consistent across every tick.
+            Assert.All(ticks, t => Assert.Equal(3, t.Total));
+            // Loaded count is non-decreasing (concurrent loads can interleave,
+            // but no tick reports fewer tiles than a previous one).
+            var prev = -1;
+            foreach (var (loaded, _) in ticks)
+            {
+                Assert.True(loaded >= prev, $"loaded count went backwards: {prev} → {loaded}");
+                prev = loaded;
+            }
+        }
+        finally
+        {
+            try { Directory.Delete(cacheDir, recursive: true); } catch { /* best effort */ }
+        }
+    }
 }

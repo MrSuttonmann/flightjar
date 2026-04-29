@@ -1,4 +1,5 @@
 using FlightJar.Api.Hosting;
+using FlightJar.Api.Hosting.Blackspots;
 
 namespace FlightJar.Api.Endpoints;
 
@@ -113,18 +114,31 @@ internal static class BlackspotsEndpoints
         });
 
         // Live progress poll for the currently-running compute at a given altitude.
-        // Designed to be hit every ~300 ms by the frontend while awaiting a fresh
+        // Designed to be hit every ~150 ms by the frontend while awaiting a fresh
         // grid; returns {active: false} when the altitude is cached / queued /
-        // disabled so the caller can stop polling.
+        // disabled so the caller can stop polling. `phase` lets the UI label the
+        // step (loading_terrain → computing_grid → computing_face) so the bar
+        // stays informative across the whole pipeline rather than going blank
+        // during preload or face render.
         app.MapGet("/api/blackspots/progress", (BlackspotsWorker worker, double? target_alt_m) =>
         {
             if (!worker.Enabled)
             {
-                return Results.Json(new { active = false });
+                return Results.Json(new
+                {
+                    active = false,
+                    progress = 0.0,
+                    phase = BlackspotsProgressPhase.Idle,
+                });
             }
             var alt = target_alt_m ?? BlackspotsWorker.DefaultTargetAltitudeM;
-            var (active, progress) = worker.GetProgress(alt);
-            return Results.Json(new { active, progress });
+            var snap = worker.GetProgress(alt);
+            return Results.Json(new
+            {
+                active = snap.Active,
+                progress = snap.Fraction,
+                phase = snap.Phase,
+            });
         });
 
         return app;

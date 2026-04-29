@@ -81,30 +81,45 @@ public sealed class SrtmTileStore : ITerrainSampler
     /// Ensure every tile in <paramref name="keys"/> is loaded into memory. Tiles
     /// already in memory are a no-op; missing tiles are read from disk cache
     /// when present, otherwise downloaded. Runs with a small concurrency cap so
-    /// we don't open a hundred connections at once.
+    /// we don't open a hundred connections at once. <paramref name="onTileLoaded"/>
+    /// fires once per tile after it lands in memory (caller sees how many of
+    /// the requested tiles are done so it can drive a progress readout).
     /// </summary>
     public async Task EnsureLoadedAsync(
         IEnumerable<SrtmTileKey> keys,
         int concurrency = 4,
+        Action<int, int>? onTileLoaded = null,
         CancellationToken ct = default)
     {
         using var gate = new SemaphoreSlim(Math.Max(1, concurrency));
         var tasks = new List<Task>();
+        var requested = 0;
+        var done = 0;
         foreach (var key in keys.Distinct())
         {
+            requested++;
             if (_loaded.ContainsKey(key))
             {
+                Interlocked.Increment(ref done);
                 continue;
             }
-            tasks.Add(EnsureOneAsync(key, gate, ct));
+            tasks.Add(EnsureOneAsync(key, gate, () =>
+            {
+                var d = Interlocked.Increment(ref done);
+                try { onTileLoaded?.Invoke(d, requested); } catch { /* never fail a load on a progress hiccup */ }
+            }, ct));
         }
+        // Fire once with the already-cached count so callers always see at
+        // least one tick (tells them total / where we're starting from).
+        try { onTileLoaded?.Invoke(Volatile.Read(ref done), requested); } catch { /* ditto */ }
         if (tasks.Count > 0)
         {
             await Task.WhenAll(tasks);
         }
     }
 
-    private async Task EnsureOneAsync(SrtmTileKey key, SemaphoreSlim gate, CancellationToken ct)
+    private async Task EnsureOneAsync(
+        SrtmTileKey key, SemaphoreSlim gate, Action onLoaded, CancellationToken ct)
     {
         await gate.WaitAsync(ct);
         try
@@ -112,6 +127,7 @@ public sealed class SrtmTileStore : ITerrainSampler
             var task = _inflight.GetOrAdd(key, k => LoadAsync(k, ct));
             var tile = await task;
             _loaded[key] = tile;
+            onLoaded();
         }
         finally
         {

@@ -32,16 +32,52 @@ let pendingController = null;
 let fetchDebounce = null;
 let progressPoll = null;
 
+// Per-pipeline-phase weights for the unified progress bar. The wall-time
+// split is roughly: SRTM preload dominates on a cold start (downloads),
+// the cell grid solve is ~1-2 s, the face raster is ~1-3 s. After the
+// first compute the preload is a no-op so we squash its weight on
+// subsequent bars by snapping straight to the grid phase. The frontend
+// never has to know the absolute timings — the bar fills monotonically
+// inside each phase, and phase transitions advance the floor.
+const PHASE_FLOOR = {
+  idle: 0.0,
+  loading_terrain: 0.0,
+  computing_grid: 0.5,
+  computing_face: 0.8,
+};
+const PHASE_SPAN = {
+  idle: 0.0,
+  loading_terrain: 0.5,
+  computing_grid: 0.3,
+  computing_face: 0.2,
+};
+const PHASE_LABEL = {
+  idle: '',
+  loading_terrain: 'Loading terrain',
+  computing_grid: 'Solving lines of sight',
+  computing_face: 'Rendering relief',
+};
+// Latched bar position so a transient `active:false` poll (between phase
+// transitions, or while a request is queued behind another) doesn't flick
+// the bar back to zero. Reset on a fresh fetch.
+let latchedBarFraction = 0;
+
 async function fetchForAltitude(altM) {
   if (gridCache.has(altM) && faceCache.has(altM)) {
     renderSnapshot(gridCache.get(altM), faceCache.get(altM));
-    setSliderBusy(false);
+    // Only blank the spinner if no other fetch owns the slider — a fast
+    // drag through cached altitudes mustn't kill the spinner of an
+    // in-flight uncached fetch.
+    if (!pendingController) setSliderBusy(false);
     return;
   }
   if (pendingController) pendingController.abort();
   const ctrl = new AbortController();
   pendingController = ctrl;
+  latchedBarFraction = 0;
   setSliderBusy(true);
+  setSliderPhase('loading_terrain');
+  setSliderBar(0);
   startProgressPoll(altM, ctrl.signal);
   try {
     // Grid (per-cell shadows + obstruction bins) and face raster fetched
@@ -60,9 +96,13 @@ async function fetchForAltitude(altM) {
       return;
     }
     if (data.computing || faceData.computing) {
+      // Another caller is already computing this altitude. Don't tear
+      // the indicator down — keep the bar latched at its current
+      // fraction and re-poll on a tighter cadence so we pick up the
+      // moment its compute finishes.
       setTimeout(() => {
         if (activeAltitudeM === altM && state.showBlackspots) fetchForAltitude(altM);
-      }, 3000);
+      }, 800);
       return;
     }
     gridCache.set(altM, data);
@@ -73,6 +113,9 @@ async function fetchForAltitude(altM) {
           dataUrl: `data:image/png;base64,${faceData.png_base64}`,
         });
     if (activeAltitudeM === altM) renderSnapshot(data, faceCache.get(altM));
+    // Snap the bar to 100% on success so the user sees a satisfying
+    // completion frame before the spinner clears.
+    setSliderBar(1);
   } catch (e) {
     if (e.name !== 'AbortError') console.warn('blackspots fetch failed', e);
   } finally {
@@ -80,15 +123,20 @@ async function fetchForAltitude(altM) {
       pendingController = null;
       setSliderBusy(false);
       stopProgressPoll();
+      setSliderBar(0);
+      setSliderPhase('idle');
     }
   }
 }
 
 // Poll /api/blackspots/progress while a compute is in flight. Updates the
-// percent readout under the spinner; stops automatically when the main
-// fetch resolves (signal is aborted) or the backend reports active=false.
-// First tick fires immediately so a sub-interval compute still produces at
-// least one readout instead of flashing past.
+// phase label + bar; stops automatically when the main fetch resolves
+// (signal is aborted). First tick fires immediately so a sub-interval
+// compute still produces at least one readout instead of flashing past.
+// `active:false` ticks are tolerated without resetting the bar — they're
+// a normal quiet window between phases (e.g. the request is queued
+// behind another caller's compute, or the backend is between
+// `SetProgress` calls during a phase handoff).
 function startProgressPoll(altM, abortSignal) {
   stopProgressPoll();
   const tick = async () => {
@@ -100,7 +148,12 @@ function startProgressPoll(altM, abortSignal) {
       const r = await fetch(`/api/blackspots/progress?target_alt_m=${altM}`, { signal: abortSignal });
       if (!r.ok) return;
       const data = await r.json();
-      setSliderProgress(data.active ? data.progress : null);
+      if (data.active) {
+        const phase = data.phase || 'loading_terrain';
+        const frac = Number.isFinite(data.progress) ? data.progress : 0;
+        setSliderPhase(phase);
+        setSliderBar(unifiedBarFraction(phase, frac));
+      }
     } catch (_) { /* AbortError or network blip — either way, let it pass */ }
   };
   tick();
@@ -112,7 +165,18 @@ function stopProgressPoll() {
     clearInterval(progressPoll);
     progressPoll = null;
   }
-  setSliderProgress(null);
+}
+
+// Map a (phase, fraction) tuple to a single 0-1 fraction across the
+// pipeline so the bar fills monotonically from preload through render.
+// Latches against backwards motion — phase transitions can briefly
+// report 0 inside the new phase, which we round up to the floor of the
+// new phase rather than visibly snapping back.
+function unifiedBarFraction(phase, frac) {
+  const floor = PHASE_FLOOR[phase] ?? 0;
+  const span = PHASE_SPAN[phase] ?? 0;
+  const value = floor + Math.max(0, Math.min(1, frac)) * span;
+  return Math.max(latchedBarFraction, value);
 }
 
 function scheduleFetch(altM) {
@@ -290,7 +354,8 @@ let sliderControl = null;
 let sliderInput = null;
 let sliderLabel = null;
 let sliderStatus = null;
-let sliderProgress = null;
+let sliderBarFill = null;
+let sliderPhaseLabel = null;
 let sliderWarning = null;
 
 function makeSliderControl() {
@@ -304,8 +369,8 @@ function makeSliderControl() {
         <div class="blackspots-slider-label"></div>
         <input type="range" min="0" max="${ALT_STOPS_M.length - 1}" value="${DEFAULT_STOP_INDEX}" step="1" aria-label="Target altitude">
         <div class="blackspots-slider-status" role="status" aria-label="Computing blackspots">
-          <div class="blackspots-slider-spinner"></div>
-          <div class="blackspots-slider-progress"></div>
+          <div class="blackspots-slider-bar"><div class="blackspots-slider-bar-fill"></div></div>
+          <div class="blackspots-slider-phase"></div>
         </div>
         <div class="blackspots-slider-warning" role="alert" hidden
              title="Almost no terrain data loaded — the grid below is earth-curvature only, not real terrain. Check the container's outbound access to elevation-tiles-prod.s3.amazonaws.com.">
@@ -315,7 +380,8 @@ function makeSliderControl() {
       sliderLabel = container.querySelector('.blackspots-slider-label');
       sliderInput = container.querySelector('input[type="range"]');
       sliderStatus = container.querySelector('.blackspots-slider-status');
-      sliderProgress = container.querySelector('.blackspots-slider-progress');
+      sliderBarFill = container.querySelector('.blackspots-slider-bar-fill');
+      sliderPhaseLabel = container.querySelector('.blackspots-slider-phase');
       sliderWarning = container.querySelector('.blackspots-slider-warning');
 
       // Swallow map pans / zooms while the user is interacting with the
@@ -362,13 +428,22 @@ function setSliderBusy(busy) {
   if (sliderStatus) sliderStatus.classList.toggle('busy', busy);
 }
 
-function setSliderProgress(frac) {
-  if (!sliderProgress) return;
-  if (frac == null || frac <= 0) {
-    sliderProgress.textContent = '';
-    return;
+function setSliderBar(frac) {
+  if (!sliderBarFill) return;
+  const clamped = Math.max(0, Math.min(1, frac));
+  // Latch monotonically while a fetch is in flight so a transient 0
+  // poll between phase transitions can't visually rewind the bar.
+  if (pendingController) {
+    latchedBarFraction = Math.max(latchedBarFraction, clamped);
+  } else {
+    latchedBarFraction = clamped;
   }
-  sliderProgress.textContent = `${Math.round(frac * 100)}%`;
+  sliderBarFill.style.width = `${(latchedBarFraction * 100).toFixed(1)}%`;
+}
+
+function setSliderPhase(phase) {
+  if (!sliderPhaseLabel) return;
+  sliderPhaseLabel.textContent = PHASE_LABEL[phase] ?? '';
 }
 
 function setSliderTileWarning(show) {

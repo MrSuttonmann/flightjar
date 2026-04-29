@@ -136,8 +136,16 @@ public static class BlockerFaceCompute
 
     /// <summary>
     /// Produce the hillshaded raster for the given receiver / altitude / sampler.
+    /// <paramref name="onProgress"/> fires periodically with a fraction in
+    /// [0, 1] across the two parallel passes (viewshed rays + hillshade rows)
+    /// so the caller can stream a progress readout. Capped at ~50 callbacks
+    /// per compute so the lock contention is negligible.
     /// </summary>
-    public static BlockerFaceRaster Compute(BlockerFaceParams p, ITerrainSampler sampler)
+    public static BlockerFaceRaster Compute(
+        BlockerFaceParams p,
+        ITerrainSampler sampler,
+        Action<double>? onProgress = null,
+        CancellationToken ct = default)
     {
         var (minLat, maxLat, minLon, maxLon) = BboxFor(
             p.ReceiverLat, p.ReceiverLon, p.RadiusKm);
@@ -180,8 +188,27 @@ public static class BlockerFaceCompute
         const double oneDegree = Math.PI / 180.0;
         var intensityScale = 255.0 / oneDegree;
 
+        // The two parallel passes carry roughly the same wall cost, so
+        // weight them 50/50 in the reported fraction. Stage 1 fills [0, 0.5),
+        // stage 2 fills [0.5, 1.0]. Reports are throttled to ~2% steps to
+        // keep the lock cheap regardless of azimuth/row count.
+        var progressGate = new object();
+        var lastReported = -1.0;
+        void Report(double frac)
+        {
+            if (onProgress is null) return;
+            lock (progressGate)
+            {
+                if (frac - lastReported < 0.02 && frac < 1.0) return;
+                lastReported = frac;
+                try { onProgress(frac); } catch { /* never fail a compute on a progress hiccup */ }
+            }
+        }
+        var stage1Done = 0;
+
         // ---- Stage 1: strict-viewshed ray walks ----
-        Parallel.For(0, numAz, ai =>
+        var stage1Options = new ParallelOptions { CancellationToken = ct };
+        Parallel.For(0, numAz, stage1Options, ai =>
         {
             var azRad = ai * dAzDeg * Math.PI / 180.0;
             var sinAz = Math.Sin(azRad);
@@ -231,6 +258,8 @@ public static class BlockerFaceCompute
                     alpha[idx] = (byte)byteVal;
                 }
             }
+            var d1 = Interlocked.Increment(ref stage1Done);
+            Report(0.5 * d1 / Math.Max(1, numAz));
         });
 
         // 3×3 max-dilation widens single-pixel silhouette lines so the
@@ -241,7 +270,10 @@ public static class BlockerFaceCompute
 
         // ---- Stage 2: hillshade + blocker tint ----
         var rgba = RenderHillshade(p, width, height, step, minLon,
-            mercTop, mercSpan, kmPerDegLon, alpha, sampler);
+            mercTop, mercSpan, kmPerDegLon, alpha, sampler,
+            onRowDone: rowsDone => Report(0.5 + 0.5 * rowsDone / Math.Max(1, height)),
+            ct: ct);
+        Report(1.0);
 
         return new BlockerFaceRaster(
             p, minLat, maxLat, minLon, maxLon, width, height, alpha, rgba);
@@ -258,7 +290,9 @@ public static class BlockerFaceCompute
         double minLon,
         double mercTop, double mercSpan,
         double kmPerDegLon,
-        byte[] alpha, ITerrainSampler sampler)
+        byte[] alpha, ITerrainSampler sampler,
+        Action<int>? onRowDone = null,
+        CancellationToken ct = default)
     {
         var rgba = new byte[width * height * 4];
         const double kmPerDegLat = 111.32;
@@ -274,7 +308,9 @@ public static class BlockerFaceCompute
         // share a boundary.
         var radiusM = p.RadiusKm * 1000.0;
 
-        Parallel.For(0, height, y =>
+        var rowsDone = 0;
+        var stage2Options = new ParallelOptions { CancellationToken = ct };
+        Parallel.For(0, height, stage2Options, y =>
         {
             // y-axis is Mercator-linear (see Compute() comment).
             var lat = MercYToLat(mercTop - (y + 0.5) * mercSpan / height);
@@ -346,6 +382,8 @@ public static class BlockerFaceCompute
                 }
                 rgba[idx4 + 3] = 255;
             }
+            var rd = Interlocked.Increment(ref rowsDone);
+            try { onRowDone?.Invoke(rd); } catch { /* don't fail a render on a progress hiccup */ }
         });
         return rgba;
     }
