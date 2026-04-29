@@ -208,7 +208,11 @@ somewhere and run it.
 4. Open the map at [http://localhost:8080](http://localhost:8080) (or wherever
    you've published port 8080).
 
-Logs land in `./beast-logs/beast.jsonl` next to the compose file.
+Per-message JSONL logging is **off by default** — at typical urban
+traffic the writer produces hundreds of MB per day and can fill a
+small disk overnight. Set `BEAST_OUTFILE=/data/beast.jsonl` in
+`docker-compose.yml` if you want it; logs then land in
+`./beast-logs/beast.jsonl` next to the compose file.
 
 ### Building from source
 
@@ -412,7 +416,7 @@ It shows up next to "Flightjar" in the sidebar and in the browser tab title
 | `LON_REF`             | (unset)             | Receiver longitude.                                            |
 | `RECEIVER_ANON_KM`    | `0`                 | Fuzz the displayed receiver location (km). `0` = exact.        |
 | `SITE_NAME`           | (unset)             | Display name shown in the header and browser tab title.        |
-| `BEAST_OUTFILE`       | `/data/beast.jsonl` | Log file inside the container. Empty disables file logging.    |
+| `BEAST_OUTFILE`       | (unset — off)       | Per-message JSONL log path inside the container. Off by default; the writer can fill a small disk in hours. Set e.g. `/data/beast.jsonl` to enable. |
 | `BEAST_ROTATE`        | `daily`             | `none`, `hourly`, or `daily`.                                  |
 | `BEAST_ROTATE_KEEP`   | `14`                | How many rotated log files to keep.                            |
 | `BEAST_STDOUT`        | `0`                 | Also print messages to the container log (for debugging).      |
@@ -528,7 +532,9 @@ notification tokens, the contents of your watchlist.
 
 ## The log file
 
-Each line is one Mode S / Mode AC message:
+Per-message JSONL logging is opt-in. Set `BEAST_OUTFILE=/data/beast.jsonl`
+to enable it; the default is off because at busy receivers the writer can
+fill hundreds of MB / hour. Each line is one Mode S / Mode AC message:
 
 ```json
 {"ts_rx":"2026-04-18T10:15:22.413291+00:00","mlat_ticks":127548213984,"type":"mode_s_long","signal":184,"hex":"8d4ca2d158c901a0c0b8a0cbd1e7","decoded":{"df":17,"icao":"4CA2D1","typecode":11,"altitude":35000}}
@@ -545,8 +551,8 @@ log only the raw envelope.
 `.YYYYMMDD-HH`), or `daily` (rotates at UTC midnight, suffix
 `.YYYYMMDD`). `BEAST_ROTATE_KEEP` caps how many rotated files to
 retain. Set `BEAST_STDOUT=1` to mirror every line to stdout (useful
-for piping into another tool); set `BEAST_OUTFILE=""` to disable
-file logging entirely.
+for piping into another tool); leave `BEAST_OUTFILE` unset to keep
+file logging off.
 
 A couple of `jq` one-liners to get you started:
 

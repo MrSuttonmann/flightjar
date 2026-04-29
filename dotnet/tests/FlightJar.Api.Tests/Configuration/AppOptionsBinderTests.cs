@@ -15,6 +15,9 @@ public class AppOptionsBinderTests
         Assert.Null(cfg.LonRef);
         Assert.Equal(0.0, cfg.ReceiverAnonKm);
         Assert.Null(cfg.SiteName);
+        // BEAST_OUTFILE defaults to empty (off): per-message JSONL logging
+        // is opt-in because it can fill a small disk in hours of urban traffic.
+        Assert.Equal("", cfg.JsonlPath);
         Assert.Equal(JsonlRotateMode.Daily, cfg.JsonlRotate);
         Assert.Equal(14, cfg.JsonlKeep);
         Assert.False(cfg.JsonlStdout);
