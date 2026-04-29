@@ -51,6 +51,24 @@ function helpIcon(text) {
     `</svg></span>`;
 }
 
+// Chip label + tooltip per snapshot `position_source`. Direct ADS-B
+// has no chip (the absence is itself the signal), so it isn't keyed
+// here; any other value falls through to the chip-hidden branch.
+const POSITION_SOURCE_LABELS = {
+  mlat: {
+    text: 'MLAT',
+    tooltip: 'Position computed by an mlat-server from time-difference-of-arrival across multiple receivers, not broadcast directly by the aircraft.',
+  },
+  tisb: {
+    text: 'TIS-B',
+    tooltip: 'Traffic Information Service-Broadcast: a ground station is rebroadcasting this aircraft’s position from a non-ADS-B radar track.',
+  },
+  adsr: {
+    text: 'ADS-R',
+    tooltip: 'ADS-B Rebroadcast: a ground station is forwarding this aircraft’s ADS-B position onto a different frequency.',
+  },
+};
+
 // Copy each metric's help text here so the strings stay next to each
 // other and are easy to tune. Labels match the `.label` text exactly.
 const METRIC_HELP = {
@@ -154,6 +172,7 @@ export function buildPopupContent(a, now, airports) {
         `<span class="pop-emergency"></span>` +
         `<span class="pop-ground" hidden>ON GROUND</span>` +
         `<span class="pop-signal-lost" hidden>SIGNAL LOST</span>` +
+        `<span class="pop-pos-source" hidden></span>` +
         `<span class="pop-notable" hidden></span>` +
         `<span class="pop-mil mil-chip" hidden>MIL</span>` +
         `<span class="pop-first-today" hidden title="First contact today">🌅 First today</span>` +
@@ -353,6 +372,18 @@ export function updatePopupContent(root, a, now, airports) {
   }
   q('.pop-ground').hidden = !a.on_ground;
   q('.pop-signal-lost').hidden = !a.lost;
+  // Position-source chip — only shown when the fix isn't direct ADS-B.
+  // Label + tooltip vary by source so users can tell mlat-server output
+  // (MLAT) from a ground-station rebroadcast (TIS-B / ADS-R).
+  const posSrc = q('.pop-pos-source');
+  const sourceLabel = POSITION_SOURCE_LABELS[a.position_source];
+  if (sourceLabel) {
+    posSrc.textContent = sourceLabel.text;
+    posSrc.title = sourceLabel.tooltip;
+    posSrc.hidden = false;
+  } else {
+    posSrc.hidden = true;
+  }
   const notableChip = q('.pop-notable');
   const notableHit = isNotable(a.icao, a.callsign);
   if (notableHit) {
@@ -835,7 +866,8 @@ export function openDetailPanel(icao) {
   state.appEl.classList.add('panel-open');
   if (entry) {
     entry.marker.setIcon(
-      planeIcon(a.track, altColor(a.altitude), true, !!a.emergency, a.type_icao),
+      planeIcon(a.track, altColor(a.altitude), true, !!a.emergency,
+        !!a.position_source && a.position_source !== 'adsb', a.type_icao),
     );
   }
   document.querySelectorAll('.ac-item').forEach(el => {
@@ -874,7 +906,8 @@ export function closeDetailPanel() {
     } else {
       const a = entry.data;
       entry.marker.setIcon(
-        planeIcon(a.track, altColor(a.altitude), false, !!a.emergency, a.type_icao),
+        planeIcon(a.track, altColor(a.altitude), false, !!a.emergency,
+          !!a.position_source && a.position_source !== 'adsb', a.type_icao),
       );
     }
   }

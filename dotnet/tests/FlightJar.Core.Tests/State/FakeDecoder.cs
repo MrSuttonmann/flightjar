@@ -118,6 +118,58 @@ internal static class FakeDecoder
             SelectedAltitudeMcpFt = 36000,
             QnhHpa = 1013.0,
         },
+        // DF18 CF=2 airborne baro position — mlat-client output, tagged MLAT.
+        ["MLAT"] = new()
+        {
+            Df = 18,
+            CrcValid = true,
+            Icao = "abc123",
+            Cf = 2,
+            Typecode = 11,
+            Altitude = 12000,
+            CprFormat = 0,
+            CprLat = 0,
+            CprLon = 0,
+        },
+        // DF18 CF=0 airborne position — direct ADS-B from a non-transponder device.
+        ["ADSB"] = new()
+        {
+            Df = 18,
+            CrcValid = true,
+            Icao = "abc123",
+            Cf = 0,
+            Typecode = 11,
+            Altitude = 12000,
+            CprFormat = 0,
+            CprLat = 0,
+            CprLon = 0,
+        },
+        // DF18 CF=3 airborne position — coarse-format TIS-B (FAA ground rebroadcast).
+        ["TISB"] = new()
+        {
+            Df = 18,
+            CrcValid = true,
+            Icao = "abc123",
+            Cf = 3,
+            Typecode = 11,
+            Altitude = 12000,
+            CprFormat = 0,
+            CprLat = 0,
+            CprLon = 0,
+        },
+        // DF18 CF=6 airborne position — ADS-R rebroadcast.
+        ["ADSR"] = new()
+        {
+            Df = 18,
+            CrcValid = true,
+            Icao = "abc123",
+            Cf = 6,
+            Typecode = 11,
+            Altitude = 12000,
+            CprFormat = 0,
+            CprLat = 0,
+            CprLon = 0,
+        },
         // DF17 with bad CRC — should be dropped
         ["BAD1"] = new() { Df = 17, CrcValid = false, Icao = "aaa111", Typecode = 1 },
         // DF11 all-call with only ICAO — should not pass the snapshot "nothing interesting" filter

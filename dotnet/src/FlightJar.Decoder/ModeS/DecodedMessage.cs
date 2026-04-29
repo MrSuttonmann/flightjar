@@ -12,6 +12,13 @@ public sealed record DecodedMessage
     /// <summary>Only meaningful for DF17/18. Defaults to true for surveillance DFs.</summary>
     public bool CrcValid { get; init; } = true;
 
+    /// <summary>DF18 control field (3 bits, message bits 5-7). Null for DF17
+    /// and non-ADS-B DFs. CF 0/1 = ADS-B from non-transponder devices;
+    /// CF 2 = mlat-client / fine TIS-B; CF 3 = coarse TIS-B; CF 6 = ADS-R
+    /// rebroadcast; CF 4/5/7 = reserved / management. The state layer maps
+    /// these to a <c>PositionSource</c> when a fix is accepted.</summary>
+    public int? Cf { get; init; }
+
     public int? Typecode { get; init; }
 
     // Identification (TC 1-4)

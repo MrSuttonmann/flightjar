@@ -27,6 +27,12 @@ public sealed class Aircraft
     public double FirstSeen { get; set; }
     public long? LastSeenMlat { get; set; }
 
+    /// <summary>Source of the most recent accepted position fix. Null until
+    /// a position has been accepted; otherwise reflects the latest fix's
+    /// originating message type (DF17 / direct DF18 → ADS-B; mlat-client and
+    /// TIS-B / ADS-R DF18 variants → MLAT).</summary>
+    public PositionSource? PositionSource { get; set; }
+
     // CPR pair state for global airborne decode. We store the raw 17-bit
     // lat/lon fields (already extracted by the decoder) rather than the
     // full hex message — avoids re-decoding on pair decode.

@@ -221,6 +221,15 @@
     background: #4a1818; color: #fecaca; letter-spacing: 0.5px;
     font-weight: 600;
   }
+  /* Position-source chip — only shown when the fix isn't direct ADS-B.
+     Label varies (MLAT / TIS-B / ADS-R) per snapshot.position_source.
+     Amber matches the dashed marker stroke. */
+  .pop-pos-source {
+    font-size: 9px; padding: 1px 5px; border-radius: 3px;
+    background: rgba(250, 204, 21, 0.16); color: #fbbf24;
+    border: 1px solid rgba(250, 204, 21, 0.45);
+    letter-spacing: 0.5px; font-weight: 600;
+  }
   /* Map markers for aircraft whose signal dropped. Desaturated + dimmed
      so they visibly recede while the panel's still keeping their state
      around. */

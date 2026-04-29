@@ -77,6 +77,11 @@ public sealed record SnapshotAircraft
     public double? Lon { get; init; }
     public bool PositionStale { get; init; }
 
+    /// <summary>Origin of the most recent accepted position fix —
+    /// <c>"adsb"</c> (direct broadcast) or <c>"mlat"</c> (computed by ground
+    /// stations and relayed). Null until any position has been seen.</summary>
+    public PositionSource? PositionSource { get; init; }
+
     public int? Altitude { get; init; }
     public int? AltitudeBaro { get; init; }
     public int? AltitudeGeo { get; init; }
