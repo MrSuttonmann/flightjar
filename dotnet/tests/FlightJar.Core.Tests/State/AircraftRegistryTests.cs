@@ -79,6 +79,64 @@ public class AircraftRegistryTests
     }
 
     [Fact]
+    public void DirectAdsbPosition_TagsSourceAsAdsb()
+    {
+        var reg = MakeRegistry();
+        reg.Ingest("AP01xxxx", now: 10.0);
+        var snap = reg.Snapshot(now: 10.1);
+        Assert.Equal(PositionSource.Adsb, reg.Aircraft["abc123"].PositionSource);
+        Assert.Equal(PositionSource.Adsb, snap.Aircraft[0].PositionSource);
+    }
+
+    [Fact]
+    public void MlatTaggedPosition_TagsSourceAsMlat()
+    {
+        var reg = MakeRegistry();
+        reg.Ingest("MLATxxxx", now: 10.0);
+        var snap = reg.Snapshot(now: 10.1);
+        Assert.Equal(PositionSource.Mlat, reg.Aircraft["abc123"].PositionSource);
+        Assert.Equal(PositionSource.Mlat, snap.Aircraft[0].PositionSource);
+    }
+
+    [Fact]
+    public void Df18CfDirect_TagsSourceAsAdsb()
+    {
+        // DF18 CF=0 is direct ADS-B from a non-transponder device, not MLAT.
+        var reg = MakeRegistry();
+        reg.Ingest("ADSBxxxx", now: 10.0);
+        Assert.Equal(PositionSource.Adsb, reg.Aircraft["abc123"].PositionSource);
+    }
+
+    [Fact]
+    public void TisbPosition_TagsSourceAsTisb()
+    {
+        var reg = MakeRegistry();
+        reg.Ingest("TISBxxxx", now: 10.0);
+        Assert.Equal(PositionSource.Tisb, reg.Aircraft["abc123"].PositionSource);
+    }
+
+    [Fact]
+    public void AdsrPosition_TagsSourceAsAdsr()
+    {
+        var reg = MakeRegistry();
+        reg.Ingest("ADSRxxxx", now: 10.0);
+        Assert.Equal(PositionSource.Adsr, reg.Aircraft["abc123"].PositionSource);
+    }
+
+    [Fact]
+    public void PositionSource_TracksLatestFix()
+    {
+        // Real-world case: a hybrid aircraft heard via MLAT first, then drops into
+        // ADS-B coverage. The tag must follow the most recent fix so the marker
+        // styling reflects current reality.
+        var reg = MakeRegistry();
+        reg.Ingest("MLATxxxx", now: 10.0);
+        Assert.Equal(PositionSource.Mlat, reg.Aircraft["abc123"].PositionSource);
+        reg.Ingest("AP01xxxx", now: 10.1);
+        Assert.Equal(PositionSource.Adsb, reg.Aircraft["abc123"].PositionSource);
+    }
+
+    [Fact]
     public void Snapshot_SkipsAircraftWithOnlyIcao()
     {
         var reg = MakeRegistry();

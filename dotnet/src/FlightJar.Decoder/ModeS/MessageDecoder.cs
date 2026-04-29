@@ -57,11 +57,18 @@ public static class MessageDecoder
         }
         var crcValid = ModeS.CrcValid(msg);
         var icao = ModeS.Icao(msg);
+        // CF (control field) lives at message bits 5-7, just after the 5-bit DF.
+        // Only meaningful for DF18; the registry maps CF to the
+        // PositionSource (mlat / tisb / adsr) when a fix is accepted.
+        int? cf = df == 18
+            ? (int)ModeSBits.ExtractUnsigned(msg.Bits, 5, 3, msg.TotalBits)
+            : null;
         return new DecodedMessage
         {
             Df = df,
             Icao = icao,
             CrcValid = crcValid,
+            Cf = cf,
             Typecode = adsb.Typecode,
             Callsign = adsb.Callsign,
             Category = adsb.Category,

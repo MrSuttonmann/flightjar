@@ -314,6 +314,102 @@ test('detail panel renders Enhanced Mode S section when comm_b is present', asyn
   expect(labels.some((l) => l.startsWith('Mach'))).toBe(true);
 });
 
+test('mlat-tagged aircraft draw a dashed marker stroke', async ({ page }) => {
+  // Inject an MLAT plane WITHOUT opening the detail panel: selection
+  // overrides the MLAT stroke (white outline wins over amber dashes),
+  // so this test specifically covers the unselected-on-the-map view.
+  const mlatSnap = {
+    ...FAKE_SNAPSHOT,
+    aircraft: [{ ...FAKE_AIRCRAFT, position_source: 'mlat' }],
+  };
+  await page.evaluate(async (snap) => {
+    const uMod = await import('/static/update_loop.js');
+    uMod.update(snap);
+  }, mlatSnap);
+  await page.waitForTimeout(150);
+
+  const probe = await page.evaluate(() => {
+    const markerSvg = document.querySelector('.leaflet-marker-icon svg path');
+    return {
+      hasDash: markerSvg?.hasAttribute('stroke-dasharray'),
+      stroke: markerSvg?.getAttribute('stroke'),
+    };
+  });
+  expect(probe.hasDash, JSON.stringify(probe)).toBe(true);
+  expect(probe.stroke, JSON.stringify(probe)).toBe('#facc15');
+});
+
+// One assertion harness, parameterised across the three relayed source
+// types — keeps each branch covered in-browser without spawning three
+// near-identical tests.
+async function assertPositionChip(page, source, expectedText) {
+  const snap = {
+    ...FAKE_SNAPSHOT,
+    aircraft: [{ ...FAKE_AIRCRAFT, position_source: source }],
+  };
+  await page.evaluate(async (snap) => {
+    const [uMod, m] = await Promise.all([
+      import('/static/update_loop.js'),
+      import('/static/detail_panel.js'),
+    ]);
+    uMod.update(snap);
+    m.openDetailPanel('a12345');
+  }, snap);
+  await page.waitForTimeout(300);
+  const probe = await page.evaluate(() => {
+    const chip = document.querySelector('.pop-pos-source');
+    return {
+      exists: !!chip,
+      hidden: chip?.hidden,
+      text: chip?.textContent,
+      title: chip?.title,
+    };
+  });
+  expect(probe.exists, JSON.stringify(probe)).toBe(true);
+  expect(probe.hidden, JSON.stringify(probe)).toBe(false);
+  expect(probe.text).toBe(expectedText);
+  expect(probe.title?.length, JSON.stringify(probe)).toBeGreaterThan(0);
+}
+
+test('mlat-tagged aircraft show the MLAT chip in the detail panel', async ({ page }) => {
+  await assertPositionChip(page, 'mlat', 'MLAT');
+});
+
+test('tisb-tagged aircraft show the TIS-B chip in the detail panel', async ({ page }) => {
+  await assertPositionChip(page, 'tisb', 'TIS-B');
+});
+
+test('adsr-tagged aircraft show the ADS-R chip in the detail panel', async ({ page }) => {
+  await assertPositionChip(page, 'adsr', 'ADS-R');
+});
+
+test('adsb-tagged aircraft hide the position-source chip and draw a solid marker', async ({ page }) => {
+  const adsbSnap = {
+    ...FAKE_SNAPSHOT,
+    aircraft: [{ ...FAKE_AIRCRAFT, position_source: 'adsb' }],
+  };
+  await page.evaluate(async (snap) => {
+    const [uMod, m] = await Promise.all([
+      import('/static/update_loop.js'),
+      import('/static/detail_panel.js'),
+    ]);
+    uMod.update(snap);
+    m.openDetailPanel('a12345');
+  }, adsbSnap);
+  await page.waitForTimeout(300);
+
+  const probe = await page.evaluate(() => {
+    const chip = document.querySelector('.pop-pos-source');
+    const markerSvg = document.querySelector('.leaflet-marker-icon svg path');
+    return {
+      chipHidden: chip?.hidden,
+      markerHasDash: markerSvg?.hasAttribute('stroke-dasharray'),
+    };
+  });
+  expect(probe.chipHidden, JSON.stringify(probe)).toBe(true);
+  expect(probe.markerHasDash, JSON.stringify(probe)).toBe(false);
+});
+
 test('detail panel metric labels carry help icons with explanations', async ({ page }) => {
   // Open the panel for a plain aircraft (no comm_b needed — every
   // .panel-meta tile should have a help icon regardless of the data).

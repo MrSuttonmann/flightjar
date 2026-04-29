@@ -599,6 +599,23 @@ the most recent message — which is useful for sub-second timing between
 packets from the same receiver. (It isn't synchronised across receivers,
 so don't mix sources.)
 
+Each positioned aircraft has a `position_source` field, derived from the
+ADS-B downlink format and DF18 control field:
+
+- `"adsb"` — direct broadcast from the aircraft (DF17, or DF18 CF 0/1
+  from a non-transponder ADS-B-out device)
+- `"mlat"` — position computed by an mlat-server from time-difference-
+  of-arrival across receivers (DF18 CF 2)
+- `"tisb"` — Traffic Information Service-Broadcast: a ground station
+  is rebroadcasting a non-ADS-B radar track (DF18 CF 3, plus the rare
+  reserved CFs)
+- `"adsr"` — ADS-B Rebroadcast: a ground station is forwarding an
+  ADS-B position onto a different frequency (DF18 CF 6)
+
+The map draws every non-`adsb` source with a dashed amber outline; the
+detail panel shows a chip labelled `MLAT` / `TIS-B` / `ADS-R` so you
+can tell which mechanism produced the fix.
+
 Aircraft values are always returned in canonical units (feet, knots, ft/min)
 so any client can convert them as it likes. Each aircraft also carries a
 `distance_km` field computed against the displayed receiver position

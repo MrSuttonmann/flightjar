@@ -347,6 +347,7 @@ public class AircraftRegistry
         ac.Lat = newLat;
         ac.Lon = newLon;
         ac.LastPositionTime = now;
+        ac.PositionSource = ResolvePositionSource(r.Df, r.Cf);
 
         var rounded = new TrailPoint(
             Lat: Math.Round(newLat, 5),
@@ -365,6 +366,33 @@ public class AircraftRegistry
         {
             // Callback failures don't propagate — the feed must keep flowing.
         }
+    }
+
+    /// <summary>
+    /// Map a position-bearing message's downlink format and DF18 control
+    /// field to the user-visible position source. DF17 is always direct
+    /// ADS-B. DF18 fans out by CF: 0/1 = ADS-B from a non-transponder
+    /// device, 2 = mlat-client / fine-format TIS-B (we tag it MLAT —
+    /// real TIS-B on CF 2 is rare outside the US, and confusing the two
+    /// is preferable to losing the MLAT distinction every home feeder
+    /// cares about), 3 = coarse TIS-B, 6 = ADS-R rebroadcast. The
+    /// reserved / management CFs (4, 5, 7) almost never carry positions
+    /// and are bucketed with TIS-B so they don't masquerade as direct
+    /// ADS-B if one ever sneaks through.
+    /// </summary>
+    private static PositionSource ResolvePositionSource(int df, int? cf)
+    {
+        if (df == 17 || cf is null)
+        {
+            return PositionSource.Adsb;
+        }
+        return cf switch
+        {
+            0 or 1 => PositionSource.Adsb,
+            2 => PositionSource.Mlat,
+            6 => PositionSource.Adsr,
+            _ => PositionSource.Tisb,
+        };
     }
 
     /// <summary>
@@ -601,6 +629,7 @@ public class AircraftRegistry
                 Lat = dispLat,
                 Lon = dispLon,
                 PositionStale = positionStale,
+                PositionSource = ac.PositionSource,
                 Altitude = ac.Altitude,
                 AltitudeBaro = ac.AltitudeBaro,
                 AltitudeGeo = ac.AltitudeGeo,
