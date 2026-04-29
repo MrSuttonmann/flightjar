@@ -17,7 +17,11 @@ public sealed record AppOptions
     public double ReceiverAnonKm { get; init; }
     public string? SiteName { get; init; }
 
-    public string JsonlPath { get; init; } = "/data/beast.jsonl";
+    /// <summary>Per-message JSONL log path. Empty (the default) disables
+    /// file logging entirely — at typical urban traffic the writer
+    /// produces hundreds of MB per day and can fill a small disk in
+    /// hours. Set <c>BEAST_OUTFILE=/data/beast.jsonl</c> to opt in.</summary>
+    public string JsonlPath { get; init; } = "";
     public JsonlRotateMode JsonlRotate { get; init; } = JsonlRotateMode.Daily;
     public int JsonlKeep { get; init; } = 14;
     public bool JsonlStdout { get; init; }

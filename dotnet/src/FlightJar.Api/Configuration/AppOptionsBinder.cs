@@ -98,7 +98,7 @@ public static class AppOptionsBinder
             LonRef = FloatOptional(get, "LON_REF"),
             ReceiverAnonKm = FloatOptional(get, "RECEIVER_ANON_KM") ?? 0.0,
             SiteName = NullIfEmpty(Str(get, "SITE_NAME", "")),
-            JsonlPath = Str(get, "BEAST_OUTFILE", "/data/beast.jsonl"),
+            JsonlPath = Str(get, "BEAST_OUTFILE", ""),
             JsonlRotate = rotate,
             JsonlKeep = keep,
             JsonlStdout = Bool(get, "BEAST_STDOUT", false),
