@@ -382,6 +382,22 @@ if (staticRoot is not null)
         ctx.Response.Headers.CacheControl = "no-cache";
         return Results.Content(renderedIndex, "text/html; charset=utf-8");
     });
+
+    // Service worker must be served from the root path so its scope covers
+    // the whole app. The file lives under /static/ but browsers restrict a
+    // SW's scope to the directory it's served from, so we expose it at /sw.js
+    // with Service-Worker-Allowed: / to explicitly extend that scope.
+    var swPath = Path.Combine(staticRoot, "sw.js");
+    app.MapGet("/sw.js", (HttpContext ctx) =>
+    {
+        if (!File.Exists(swPath))
+        {
+            return Results.NotFound();
+        }
+        ctx.Response.Headers.CacheControl = "no-cache";
+        ctx.Response.Headers.Append("Service-Worker-Allowed", "/");
+        return Results.File(swPath, "application/javascript; charset=utf-8");
+    });
 }
 
 // ----- Endpoint groups (live in FlightJar.Api/Endpoints/) -----
