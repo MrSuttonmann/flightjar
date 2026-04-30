@@ -1,0 +1,19 @@
+{
+  "name": "Flightjar",
+  "short_name": "Flightjar",
+  "description": "Live ADS-B aircraft map and tracker",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0e1116",
+  "theme_color": "#161a22",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/static/icons/icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["navigation", "utilities"]
+}
