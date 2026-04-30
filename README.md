@@ -394,6 +394,57 @@ or your own tooling.
 Browser notifications (while a tab is open) still fire alongside; the
 Alerts channels are what keep working once every tab is closed.
 
+## P2P federation
+
+Flightjar instances can pool what they see — each one pushes its
+locally decoded aircraft to a small community relay
+(`wss://relay.flightjar.xyz/ws`, hosted on Cloudflare Workers) and
+receives the aggregated feed from every other connected instance.
+Aircraft from peers appear on your map alongside the ones your own
+receiver picked up, with a dashed indigo outline and a "Network" badge
+in the detail panel so the source is always visible. A "Peers" chip
+in the sidebar filter bar toggles them on or off.
+
+**Enabled by default.** No env var, no compose tweaks — fresh installs
+participate out of the box. To turn it off, open the **About** dialog
+from the sidebar footer and uncheck "Enable P2P federation". The
+choice is persisted to `/data/p2p.json` and survives restarts.
+
+**What's shared, and what isn't.** Each instance sanitises its
+outbound payload before it leaves the container:
+
+- **Stripped:** `receiver.lat` / `receiver.lon` (your exact
+  coordinates), per-aircraft `distance_km` (which would let observers
+  back-solve your location), and `site_name` (unless you opt in via
+  the second checkbox in the About dialog).
+- **Kept:** aircraft ICAO24, lat / lon, callsign, altitude, speed,
+  track, squawk, trail, and the usual enrichment fields (registration,
+  type, operator, route). All of this is derived from public ADS-B
+  broadcasts that anyone in radio range of the aircraft can already
+  pick up.
+
+You can inspect exactly what your instance is sharing with the relay
+by opening `ws://<host>:8080/p2p/ws` in a WebSocket client — the
+endpoint streams the same sanitised payload the relay client pushes.
+`receiver` will be `null` and no aircraft will carry a `distance_km`.
+
+**Self-hosting the relay.** If you'd rather run your own relay (e.g. a
+private federation between a small group of receivers), the worker
+source lives in `relay-worker/` — `wrangler deploy` from that
+directory ships it to Cloudflare Workers under your own account.
+Three optional env vars on the Flightjar instance redirect it:
+
+| Var | Default | Purpose |
+|-----|---------|---------|
+| `P2P_RELAY_URL` | `wss://relay.flightjar.xyz/ws` | Override the relay WebSocket URL. |
+| `P2P_RELAY_TOKEN` | (unset) | Bearer token for a private/auth-gated relay. |
+| `P2P_PUSH_INTERVAL_S` | `5` | Seconds between sanitised snapshot pushes. |
+
+The community relay accepts unauthenticated connections; the token is
+only needed when pointing at a private relay configured with
+`RELAY_TOKEN`. The on/off switch is **not** an env var — it's
+UI-managed at `/api/p2p/config`.
+
 ## Running multiple receivers
 
 If you run Flightjar on more than one machine (or want to tell staging apart

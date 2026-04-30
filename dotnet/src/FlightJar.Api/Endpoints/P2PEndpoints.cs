@@ -2,16 +2,22 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using FlightJar.Api.Auth;
 using FlightJar.Api.Hosting;
 using FlightJar.Core.State;
+using FlightJar.Persistence.P2P;
 
 namespace FlightJar.Api.Endpoints;
 
 /// <summary>
 /// P2P federation endpoints.
-/// <c>/p2p/ws</c> — WebSocket stream of sanitised snapshots (receiver lat/lon
-/// and per-aircraft distance stripped). Useful for direct same-LAN peer
-/// connections and for inspecting what this instance is sharing with the relay.
+/// <list type="bullet">
+/// <item><c>GET/POST /api/p2p/config</c> — UI-toggleable on/off and
+/// share-site-name. Default: enabled.</item>
+/// <item><c>/p2p/ws</c> — WebSocket stream of sanitised snapshots (receiver
+/// lat/lon and per-aircraft distance stripped). Useful for direct same-LAN
+/// peer connections and for inspecting what this instance is sharing.</item>
+/// </list>
 /// </summary>
 internal static class P2PEndpoints
 {
@@ -24,6 +30,46 @@ internal static class P2PEndpoints
 
     public static IEndpointRouteBuilder MapP2PEndpoints(this IEndpointRouteBuilder app)
     {
+        app.MapGet("/api/p2p/config", (P2PConfigStore store) =>
+        {
+            var cfg = store.Current;
+            return Results.Json(new
+            {
+                version = P2PConfigStore.SchemaVersion,
+                enabled = cfg.Enabled,
+                share_site_name = cfg.ShareSiteName,
+            });
+        }).RequireAuthSession();
+
+        app.MapPost("/api/p2p/config", async (HttpContext ctx, P2PConfigStore store) =>
+        {
+            P2PConfigPayload? payload;
+            try
+            {
+                payload = await JsonSerializer.DeserializeAsync<P2PConfigPayload>(
+                    ctx.Request.Body, _jsonOpts, ctx.RequestAborted);
+            }
+            catch (JsonException)
+            {
+                return Results.BadRequest(new { error = "expected {enabled?: bool, share_site_name?: bool}" });
+            }
+            if (payload is null)
+            {
+                return Results.BadRequest(new { error = "empty body" });
+            }
+            var current = store.Current;
+            var updated = store.Replace(new P2PConfig
+            {
+                Enabled = payload.Enabled ?? current.Enabled,
+                ShareSiteName = payload.ShareSiteName ?? current.ShareSiteName,
+            });
+            return Results.Json(new
+            {
+                enabled = updated.Enabled,
+                share_site_name = updated.ShareSiteName,
+            });
+        }).RequireAuthSession();
+
         app.Map("/p2p/ws", async (
             HttpContext ctx,
             SnapshotBroadcaster broadcaster,
@@ -92,4 +138,6 @@ internal static class P2PEndpoints
         var bytes = Encoding.UTF8.GetBytes(payload);
         await socket.SendAsync(bytes, WebSocketMessageType.Text, endOfMessage: true, ct);
     }
+
+    private sealed record P2PConfigPayload(bool? Enabled, bool? ShareSiteName);
 }

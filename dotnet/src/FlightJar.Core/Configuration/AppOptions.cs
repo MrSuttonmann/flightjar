@@ -103,14 +103,13 @@ public sealed record AppOptions
     /// callers can't read your bot tokens or scrape your watchlist.</summary>
     public string Password { get; init; } = "";
 
-    // P2P relay federation
+    // P2P relay federation. The on/off switch and share-site-name toggle
+    // are UI-managed, persisted in /data/p2p.json — see P2PConfigStore.
+    // The relay URL + bearer token + push interval stay env-only because
+    // they're advanced (self-hosted relay, private federation).
     /// <summary>Default community relay. Set <c>P2P_RELAY_URL</c> to override
     /// with a self-hosted relay.</summary>
     public const string DefaultRelayUrl = "wss://relay.flightjar.xyz/ws";
-
-    /// <summary>Opt-in toggle. When true, this instance connects to
-    /// <see cref="P2PRelayUrl"/> and participates in the community feed.</summary>
-    public bool P2PEnabled { get; init; }
 
     /// <summary>Relay WebSocket URL. Defaults to the community relay when
     /// <c>P2P_RELAY_URL</c> is not set.</summary>
@@ -122,8 +121,4 @@ public sealed record AppOptions
 
     /// <summary>How often (seconds) to push a sanitised snapshot to the relay.</summary>
     public double P2PPushIntervalS { get; init; } = 5.0;
-
-    /// <summary>Include <c>site_name</c> in the outbound P2P snapshot.
-    /// Defaults to false to avoid identifying the receiver's location.</summary>
-    public bool P2PShareSiteName { get; init; }
 }

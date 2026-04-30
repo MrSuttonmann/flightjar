@@ -59,6 +59,7 @@ dotnet/                 # Backend solution
   Dockerfile                  # Multi-stage build, produces the flightjar image
 app/
   static/                     # Leaflet frontend — ES modules, served verbatim
+relay-worker/                 # Cloudflare Worker + Durable Object — P2P relay (TS)
 scripts/
   fetch_plane_shapes.py       # Build-time utility: generates app/static/tar1090_shapes.js
 tests/
@@ -157,6 +158,14 @@ locks.
 - `GET /api/notifications/config` / `POST /api/notifications/config` /
   `POST /api/notifications/test/{channel_id}` — CRUD + test for the
   UI-managed notification channels.
+- `GET /api/p2p/config` / `POST /api/p2p/config` — UI-managed P2P
+  federation toggles (`enabled`, `share_site_name`). Both gated by
+  `RequireAuthSession()` so a public-internet instance can't have its
+  federation flipped by random visitors. The relay client reads the
+  store on each loop iteration; toggles take effect immediately.
+- `WS /p2p/ws` — sanitised snapshot stream (receiver coords + per-aircraft
+  `distance_km` stripped). Useful for inspecting what the instance is
+  sharing and for direct same-LAN peer connections.
 - `GET /api/stats`, `GET /healthz`, `GET /metrics` — observability.
 - `WS /ws` — live snapshots, one per `SnapshotInterval`.
 
@@ -366,6 +375,39 @@ Reference-data loaders live under `FlightJar.Core.ReferenceData`:
 - **`AirlinesDb`** — OpenFlights `airlines.dat`; callsign prefix → IATA
   + airline + alliance. Hand-curated Star / oneworld / SkyTeam dict.
 
+### P2P federation
+
+Three moving parts split across the .NET service and a separate
+Cloudflare Worker:
+
+- **`P2PConfigStore`** (`FlightJar.Persistence.P2P`) — UI-managed
+  on/off + share-site-name toggles. Persisted to `/data/p2p.json`
+  (atomic write-to-temp + rename). Defaults `enabled=true`,
+  `share_site_name=false` — federation is on out of the box.
+  Exposes a `Changed` event the background service hooks into.
+- **`P2PRelayClientService : BackgroundService`** — always
+  registered. Outer loop consults `P2PConfigStore.Current.Enabled`;
+  when disabled it parks on a `TaskCompletionSource` until the
+  store fires `Changed`, when re-enabled it dials the relay. Mid-
+  connection toggles cancel the live `ClientWebSocket` via the
+  registered `_connectionCts`. Push side: `PeriodicTimer` at
+  `P2PPushIntervalS` builds a sanitised payload (receiver coords
+  nulled, per-aircraft `distance_km` cleared, `Peer==true` aircraft
+  skipped to avoid echoing). Receive side: deserialises `aggregate`
+  messages into `PeerAircraftCache` for `RegistryWorker` to merge
+  on the next tick.
+- **`relay-worker/`** — Cloudflare Worker + Durable Object (TS).
+  `acceptWebSocket()` for hibernation; `alarm()` broadcasts every
+  5 s and re-arms itself; aggregate Map keyed on lowercase ICAO24,
+  evicts entries older than 65 s. Free-plan compatible — uses
+  `new_sqlite_classes` migration.
+
+The relay URL, bearer token, and push interval are env-only
+(`P2P_RELAY_URL`, `P2P_RELAY_TOKEN`, `P2P_PUSH_INTERVAL_S`) — those
+are the advanced "self-hosted relay" knobs. Everything user-facing
+goes through `GET/POST /api/p2p/config`, both auth-gated by
+`RequireAuthSession()`.
+
 ### Watchlist + alerts
 
 Four modules form the alert pipeline:
@@ -411,12 +453,16 @@ Handled in `FlightJar.Api.Configuration.AppOptionsBinder` against the
 `BLACKSPOTS_ENABLED`, `BLACKSPOTS_ANTENNA_AGL_M`,
 `BLACKSPOTS_ANTENNA_MSL_M` (optional override; preferred when known),
 `BLACKSPOTS_RADIUS_KM`, `BLACKSPOTS_GRID_DEG`,
-`BLACKSPOTS_MAX_AGL_M`, `BLACKSPOTS_IDLE_TIMEOUT_MIN`, `TERRAIN_CACHE_DIR`. Target altitude is UI-only
-(slider on the map), not env-driven. The README has the full reference
-table.
+`BLACKSPOTS_MAX_AGL_M`, `BLACKSPOTS_IDLE_TIMEOUT_MIN`, `TERRAIN_CACHE_DIR`,
+`P2P_RELAY_URL`, `P2P_RELAY_TOKEN`, `P2P_PUSH_INTERVAL_S`.
+Target altitude is UI-only (slider on the map), not env-driven. The
+README has the full reference table.
 
 Notification channels are **not** env-driven — they're user-managed via
-the Alerts dialog and persisted to `/data/notifications.json`.
+the Alerts dialog and persisted to `/data/notifications.json`. P2P
+federation on/off and `share_site_name` are likewise UI-managed (About
+dialog) and persisted to `/data/p2p.json` — the env vars listed above
+only override the relay URL / token / push interval.
 
 ### External data sources
 
@@ -444,6 +490,7 @@ throughput ceiling on CI and build boxes):
 | `heatmap.json` | `TrafficHeatmap` | 7×24 weekday/hour grid. |
 | `watchlist.json` | `WatchlistStore` | Watchlist of ICAO24 hex codes + last-seen map. |
 | `notifications.json` | `NotificationsConfigStore` | UI-managed alert channels. |
+| `p2p.json` | `P2PConfigStore` | UI-managed P2P federation on/off + share-site-name (schema v1). Default on first run: `enabled=true`, `share_site_name=false`. |
 | `vfrmap_cycle.json` | `VfrmapCycle` | Auto-discovered FAA chart cycle date. |
 | `openaip.json.gz` | `OpenAipClient` | Cached OpenAIP airspaces / obstacles / reporting points per 2° bbox tile (schema v1, 7-day TTL). |
 | `blackspots.json.gz` | `BlackspotsGrid` | Precomputed terrain-shadow grid: blocked cells + required antenna height per cell (schema v1). Recomputed when receiver params change. |
