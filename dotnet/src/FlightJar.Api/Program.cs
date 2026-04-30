@@ -123,6 +123,11 @@ builder.Services.AddSingleton(sp =>
 builder.Services.AddSingleton<CurrentSnapshot>();
 builder.Services.AddSingleton<SnapshotBroadcaster>();
 builder.Services.AddSingleton<BeastConnectionState>();
+builder.Services.AddSingleton<PeerAircraftCache>();
+if (options.P2PEnabled)
+{
+    builder.Services.AddHostedService<P2PRelayClientService>();
+}
 builder.Services.AddSingleton<IBeastConnectionState>(sp => sp.GetRequiredService<BeastConnectionState>());
 
 // Phase 4: watchlist + notifications + alerts.
@@ -412,6 +417,7 @@ app.MapAuthEndpoints();
 app.MapWatchlistEndpoints();
 app.MapNotificationsEndpoints();
 app.MapWsEndpoint();
+app.MapP2PEndpoints();
 
 app.Run();
 

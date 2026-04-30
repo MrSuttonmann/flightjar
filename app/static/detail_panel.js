@@ -175,6 +175,7 @@ export function buildPopupContent(a, now, airports) {
         `<span class="pop-pos-source" hidden></span>` +
         `<span class="pop-notable" hidden></span>` +
         `<span class="pop-mil mil-chip" hidden>MIL</span>` +
+        `<span class="pop-peer" hidden title="Seen by a peer receiver, not this station">Network</span>` +
         `<span class="pop-first-today" hidden title="First contact today">🌅 First today</span>` +
       `</div>` +
       `<div class="panel-subline pop-reg-line" hidden><span class="pop-reg"></span></div>` +
@@ -400,6 +401,7 @@ export function updatePopupContent(root, a, now, airports) {
   } else {
     milChip.hidden = true;
   }
+  q('.pop-peer').hidden = !a.peer;
   q('.pop-first-today').hidden = !(state.firstOfDayIcao && a.icao === state.firstOfDayIcao);
 
   // "Live" / "Last known" indicator above the telemetry grid. 5 s of

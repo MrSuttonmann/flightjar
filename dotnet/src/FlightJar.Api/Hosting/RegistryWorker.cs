@@ -36,6 +36,7 @@ public sealed class RegistryWorker : BackgroundService, IBeastFrameStats
     private readonly TelemetryAccumulator? _telemetry;
     private readonly RegistrySnapshotEnrichers _enrichers;
     private readonly RegistryStatsCollectors _stats;
+    private readonly PeerAircraftCache? _peerCache;
 
     // Convenience aliases — the original code referenced bare fields, so
     // forwarding through these keeps the body unchanged after the bundle.
@@ -81,7 +82,8 @@ public sealed class RegistryWorker : BackgroundService, IBeastFrameStats
         AlertWatcher? alerts = null,
         WatchlistStore? watchlist = null,
         StateSnapshotStore? statePersister = null,
-        TelemetryAccumulator? telemetry = null)
+        TelemetryAccumulator? telemetry = null,
+        PeerAircraftCache? peerCache = null)
     {
         _frames = frames;
         _registry = registry;
@@ -96,6 +98,7 @@ public sealed class RegistryWorker : BackgroundService, IBeastFrameStats
         _watchlist = watchlist;
         _statePersister = statePersister;
         _telemetry = telemetry;
+        _peerCache = peerCache;
 
         // Wire registry callbacks into stats collectors. These fire from within
         // Ingest() which runs on this worker's thread, so no locking needed.
@@ -196,6 +199,7 @@ public sealed class RegistryWorker : BackgroundService, IBeastFrameStats
         _registry.Cleanup(nowSec);
         var snap = _registry.Snapshot(nowSec);
         snap = EnrichSnapshot(snap) with { Frames = FrameCount };
+        snap = MergePeerAircraft(snap, nowSec);
         var json = JsonSerializer.Serialize(snap, _jsonOpts);
         _current.Set(snap, json);
         _broadcaster.Broadcast(json);
@@ -250,6 +254,38 @@ public sealed class RegistryWorker : BackgroundService, IBeastFrameStats
         {
             _ = _polarHeatmap.MaybePersistAsync(TimeSpan.FromSeconds(60));
         }
+    }
+
+    private RegistrySnapshot MergePeerAircraft(RegistrySnapshot snap, double nowSec)
+    {
+        if (_peerCache is null) return snap;
+        var peerAircraft = _peerCache.GetFresh(nowSec);
+        if (peerAircraft.Count == 0) return snap;
+
+        var localIcaos = new HashSet<string>(snap.Aircraft.Count, StringComparer.OrdinalIgnoreCase);
+        foreach (var ac in snap.Aircraft) localIcaos.Add(ac.Icao);
+
+        var added = new List<SnapshotAircraft>();
+        int addedPositioned = 0;
+        foreach (var ac in peerAircraft)
+        {
+            if (localIcaos.Contains(ac.Icao)) continue;
+            var peerAc = ac with { Peer = true };
+            added.Add(peerAc);
+            if (peerAc.Lat.HasValue) addedPositioned++;
+        }
+
+        if (added.Count == 0) return snap;
+
+        var merged = new List<SnapshotAircraft>(snap.Aircraft.Count + added.Count);
+        merged.AddRange(snap.Aircraft);
+        merged.AddRange(added);
+        return snap with
+        {
+            Aircraft = merged,
+            Count = snap.Count + added.Count,
+            Positioned = snap.Positioned + addedPositioned,
+        };
     }
 
     /// <summary>

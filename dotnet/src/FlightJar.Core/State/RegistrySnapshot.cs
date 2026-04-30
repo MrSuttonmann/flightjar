@@ -101,6 +101,11 @@ public sealed record SnapshotAircraft
 
     public double? DistanceKm { get; init; }
 
+    /// <summary>True when this aircraft was received from a P2P relay peer
+    /// rather than directly from the local BEAST feed. Null (omitted in JSON)
+    /// for locally-observed aircraft.</summary>
+    public bool? Peer { get; init; }
+
     // Enrichment fields populated by the snapshot pusher from the external
     // clients. Names match the wire schema the frontend reads directly:
     // `origin`, `destination`, `phase`, `operator`, `operator_iata`,

@@ -30,6 +30,26 @@ on:
         default: ""
 
 jobs:
+  # Detect which top-level areas changed so downstream jobs can skip
+  # expensive work (Docker build, Cloudflare deploy) when irrelevant.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.filter.outputs.app }}
+      relay: ${{ steps.filter.outputs.relay }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            app:
+              - 'dotnet/**'
+              - 'app/**'
+              - 'scripts/fetch_plane_shapes.py'
+            relay:
+              - 'relay-worker/**'
+
   check:
     runs-on: ubuntu-latest
     steps:
@@ -61,6 +81,10 @@ jobs:
 
       - name: Node tests (frontend modules)
         run: node --test tests/js/
+
+      - name: Relay worker type check
+        working-directory: relay-worker
+        run: npm install && npm run check
 
   e2e:
     # Playwright smoke suite against the real .NET backend in its
@@ -117,17 +141,16 @@ jobs:
           retention-days: 7
 
   publish:
-    # Only build + push the Docker image when:
-    #   - pushing to main (continuous deployment of :latest + git-<sha>),
-    #   - pushing a v* tag (pinned release like v1.2.3),
-    #   - or manually triggered (workflow_dispatch, with an optional extra tag).
-    # Pull-request builds stop at check + e2e — they never touch Docker Hub.
-    needs: [check, e2e]
+    # Build + push the Docker image only when application files changed
+    # (dotnet/, app/, fetch_plane_shapes.py). A relay-worker-only push
+    # skips this job and goes straight to deploy-relay instead.
+    needs: [check, e2e, changes]
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'push' &&
-        (github.ref == 'refs/heads/main' ||
-         startsWith(github.ref, 'refs/tags/v')))
+       needs.changes.outputs.app == 'true' &&
+       (github.ref == 'refs/heads/main' ||
+        startsWith(github.ref, 'refs/tags/v')))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -185,3 +208,31 @@ jobs:
             POSTHOG_API_KEY=${{ vars.POSTHOG_API_KEY }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  deploy-relay:
+    # Deploy the Cloudflare Worker relay when relay-worker/ files change.
+    # Gates on `check` so a TypeScript error blocks the deploy.
+    needs: [check, changes]
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' &&
+       needs.changes.outputs.relay == 'true' &&
+       github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        working-directory: relay-worker
+        run: npm install
+
+      - name: Deploy to Cloudflare Workers
+        working-directory: relay-worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy

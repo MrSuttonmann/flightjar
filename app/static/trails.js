@@ -289,7 +289,8 @@ export function applyTrailsVisibility() {
 // that newly meets/exits a filter via server data flips correctly).
 export function applyFilterVisibility() {
   const active = state.activeFilters;
-  if (active.size === 0) {
+  const selIcao = state.selectedIcao;
+  if (active.size === 0 && state.showPeer) {
     for (const entry of state.aircraft.values()) {
       if (entry.hiddenByFilter) {
         state.map.addLayer(entry.marker);
@@ -298,9 +299,10 @@ export function applyFilterVisibility() {
     }
     return;
   }
-  const selIcao = state.selectedIcao;
   for (const [icao, entry] of state.aircraft) {
-    const visible = icao === selIcao || matchesActiveFilters(entry.data);
+    const isPeer = entry.data?.peer === true;
+    const visible = icao === selIcao ||
+      ((!isPeer || state.showPeer) && matchesActiveFilters(entry.data));
     if (!visible && !entry.hiddenByFilter) {
       state.map.removeLayer(entry.marker);
       resetTrailState(entry);

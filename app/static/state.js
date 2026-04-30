@@ -149,6 +149,9 @@ export const state = {
   // an aircraft matches when any active filter matches. Empty set means
   // "show everything" — the default.
   activeFilters: new Set(readFilters()),
+  // Whether to show peer aircraft (from the P2P relay). Default: show them.
+  // The "Peers" chip in the filter bar toggles this; persisted to localStorage.
+  showPeer: localStorage.getItem('flightjar.showPeer') !== '0',
   // Enabled airspace groups (see openaip.js → AIRSPACE_GROUPS). Rendered
   // airspaces are filtered by membership; empty set means "hide all".
   airspaceCategories: readAirspaceCategories(),
