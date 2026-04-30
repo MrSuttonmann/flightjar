@@ -31,7 +31,8 @@
          grid-template-areas: "sidebar map" "footer map";
          position: relative; }
   #sidebar { grid-area: sidebar; background: var(--panel); border-right: 1px solid var(--border);
-             display: flex; flex-direction: column; overflow: hidden; }
+             display: flex; flex-direction: column; overflow: hidden;
+             padding-top: env(safe-area-inset-top); }
   /* The progress strip lives in `#map-area` *above* `#map`. When the
      strip is hidden it has zero height, so the map fills the grid
      cell exactly as before; when busy the strip grows and the map
@@ -415,6 +416,7 @@
   #heartbeat.dead { color: #ef4444; }
   #heartbeat:empty { display: none; }
   #sidebar-footer { grid-area: footer; padding: 8px 14px;
+                    padding-bottom: max(8px, env(safe-area-inset-bottom));
                     border-top: 1px solid var(--border);
                     border-right: 1px solid var(--border);
                     display: flex; justify-content: space-between; align-items: center;
@@ -806,7 +808,7 @@
        the handle to the top edge so a downward swipe / tap reveals the
        sidebar again. The rounded bottom-only corners read as "tab". */
     body.compact-mode #sidebar-handle {
-      top: 0; transform: translate(-50%, 0);
+      top: env(safe-area-inset-top); transform: translate(-50%, 0);
       border-radius: 0 0 11px 11px;
       border-top: 0;
     }
