@@ -128,10 +128,16 @@ builder.Services.AddSingleton<PeerAircraftCache>();
 var p2pConfigPath = !string.IsNullOrEmpty(dataDir) ? Path.Combine(dataDir, "p2p.json") : null;
 builder.Services.AddSingleton(sp => new P2PConfigStore(
     p2pConfigPath, sp.GetService<ILogger<P2PConfigStore>>()));
-// The relay client is always registered; on/off is consulted at runtime
-// from P2PConfigStore so the user can toggle it from the About dialog
-// without restarting the container.
-builder.Services.AddHostedService<P2PRelayClientService>();
+// The relay client is registered when the env-only kill switch is on
+// (default). Runtime on/off lives in P2PConfigStore so the user can
+// toggle it from the About dialog without restarting; setting
+// P2P_ENABLED=0 keeps the BackgroundService out of the process entirely
+// — used by the e2e harness so the relay's outbound chatter doesn't
+// destabilise timing-sensitive tests.
+if (options.P2PEnabled)
+{
+    builder.Services.AddHostedService<P2PRelayClientService>();
+}
 builder.Services.AddSingleton<IBeastConnectionState>(sp => sp.GetRequiredService<BeastConnectionState>());
 
 // Phase 4: watchlist + notifications + alerts.

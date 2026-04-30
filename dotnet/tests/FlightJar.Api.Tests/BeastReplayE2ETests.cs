@@ -42,6 +42,7 @@ public class BeastReplayE2ETests
 
         Environment.SetEnvironmentVariable("BEAST_HOST", "127.0.0.1");
         Environment.SetEnvironmentVariable("BEAST_PORT", port.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Environment.SetEnvironmentVariable("P2P_ENABLED", "0");
 
         await using var factory = new WebApplicationFactory<Program>();
         var client = factory.CreateClient();

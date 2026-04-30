@@ -404,9 +404,15 @@ Cloudflare Worker:
 
 The relay URL, bearer token, and push interval are env-only
 (`P2P_RELAY_URL`, `P2P_RELAY_TOKEN`, `P2P_PUSH_INTERVAL_S`) — those
-are the advanced "self-hosted relay" knobs. Everything user-facing
-goes through `GET/POST /api/p2p/config`, both auth-gated by
-`RequireAuthSession()`.
+are the advanced "self-hosted relay" knobs. `P2P_ENABLED` is a hard
+env-only kill switch (default `1`): when `0` the
+`P2PRelayClientService` is never registered, so the process makes
+no outbound WebSocket connections at all. Used by the e2e harness
+(`playwright.config.js`) and the `WebApplicationFactory`-based API
+tests so the relay's outbound chatter doesn't destabilise
+timing-sensitive assertions or pollute snapshot counts. Everything
+user-facing still goes through `GET/POST /api/p2p/config`, both
+auth-gated by `RequireAuthSession()`.
 
 ### Watchlist + alerts
 
@@ -454,7 +460,7 @@ Handled in `FlightJar.Api.Configuration.AppOptionsBinder` against the
 `BLACKSPOTS_ANTENNA_MSL_M` (optional override; preferred when known),
 `BLACKSPOTS_RADIUS_KM`, `BLACKSPOTS_GRID_DEG`,
 `BLACKSPOTS_MAX_AGL_M`, `BLACKSPOTS_IDLE_TIMEOUT_MIN`, `TERRAIN_CACHE_DIR`,
-`P2P_RELAY_URL`, `P2P_RELAY_TOKEN`, `P2P_PUSH_INTERVAL_S`.
+`P2P_ENABLED`, `P2P_RELAY_URL`, `P2P_RELAY_TOKEN`, `P2P_PUSH_INTERVAL_S`.
 Target altitude is UI-only (slider on the map), not env-driven. The
 README has the full reference table.
 

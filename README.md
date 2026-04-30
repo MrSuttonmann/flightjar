@@ -432,18 +432,21 @@ endpoint streams the same sanitised payload the relay client pushes.
 private federation between a small group of receivers), the worker
 source lives in `relay-worker/` — `wrangler deploy` from that
 directory ships it to Cloudflare Workers under your own account.
-Three optional env vars on the Flightjar instance redirect it:
+A few optional env vars on the Flightjar instance redirect or
+hard-disable the relay client:
 
 | Var | Default | Purpose |
 |-----|---------|---------|
+| `P2P_ENABLED` | `1` | Hard kill switch. Set to `0` to keep the relay client out of the process entirely (e.g. for tests or hardened deployments) — the UI toggle is then inert. |
 | `P2P_RELAY_URL` | `wss://relay.flightjar.xyz/ws` | Override the relay WebSocket URL. |
 | `P2P_RELAY_TOKEN` | (unset) | Bearer token for a private/auth-gated relay. |
 | `P2P_PUSH_INTERVAL_S` | `5` | Seconds between sanitised snapshot pushes. |
 
 The community relay accepts unauthenticated connections; the token is
 only needed when pointing at a private relay configured with
-`RELAY_TOKEN`. The on/off switch is **not** an env var — it's
-UI-managed at `/api/p2p/config`.
+`RELAY_TOKEN`. The runtime on/off switch is **not** an env var —
+it's UI-managed at `/api/p2p/config`. `P2P_ENABLED=0` is a hard gate
+that prevents the BackgroundService from registering at all.
 
 ## Running multiple receivers
 
