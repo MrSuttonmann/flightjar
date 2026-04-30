@@ -32,7 +32,7 @@ function tar1090ShapeFor(typeIcao) {
 // varies across shapes but the on-screen stroke stays consistent. Main
 // path uses paint-order="stroke" (stroke under fill, so only the
 // outline shows). Accent paths render as fill="none" lines.
-function tar1090Icon(track, color, selected, emergency, relayed, shape, scaleFactor) {
+function tar1090Icon(track, color, selected, emergency, relayed, peer, shape, scaleFactor) {
   const rot = track == null ? 0 : track;
   const target = 32;  // target pixel size of the longer edge at scaleFactor=1
   const longest = Math.max(shape.w, shape.h);
@@ -46,10 +46,14 @@ function tar1090Icon(track, color, selected, emergency, relayed, shape, scaleFac
   // "computed or rebroadcast by ground equipment" at a glance. Loses to
   // selection (white) and emergency (red), both louder signals.
   else if (relayed) { stroke = '#facc15'; baseStroke = 0.9; }
+  // Peer (from P2P relay): dashed blue/violet — same priority as relayed,
+  // signals "seen by another receiver, not this one".
+  else if (peer) { stroke = '#818cf8'; baseStroke = 0.9; }
   const ss = shape.strokeScale || 1;
   const strokeWidth = 2 * baseStroke * ss;
   const accentWidth = 0.6 * (shape.accentMult ? shape.accentMult * baseStroke : baseStroke) * ss;
-  const dashAttr = (relayed && !emergency && !selected)
+  const dashed = (relayed || peer) && !emergency && !selected;
+  const dashAttr = dashed
     ? ` stroke-dasharray="${(2.5 * ss).toFixed(2)} ${(1.5 * ss).toFixed(2)}"`
     : '';
 
@@ -69,7 +73,9 @@ function tar1090Icon(track, color, selected, emergency, relayed, shape, scaleFac
     `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" ` +
     `viewBox="${shape.viewBox}"` +
     (shape.noAspect ? ' preserveAspectRatio="none"' : '') +
-    ` style="transform: rotate(${rot}deg); transform-origin: center;">` +
+    ` style="transform: rotate(${rot}deg); transform-origin: center;"` +
+    (peer && !emergency && !selected ? ' opacity="0.75"' : '') +
+    `>` +
     `<g${innerTransform}>${body}</g></svg>`;
   return L.divIcon({
     html: svg,
@@ -84,21 +90,24 @@ function tar1090Icon(track, color, selected, emergency, relayed, shape, scaleFac
 const GENERIC_ARROW_PATH = 'M0,-10 L7,8 L0,4 L-7,8 Z';
 const GENERIC_ARROW_SIZE = 26;
 
-export function planeIcon(track, color, selected, emergency, relayed, typeIcao) {
+export function planeIcon(track, color, selected, emergency, relayed, typeIcao, peer = false) {
   const tar = tar1090ShapeFor(typeIcao);
-  if (tar) return tar1090Icon(track, color, selected, emergency, relayed, tar.shape, tar.scaleFactor);
+  if (tar) return tar1090Icon(track, color, selected, emergency, relayed, peer, tar.shape, tar.scaleFactor);
 
   const rot = track == null ? 0 : track;
   let stroke = selected ? '#fff' : '#000';
   let sw = selected ? 1.5 : 0.6;
   if (emergency) { stroke = '#ef4444'; sw = 2; }
   else if (relayed) { stroke = '#facc15'; sw = 1.6; }
-  const dashAttr = (relayed && !emergency && !selected)
-    ? ' stroke-dasharray="3 2"' : '';
+  else if (peer) { stroke = '#818cf8'; sw = 1.6; }
+  const dashed = (relayed || peer) && !emergency && !selected;
+  const dashAttr = dashed ? ' stroke-dasharray="3 2"' : '';
+  const opacity = peer && !emergency && !selected ? ' opacity="0.75"' : '';
   const size = GENERIC_ARROW_SIZE;
   const half = size / 2;
   const svg =
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="-14 -14 28 28">` +
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}"` +
+    ` viewBox="-14 -14 28 28"${opacity}>` +
       `<g transform="rotate(${rot})">` +
         `<path d="${GENERIC_ARROW_PATH}" fill="${color}" stroke="${stroke}" ` +
           `stroke-width="${sw}" stroke-linejoin="round"${dashAttr}/>` +

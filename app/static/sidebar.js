@@ -112,12 +112,13 @@ export function renderSidebar(snap) {
 
   const q = state.searchFilter;
   const selIcao = state.selectedIcao;
-  const needsFilter = state.activeFilters.size > 0 || !!q;
+  const needsFilter = state.activeFilters.size > 0 || !!q || !state.showPeer;
   const filtered = needsFilter
     ? snap.aircraft.filter(a => {
         // The selected aircraft stays visible even when it stops
         // matching — otherwise the detail panel orphans mid-read.
         if (a.icao === selIcao) return true;
+        if (!state.showPeer && a.peer) return false;
         if (q && !(
           (a.callsign || '').toLowerCase().includes(q) ||
           a.icao.toLowerCase().includes(q) ||
@@ -306,6 +307,22 @@ export function initSidebar() {
   });
   renderFilterBar();
   applyFilterVisibility();
+
+  // Peer chip — independent toggle (hide/show aircraft from relay peers).
+  const peerChip = document.getElementById('peer-chip');
+  if (peerChip) {
+    peerChip.classList.toggle('active', state.showPeer);
+    peerChip.addEventListener('click', () => {
+      state.showPeer = !state.showPeer;
+      try { localStorage.setItem('flightjar.showPeer', state.showPeer ? '1' : '0'); }
+      catch (_) { /* storage disabled */ }
+      peerChip.classList.toggle('active', state.showPeer);
+      if (state.lastSnap) {
+        renderSidebar(state.lastSnap);
+        applyFilterVisibility();
+      }
+    });
+  }
 
   const searchInput = document.getElementById('search');
   searchInput.addEventListener('input', () => {
