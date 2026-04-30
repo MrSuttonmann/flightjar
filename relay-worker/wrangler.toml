@@ -8,7 +8,7 @@ bindings = [{ name = "RELAY", class_name = "RelayDurableObject" }]
 
 [[migrations]]
 tag = "v1"
-new_classes = ["RelayDurableObject"]
+new_sqlite_classes = ["RelayDurableObject"]
 
 [vars]
 # RELAY_TOKEN = "comma,separated,tokens"  # Set in wrangler secret or dashboard
