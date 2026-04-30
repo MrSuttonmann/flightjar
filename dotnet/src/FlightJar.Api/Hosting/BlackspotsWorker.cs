@@ -189,11 +189,13 @@ public sealed class BlackspotsWorker : BackgroundService
 
     /// <summary>
     /// Live progress snapshot for the compute currently running at
-    /// <paramref name="targetAltM"/>. Returns <c>(false, 0)</c> when that
-    /// altitude is cached, queued behind a different compute, or the feature
-    /// is idle.
+    /// <paramref name="targetAltM"/>. Returns
+    /// <c>(false, 0, Idle)</c> when that altitude is cached, queued behind a
+    /// different compute, or the feature is idle. Phase + fraction together
+    /// describe which part of the pipeline (preload, cell-grid solve, face
+    /// raster) is active.
     /// </summary>
-    public (bool Active, double Progress) GetProgress(double targetAltM) =>
+    public BlackspotsProgressSnapshot GetProgress(double targetAltM) =>
         _compute.GetProgress(targetAltM);
 
     /// <summary>

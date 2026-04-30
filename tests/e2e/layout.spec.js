@@ -326,17 +326,14 @@ test('mlat-tagged aircraft draw a dashed marker stroke', async ({ page }) => {
     const uMod = await import('/static/update_loop.js');
     uMod.update(snap);
   }, mlatSnap);
-  await page.waitForTimeout(150);
 
-  const probe = await page.evaluate(() => {
-    const markerSvg = document.querySelector('.leaflet-marker-icon svg path');
-    return {
-      hasDash: markerSvg?.hasAttribute('stroke-dasharray'),
-      stroke: markerSvg?.getAttribute('stroke'),
-    };
-  });
-  expect(probe.hasDash, JSON.stringify(probe)).toBe(true);
-  expect(probe.stroke, JSON.stringify(probe)).toBe('#facc15');
+  // Marker rendering happens on the next animation frame after the
+  // update, and tile-loading on cold start can push that out a few
+  // hundred ms. Use auto-retrying assertions instead of a fixed
+  // sleep so the test waits exactly as long as it has to.
+  const markerSvg = page.locator('.leaflet-marker-icon svg path').first();
+  await expect(markerSvg).toHaveAttribute('stroke-dasharray', /.+/);
+  await expect(markerSvg).toHaveAttribute('stroke', '#facc15');
 });
 
 // One assertion harness, parameterised across the three relayed source

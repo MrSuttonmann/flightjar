@@ -32,7 +32,15 @@
          position: relative; }
   #sidebar { grid-area: sidebar; background: var(--panel); border-right: 1px solid var(--border);
              display: flex; flex-direction: column; overflow: hidden; }
-  #map { grid-area: map; }
+  /* The progress strip lives in `#map-area` *above* `#map`. When the
+     strip is hidden it has zero height, so the map fills the grid
+     cell exactly as before; when busy the strip grows and the map
+     shrinks via flex, pushed cleanly down. Leaflet's controls move
+     with the map, so they no longer fight the strip for top-edge
+     real estate. */
+  #map-area { grid-area: map; display: flex; flex-direction: column;
+              min-height: 0; }
+  #map { flex: 1 1 auto; min-height: 0; }
   #header { padding: 12px 14px; border-bottom: 1px solid var(--border); }
   #header h1 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: 0.3px; }
   #site-name { color: var(--muted); font-weight: 500; margin-left: 6px; }
@@ -220,30 +228,72 @@
     width: 24px; height: 160px;
     margin: 0;
   }
-  .blackspots-slider-status {
-    margin-top: 6px; min-height: 16px; display: flex;
-    flex-direction: column; align-items: center;
-    justify-content: center; gap: 2px;
-  }
-  .blackspots-slider-spinner {
-    width: 14px; height: 14px; border-radius: 50%;
-    border: 2px solid #e5e7eb; border-top-color: var(--accent);
-    visibility: hidden;
-  }
-  .blackspots-slider-status.busy .blackspots-slider-spinner {
-    visibility: visible;
-    animation: blackspots-spin 0.9s linear infinite;
-  }
-  .blackspots-slider-progress {
-    font-size: 10px; font-variant-numeric: tabular-nums;
-    color: #6b7280; min-height: 12px;
-  }
   .blackspots-slider-warning {
     margin-top: 6px; font-size: 10px; line-height: 1.2;
     color: #b45309; text-align: center; cursor: help;
   }
-  @keyframes blackspots-spin {
-    to { transform: rotate(360deg); }
+  /* Full-width progress strip wedged above the map. Visible only
+     while a blackspots fetch is in flight. Same DOM on desktop and
+     mobile — the strip stretches edge-to-edge so the phase label
+     ("Solving lines of sight") always has room to render in full,
+     instead of fighting for space inside the 60-px-wide altitude
+     slider where it used to live. The strip lives in flex flow
+     above #map and collapses to 0 when idle, so the map gets the
+     full grid cell back; when busy it expands and the map (and all
+     Leaflet controls along with it) shifts cleanly down. */
+  .blackspots-progress {
+    flex: 0 0 auto; max-height: 0; overflow: hidden;
+    background: var(--panel); color: var(--text);
+    border-bottom: 1px solid var(--border);
+    transition: max-height 180ms ease-out;
+  }
+  .blackspots-progress.busy { max-height: 36px; }
+  .blackspots-progress > .blackspots-progress-row { padding: 6px 12px 0; }
+  .blackspots-progress-bar { margin: 4px 0 0; }
+  .blackspots-progress-row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; font-size: 12px; line-height: 1.2;
+    font-variant-numeric: tabular-nums;
+  }
+  .blackspots-progress-label {
+    flex: 1 1 auto; min-width: 0; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+    font-weight: 500;
+  }
+  .blackspots-progress-percent {
+    flex: 0 0 auto; color: var(--muted);
+  }
+  .blackspots-progress-bar {
+    height: 3px; background: rgba(255, 255, 255, 0.08);
+    overflow: hidden; position: relative;
+  }
+  /* Indeterminate sliding stripe for the moments when the backend is
+     working but hasn't yet ticked the bar past 0 — a multi-tile SRTM
+     preload can sit at 0 for a couple of seconds while the first
+     download lands. The stripe is overlaid on the empty track so the
+     user always sees motion. */
+  .blackspots-progress.busy .blackspots-progress-bar::before {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(90deg,
+      transparent 0%, rgba(99,102,241,0.55) 50%, transparent 100%);
+    animation: blackspots-shimmer 1.2s ease-in-out infinite;
+  }
+  .blackspots-progress-bar-fill {
+    height: 100%; width: 0%;
+    background: var(--accent); position: relative; z-index: 1;
+    /* Smooth advance between polls so 150 ms ticks read as a fluid
+       crawl instead of stepping; keep transitions fast enough that
+       the bar doesn't lag behind a fast-moving compute. */
+    transition: width 180ms linear;
+  }
+  /* When the strip is hidden (idle), kill the transition so the next
+     show-from-zero doesn't animate a stale fraction back to 0. */
+  .blackspots-progress:not(.busy) .blackspots-progress-bar-fill {
+    transition: none;
+  }
+  @keyframes blackspots-shimmer {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
   }
   .airport-icon { background: transparent !important; border: none !important; }
   .airport-dot { width: 8px; height: 8px; border-radius: 50%;
