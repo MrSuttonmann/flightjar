@@ -353,10 +353,15 @@ function renderSnapshot(snapshot, face) {
 let sliderControl = null;
 let sliderInput = null;
 let sliderLabel = null;
-let sliderStatus = null;
-let sliderBarFill = null;
-let sliderPhaseLabel = null;
 let sliderWarning = null;
+
+// Top-of-map progress strip elements — one node lazily created in the
+// map container. Visible only while a fetch is in flight. Mirrors the
+// same `latchedBarFraction` logic the slider used to host.
+let progressStrip = null;
+let progressStripBarFill = null;
+let progressStripLabel = null;
+let progressStripPercent = null;
 
 function makeSliderControl() {
   const AltControl = L.Control.extend({
@@ -364,14 +369,16 @@ function makeSliderControl() {
     onAdd() {
       const container = L.DomUtil.create('div', 'leaflet-bar blackspots-slider');
       container.title = 'Target altitude for the blackspot LOS calculation';
+      // Compact: title, altitude readout, range input, optional warning.
+      // The progress UI (phase label + bar) lives in a separate
+      // full-width strip pinned to the top of the map (see
+      // ensureProgressStrip) — there isn't room inside this 60-px-wide
+      // column for the phase text without clipping on every viewport,
+      // and on mobile the slider's status block was unusably cramped.
       container.innerHTML = `
         <div class="blackspots-slider-title">Altitude</div>
         <div class="blackspots-slider-label"></div>
         <input type="range" min="0" max="${ALT_STOPS_M.length - 1}" value="${DEFAULT_STOP_INDEX}" step="1" aria-label="Target altitude">
-        <div class="blackspots-slider-status" role="status" aria-label="Computing blackspots">
-          <div class="blackspots-slider-bar"><div class="blackspots-slider-bar-fill"></div></div>
-          <div class="blackspots-slider-phase"></div>
-        </div>
         <div class="blackspots-slider-warning" role="alert" hidden
              title="Almost no terrain data loaded — the grid below is earth-curvature only, not real terrain. Check the container's outbound access to elevation-tiles-prod.s3.amazonaws.com.">
           ⚠ no terrain
@@ -379,9 +386,6 @@ function makeSliderControl() {
       `;
       sliderLabel = container.querySelector('.blackspots-slider-label');
       sliderInput = container.querySelector('input[type="range"]');
-      sliderStatus = container.querySelector('.blackspots-slider-status');
-      sliderBarFill = container.querySelector('.blackspots-slider-bar-fill');
-      sliderPhaseLabel = container.querySelector('.blackspots-slider-phase');
       sliderWarning = container.querySelector('.blackspots-slider-warning');
 
       // Swallow map pans / zooms while the user is interacting with the
@@ -424,12 +428,37 @@ function updateLabel(altM) {
   if (sliderLabel) sliderLabel.textContent = flLabel(altM);
 }
 
+// Cache the static progress-strip element. The strip lives in the
+// HTML inside #map-area as a sibling of #map so flex flow can grow /
+// collapse it without overlapping Leaflet's controls. Hidden until
+// the first busy state.
+function ensureProgressStrip() {
+  if (progressStrip) return;
+  progressStrip = document.querySelector('.blackspots-progress');
+  if (!progressStrip) return;
+  progressStripLabel = progressStrip.querySelector('.blackspots-progress-label');
+  progressStripPercent = progressStrip.querySelector('.blackspots-progress-percent');
+  progressStripBarFill = progressStrip.querySelector('.blackspots-progress-bar-fill');
+}
+
 function setSliderBusy(busy) {
-  if (sliderStatus) sliderStatus.classList.toggle('busy', busy);
+  ensureProgressStrip();
+  if (!progressStrip) return;
+  if (progressStrip.classList.contains('busy') === busy) return;
+  progressStrip.classList.toggle('busy', busy);
+  // Strip's height transition pushes the map down (busy) or restores
+  // its full height (idle). Tell Leaflet to recalculate after the
+  // CSS transition finishes so tile layout, pan bounds, and bbox
+  // queries match the new viewport. Single delayed call covers both
+  // the open and close edges.
+  if (state.map) {
+    setTimeout(() => state.map.invalidateSize({ pan: false }), 220);
+  }
 }
 
 function setSliderBar(frac) {
-  if (!sliderBarFill) return;
+  ensureProgressStrip();
+  if (!progressStripBarFill) return;
   const clamped = Math.max(0, Math.min(1, frac));
   // Latch monotonically while a fetch is in flight so a transient 0
   // poll between phase transitions can't visually rewind the bar.
@@ -438,12 +467,17 @@ function setSliderBar(frac) {
   } else {
     latchedBarFraction = clamped;
   }
-  sliderBarFill.style.width = `${(latchedBarFraction * 100).toFixed(1)}%`;
+  progressStripBarFill.style.width = `${(latchedBarFraction * 100).toFixed(1)}%`;
+  if (progressStripPercent) {
+    progressStripPercent.textContent = latchedBarFraction > 0
+      ? `${Math.round(latchedBarFraction * 100)}%`
+      : '';
+  }
 }
 
 function setSliderPhase(phase) {
-  if (!sliderPhaseLabel) return;
-  sliderPhaseLabel.textContent = PHASE_LABEL[phase] ?? '';
+  ensureProgressStrip();
+  if (progressStripLabel) progressStripLabel.textContent = PHASE_LABEL[phase] ?? '';
 }
 
 function setSliderTileWarning(show) {
