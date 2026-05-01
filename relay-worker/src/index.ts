@@ -32,6 +32,7 @@ export default {
         const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
         const { success } = await env.REGISTER_RATE_LIMIT.limit({ key: ip });
         if (!success) {
+          console.log(JSON.stringify({ event: 'register_rate_limited', ip }));
           return new Response('Rate limited', { status: 429 });
         }
       }

@@ -3,11 +3,14 @@ main = "src/index.ts"
 compatibility_date = "2024-11-01"
 compatibility_flags = ["nodejs_compat"]
 
-# Workers Logs — captures console.log + uncaught exceptions in the
-# Cloudflare dashboard (Logs tab) and via `wrangler tail`. Free-tier
-# included; default head sampling is 100%.
+# Workers Logs — captures console.log + uncaught exceptions + per-request
+# trace events (timing, status, CPU time) in the Cloudflare dashboard
+# (Logs tab) and via `wrangler tail`. head_sampling_rate=1 means every
+# request is captured; on the paid plan this is included up to a generous
+# daily quota.
 [observability]
 enabled = true
+head_sampling_rate = 1
 
 [durable_objects]
 bindings = [{ name = "RELAY", class_name = "RelayDurableObject" }]
