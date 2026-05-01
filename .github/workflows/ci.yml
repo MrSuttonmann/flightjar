@@ -83,7 +83,10 @@ jobs:
           node-version: "22"
 
       - name: Node tests (frontend modules)
-        run: node --test tests/js/
+        # Glob expanded by bash — Node 22 stopped treating the bare
+        # directory path as a discovery target and tries to resolve it
+        # as a single module instead.
+        run: node --test tests/js/*.test.js
 
       - name: Relay worker type check
         working-directory: relay-worker

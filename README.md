@@ -666,7 +666,7 @@ dotnet format FlightJar.slnx --verify-no-changes   # lint (whitespace + style)
 dotnet build FlightJar.slnx -c Release             # build
 dotnet test FlightJar.slnx                         # test suite
 cd ..
-node --test tests/js/                              # frontend ES-module tests (Node 20+)
+node --test tests/js/*.test.js                     # frontend ES-module tests (Node 20+)
 ```
 
 Run it against a live BEAST feed without Docker:

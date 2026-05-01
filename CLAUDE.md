@@ -87,7 +87,7 @@ dotnet format FlightJar.slnx --verify-no-changes
 dotnet build FlightJar.slnx
 dotnet test FlightJar.slnx
 cd ..
-node --test tests/js/         # frontend ES-module tests (Node 20+)
+node --test tests/js/*.test.js  # frontend ES-module tests (Node 20+)
 npx playwright test           # Playwright smoke against live backend
 ```
 
