@@ -362,7 +362,20 @@
         tile hosting by VFRMap.com.</li>
   </ul>
 
-  <section id="p2p-config-section">
+  <p id="about-locked-hint" class="about-locked-hint" hidden>
+    <!-- lucide: lock -->
+    <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"
+         fill="none" stroke="currentColor" stroke-width="1.8"
+         stroke-linecap="round" stroke-linejoin="round">
+      <rect width="18" height="11" x="3" y="11" rx="2" ry="2"/>
+      <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+    </svg>
+    <span>Some settings (P2P federation, telemetry reset) are hidden
+    while this instance is locked. Unlock from the sidebar footer to
+    manage them.</span>
+  </p>
+
+  <section id="p2p-config-section" hidden>
     <h3>P2P federation</h3>
     <p class="about-body">
       Share aircraft this receiver detects with the community relay, and

@@ -262,29 +262,43 @@ public sealed class RegistryWorker : BackgroundService, IBeastFrameStats
         var peerAircraft = _peerCache.GetFresh(nowSec);
         if (peerAircraft.Count == 0) return snap;
 
-        var localIcaos = new HashSet<string>(snap.Aircraft.Count, StringComparer.OrdinalIgnoreCase);
-        foreach (var ac in snap.Aircraft) localIcaos.Add(ac.Icao);
+        // Index peers by ICAO so we can pair them with local rows in O(N).
+        var peerByIcao = new Dictionary<string, SnapshotAircraft>(
+            peerAircraft.Count, StringComparer.OrdinalIgnoreCase);
+        foreach (var p in peerAircraft) peerByIcao[p.Icao] = p;
 
-        var added = new List<SnapshotAircraft>();
-        int addedPositioned = 0;
-        foreach (var ac in peerAircraft)
+        var merged = new List<SnapshotAircraft>(snap.Aircraft.Count + peerAircraft.Count);
+        var localIcaos = new HashSet<string>(snap.Aircraft.Count, StringComparer.OrdinalIgnoreCase);
+        int positioned = 0;
+
+        // First pass: for every locally-observed aircraft, fill any null
+        // fields from a peer's view of the same ICAO. The combined record
+        // is presented as a local aircraft (Peer = null) — we have direct
+        // radio contact, so peer styling would be misleading.
+        foreach (var ac in snap.Aircraft)
         {
-            if (localIcaos.Contains(ac.Icao)) continue;
-            var peerAc = ac with { Peer = true };
-            added.Add(peerAc);
-            if (peerAc.Lat.HasValue) addedPositioned++;
+            localIcaos.Add(ac.Icao);
+            var combined = peerByIcao.TryGetValue(ac.Icao, out var peerAc)
+                ? PeerMerge.Combine(ac, peerAc)
+                : ac;
+            merged.Add(combined);
+            if (combined.Lat.HasValue) positioned++;
         }
 
-        if (added.Count == 0) return snap;
+        // Second pass: peer-only aircraft (we don't see them locally).
+        foreach (var p in peerAircraft)
+        {
+            if (localIcaos.Contains(p.Icao)) continue;
+            var peerAc = p with { Peer = true };
+            merged.Add(peerAc);
+            if (peerAc.Lat.HasValue) positioned++;
+        }
 
-        var merged = new List<SnapshotAircraft>(snap.Aircraft.Count + added.Count);
-        merged.AddRange(snap.Aircraft);
-        merged.AddRange(added);
         return snap with
         {
             Aircraft = merged,
-            Count = snap.Count + added.Count,
-            Positioned = snap.Positioned + addedPositioned,
+            Count = merged.Count,
+            Positioned = positioned,
         };
     }
 

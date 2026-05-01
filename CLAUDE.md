@@ -402,6 +402,19 @@ Cloudflare Worker:
   evicts entries older than 65 s. Free-plan compatible — uses
   `new_sqlite_classes` migration.
 
+Merge semantics (`PeerMerge.Combine`, called from
+`RegistryWorker.MergePeerAircraft`): for ICAOs both receivers see,
+nullable fields are filled additively — local takes precedence
+where both sides have a value, peer fills gaps. Receiver-specific
+fields (`DistanceKm`, `SignalPeak`, `MsgCount`, `LastSeen`,
+`FirstSeen`, `Trail`, `PositionStale`, `PositionSource`, `CommB`,
+`OnGround`) always stay local because they describe THIS receiver's
+reception. `Lat`/`Lon` are local-first so trails don't jump between
+receivers, but peer's position fills in if local has none. `Peer`
+flag is reset to `null` for combined records — direct radio contact
+makes it a local aircraft regardless of who else saw it. Peer-only
+aircraft (we have no local fix) keep `Peer = true` for UI styling.
+
 The relay URL, bearer token, and push interval are env-only
 (`P2P_RELAY_URL`, `P2P_RELAY_TOKEN`, `P2P_PUSH_INTERVAL_S`) — those
 are the advanced "self-hosted relay" knobs. `P2P_ENABLED` is a hard

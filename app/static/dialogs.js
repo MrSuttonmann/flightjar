@@ -74,12 +74,27 @@ function applyP2PSectionVisibility(snap) {
   section.hidden = snap.required && !snap.unlocked;
 }
 
+// Show a short hint explaining why the gated sections are absent.
+// Visible exactly when the instance is locked, hidden otherwise — kept
+// in sync via the same auth subscription that hides the sections.
+function applyAboutLockedHintVisibility(snap) {
+  const hint = document.getElementById('about-locked-hint');
+  if (!hint) return;
+  hint.hidden = !(snap.required && !snap.unlocked);
+}
+
 async function loadP2PConfig() {
   const enabledEl = document.getElementById('p2p-enabled');
   const shareEl = document.getElementById('p2p-share-site-name');
   if (!enabledEl || !shareEl) return;
+  // Skip the fetch when the instance is locked. The endpoint is
+  // auth-gated, so calling authedFetch here would pop the unlock
+  // dialog the moment the user opens About — which is exactly the
+  // surprise we're avoiding by hiding the section in the first place.
+  const auth = getAuthStatus();
+  if (auth.required && !auth.unlocked) return;
   try {
-    const r = await authedFetch('/api/p2p/config');
+    const r = await fetch('/api/p2p/config', { credentials: 'same-origin' });
     if (!r.ok) return;
     const cfg = await r.json();
     enabledEl.checked = !!cfg.enabled;
@@ -94,7 +109,16 @@ function wireP2PConfig() {
   if (!enabledEl || !shareEl || !status) return;
 
   applyP2PSectionVisibility(getAuthStatus());
-  subscribeAuth(applyP2PSectionVisibility);
+  subscribeAuth((snap) => {
+    applyP2PSectionVisibility(snap);
+    // Just unlocked while the dialog is open: pull the current config
+    // so the checkboxes reflect server state without needing to close
+    // and reopen the About dialog.
+    if (snap.ready && (!snap.required || snap.unlocked)) {
+      const dialog = aboutDialogEl();
+      if (dialog?.open) loadP2PConfig();
+    }
+  });
 
   function setStatus(text, kind) {
     status.textContent = text;
@@ -187,6 +211,8 @@ export function initAboutDialog() {
   });
   wireTelemetryReset();
   wireP2PConfig();
+  applyAboutLockedHintVisibility(getAuthStatus());
+  subscribeAuth(applyAboutLockedHintVisibility);
 }
 
 // ---------------- Map-key dialog ----------------

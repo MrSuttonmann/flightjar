@@ -410,6 +410,16 @@ participate out of the box. To turn it off, open the **About** dialog
 from the sidebar footer and uncheck "Enable P2P federation". The
 choice is persisted to `/data/p2p.json` and survives restarts.
 
+**Aircraft seen by multiple receivers are combined, not duplicated.**
+When your receiver and a peer both see the same ICAO24, the two
+records are merged additively: local data wins where both sides
+have a value, peer data fills any gaps (e.g. peer's adsbdb cache
+already has the route, yours doesn't yet). Receiver-specific values
+— distance, signal strength, message count, trail — always stay
+local because they describe *your* reception. The combined record
+renders as a local aircraft (no peer styling), since you have direct
+radio contact regardless of who else saw it.
+
 **What's shared, and what isn't.** Each instance sanitises its
 outbound payload before it leaves the container:
 
@@ -489,6 +499,10 @@ It shows up next to "Flightjar" in the sidebar and in the browser tab title
 | `BLACKSPOTS_IDLE_TIMEOUT_MIN` | `15`        | Minutes the blackspots feature can sit idle (no `/api/blackspots` requests) before its in-memory state — SRTM tiles (~26 MB each, ~12–15 tiles for the default radius) and the LRU grid cache — is reclaimed. Disk caches survive eviction, so re-engaging the layer pays a disk read instead of a re-download. `0` disables eviction (keep everything resident). |
 | `TERRAIN_CACHE_DIR`   | `/data/terrain`     | Directory for the downloaded SRTM tiles. |
 | `TELEMETRY_ENABLED`   | `1`                 | Anonymous usage telemetry — see below.                         |
+| `P2P_ENABLED`         | `1`                 | Hard kill switch for the **P2P federation** relay client. When `0`, the BackgroundService never registers — useful for tests, hardened deployments, or air-gapped builds. The runtime on/off (and the share-`SITE_NAME` toggle) are UI-managed in the **About** dialog and persisted to `/data/p2p.json`; this env var keeps the relay client out of the process entirely, regardless of UI state. See **P2P federation** above. |
+| `P2P_RELAY_URL`       | `wss://relay.flightjar.xyz/ws` | WebSocket URL of the relay this instance pushes to and reads aggregated peer aircraft from. Override to point at a self-hosted relay. |
+| `P2P_RELAY_TOKEN`     | (unset)             | Bearer token presented on the relay WebSocket upgrade. Leave unset for the open community relay; required only for private relays configured with `RELAY_TOKEN`. |
+| `P2P_PUSH_INTERVAL_S` | `5`                 | How often (seconds) this instance pushes a sanitised snapshot to the relay. The relay re-broadcasts its aggregate at the same cadence. |
 | `FLIGHTJAR_PASSWORD`  | (unset)             | Optional shared secret. When non-empty, the watchlist + notification-channel endpoints (`/api/watchlist`, `/api/notifications/*`) require an authenticated session cookie minted by `POST /api/auth/login`. Empty disables auth entirely (default — fine on a private LAN). Set this when exposing the instance to the internet so unauthenticated callers can't read your bot tokens or scrape your watchlist. See **Optional password protection** below. |
 
 Notification channels aren't configured via env vars — they're
