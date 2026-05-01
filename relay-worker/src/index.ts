@@ -4,22 +4,10 @@ export { RelayDurableObject };
 
 export interface Env {
   RELAY: DurableObjectNamespace;
-  RELAY_TOKEN?: string;
-}
-
-function unauthorized(reason: string): Response {
-  return Response.json({ type: 'auth_fail', reason }, { status: 401 });
-}
-
-function checkAuth(request: Request, env: Env): boolean {
-  const configured = env.RELAY_TOKEN?.trim();
-  if (!configured) return true; // open federation — no token required
-  const tokens = configured.split(',').map(t => t.trim()).filter(Boolean);
-  if (tokens.length === 0) return true;
-  const auth = request.headers.get('Authorization') ?? '';
-  if (!auth.startsWith('Bearer ')) return false;
-  const supplied = auth.slice(7);
-  return tokens.includes(supplied);
+  // Optional per-IP rate limit on /register, configured via the
+  // ratelimit binding in wrangler.toml. Falls open when missing
+  // (e.g. local dev with no binding configured).
+  REGISTER_RATE_LIMIT?: { limit(opts: { key: string }): Promise<{ success: boolean }> };
 }
 
 export default {
@@ -36,12 +24,25 @@ export default {
       return stub.fetch(new Request('https://internal/stats'));
     }
 
+    if (url.pathname === '/register') {
+      if (request.method !== 'POST') {
+        return new Response('Method not allowed', { status: 405 });
+      }
+      if (env.REGISTER_RATE_LIMIT) {
+        const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
+        const { success } = await env.REGISTER_RATE_LIMIT.limit({ key: ip });
+        if (!success) {
+          return new Response('Rate limited', { status: 429 });
+        }
+      }
+      const id = env.RELAY.idFromName('global');
+      const stub = env.RELAY.get(id);
+      return stub.fetch(new Request('https://internal/register', { method: 'POST' }));
+    }
+
     if (url.pathname === '/ws') {
       if (request.headers.get('Upgrade') !== 'websocket') {
         return new Response('Expected WebSocket upgrade', { status: 426 });
-      }
-      if (!checkAuth(request, env)) {
-        return unauthorized('invalid token');
       }
       const id = env.RELAY.idFromName('global');
       const stub = env.RELAY.get(id);
