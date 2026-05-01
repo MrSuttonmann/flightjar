@@ -91,7 +91,13 @@ function closePopover() {
 function onDocClick(e) {
   if (!openPopover) return;
   if (openPopover.contains(e.target)) return;
-  if (e.target.closest('.overlay-info-btn')) return;
+  // Skip the very click that opened the popover. The button registers
+  // this listener synchronously inside its own click handler, but
+  // capture-phase listeners on document fire before the button's own
+  // listener — so without this guard the same event would still close
+  // the popover when it bubbles back up. (Bonus: also prevents
+  // re-clicks on the same info button from cycling open→close→open.)
+  if (e.target.closest && e.target.closest('.overlay-info-btn')) return;
   closePopover();
 }
 
@@ -121,12 +127,17 @@ function showPopover(anchor, reason, { pinned = false } = {}) {
   positionPopover(popover, anchor);
   openPopover = popover;
   openPopoverAnchor = anchor;
-  // Defer listener install by a tick so the click that opened the
-  // popover doesn't immediately close it via the doc-click handler.
-  setTimeout(() => {
-    document.addEventListener('click', onDocClick, true);
-    document.addEventListener('keydown', onKeyDown, true);
-  }, 0);
+  // Register listeners synchronously. Previously deferred via
+  // setTimeout(0) so the same click event that opens the popover
+  // doesn't immediately close it via the doc-click handler — but
+  // under CPU load (parallel Playwright projects, etc) that timer
+  // could be delayed past a test's keyboard.press('Escape'), and
+  // Escape would silently no-op. The .overlay-info-btn guard in
+  // onDocClick now does the same job race-free: the originating
+  // click is still in flight when these listeners are added, but
+  // its capture phase already passed so onDocClick doesn't see it.
+  document.addEventListener('click', onDocClick, true);
+  document.addEventListener('keydown', onKeyDown, true);
 }
 
 function positionPopover(popover, anchor) {

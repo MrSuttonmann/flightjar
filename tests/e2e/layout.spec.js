@@ -65,6 +65,34 @@ test.beforeEach(async ({ page }) => {
   await page.waitForSelector('#map');
 });
 
+// Snapshot-injection tests call update_loop.update() directly with a
+// fake snapshot. The live backend keeps pushing empty snapshots over
+// the WS every second, which would clobber the injection before the
+// assertion finishes — flaky under CPU load (multiple Playwright
+// projects in parallel, etc). Stub the WebSocket constructor before
+// any module loads so /ws never connects, then reload + inject.
+async function pinSnapshot(page, snap) {
+  await page.addInitScript(() => {
+    // No-op WebSocket so connect() builds an instance whose
+    // onopen/onmessage never fire and whose close() is harmless.
+    // The connect()->onclose->reconnect loop in websocket.js doesn't
+    // trigger because we never close the stub.
+    window.WebSocket = class {
+      constructor() { this.readyState = 0; }
+      send() {}
+      close() {}
+      addEventListener() {}
+      removeEventListener() {}
+    };
+  });
+  await page.reload();
+  await page.waitForSelector('#map');
+  await page.evaluate(async (snapshot) => {
+    const uMod = await import('/static/update_loop.js');
+    uMod.update(snapshot);
+  }, snap);
+}
+
 test('no horizontal scroll at this viewport', async ({ page }) => {
   // A 1px tolerance covers sub-pixel rounding on HiDPI emulation. Any
   // larger overflow is a layout regression — most commonly a hidden
@@ -322,10 +350,13 @@ test('mlat-tagged aircraft draw a dashed marker stroke', async ({ page }) => {
     ...FAKE_SNAPSHOT,
     aircraft: [{ ...FAKE_AIRCRAFT, position_source: 'mlat' }],
   };
-  await page.evaluate(async (snap) => {
-    const uMod = await import('/static/update_loop.js');
-    uMod.update(snap);
-  }, mlatSnap);
+  // pinSnapshot blocks the live WS so the next 1 Hz empty-snapshot
+  // tick can't evict the injected aircraft before the assertions
+  // poll. This is the same race the detail-panel test on line 180
+  // works around by atomically opening the panel after update();
+  // here the marker assertion is the trailing action so we instead
+  // disable the WS for the duration of the test.
+  await pinSnapshot(page, mlatSnap);
 
   // Marker rendering happens on the next animation frame after the
   // update, and tile-loading on cold start can push that out a few
