@@ -63,20 +63,30 @@ export class RelayDurableObject extends DurableObject {
     const now = Math.floor(Date.now() / 1000);
     await this.ctx.storage.put<TokenRecord>(TOKEN_PREFIX + token, { lastSeenS: now });
     await this.maybeEvictStaleTokens(now);
+    // Log only the prefix so the full token isn't recoverable from logs;
+    // 8 hex chars is enough to disambiguate a specific instance in support.
+    console.log(JSON.stringify({ event: 'register', token_prefix: token.slice(0, 8) }));
     return Response.json({ token });
   }
 
   private async handleWebSocketUpgrade(request: Request): Promise<Response> {
     const auth = request.headers.get('Authorization') ?? '';
     if (!auth.startsWith('Bearer ')) {
+      console.log(JSON.stringify({ event: 'auth_fail', reason: 'missing_token' }));
       return Response.json({ type: 'auth_fail', reason: 'missing token' }, { status: 401 });
     }
     const supplied = auth.slice(7).trim();
     if (!supplied) {
+      console.log(JSON.stringify({ event: 'auth_fail', reason: 'missing_token' }));
       return Response.json({ type: 'auth_fail', reason: 'missing token' }, { status: 401 });
     }
     const record = await this.ctx.storage.get<TokenRecord>(TOKEN_PREFIX + supplied);
     if (!record) {
+      console.log(JSON.stringify({
+        event: 'auth_fail',
+        reason: 'unknown_token',
+        token_prefix: supplied.slice(0, 8),
+      }));
       return Response.json({ type: 'auth_fail', reason: 'unknown token' }, { status: 401 });
     }
     const now = Math.floor(Date.now() / 1000);
@@ -85,6 +95,11 @@ export class RelayDurableObject extends DurableObject {
     await this.maybeEvictStaleTokens(now);
 
     if (this.connections.size >= MAX_CONNECTIONS) {
+      console.log(JSON.stringify({
+        event: 'connection_rejected',
+        reason: 'cap_reached',
+        connections: this.connections.size,
+      }));
       return new Response('Too many connections', { status: 503 });
     }
 
@@ -94,6 +109,11 @@ export class RelayDurableObject extends DurableObject {
     // Use hibernation API so the DO sleeps between messages
     this.ctx.acceptWebSocket(server);
     this.connections.add(server);
+    console.log(JSON.stringify({
+      event: 'connect',
+      token_prefix: supplied.slice(0, 8),
+      connections: this.connections.size,
+    }));
 
     // Schedule the first broadcast alarm if not already set
     const current = await this.ctx.storage.getAlarm();
@@ -116,6 +136,11 @@ export class RelayDurableObject extends DurableObject {
     if (toDelete.length > 0) {
       await this.ctx.storage.delete(toDelete);
     }
+    console.log(JSON.stringify({
+      event: 'token_sweep',
+      total_tokens: entries.size,
+      evicted: toDelete.length,
+    }));
   }
 
   override webSocketMessage(_ws: WebSocket, message: string | ArrayBuffer): void {
@@ -144,11 +169,17 @@ export class RelayDurableObject extends DurableObject {
 
   override webSocketClose(ws: WebSocket): void {
     this.connections.delete(ws);
+    console.log(JSON.stringify({ event: 'disconnect', connections: this.connections.size }));
   }
 
-  override webSocketError(ws: WebSocket): void {
+  override webSocketError(ws: WebSocket, error: unknown): void {
     this.connections.delete(ws);
     try { ws.close(); } catch { /* already closed */ }
+    console.log(JSON.stringify({
+      event: 'ws_error',
+      connections: this.connections.size,
+      message: error instanceof Error ? error.message : String(error),
+    }));
   }
 
   override async alarm(): Promise<void> {

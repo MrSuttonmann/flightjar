@@ -3,6 +3,15 @@ main = "src/index.ts"
 compatibility_date = "2024-11-01"
 compatibility_flags = ["nodejs_compat"]
 
+# Workers Logs — captures console.log + uncaught exceptions + per-request
+# trace events (timing, status, CPU time) in the Cloudflare dashboard
+# (Logs tab) and via `wrangler tail`. head_sampling_rate=1 means every
+# request is captured; on the paid plan this is included up to a generous
+# daily quota.
+[observability]
+enabled = true
+head_sampling_rate = 1
+
 [durable_objects]
 bindings = [{ name = "RELAY", class_name = "RelayDurableObject" }]
 
@@ -14,8 +23,7 @@ new_sqlite_classes = ["RelayDurableObject"]
 # be used to mint tokens unbounded from any one source. 5 requests per
 # minute is generous for legitimate retries; misbehaving callers get 429
 # until they back off.
-[[unsafe.bindings]]
+[[ratelimits]]
 name = "REGISTER_RATE_LIMIT"
-type = "ratelimit"
 namespace_id = "1001"
 simple = { limit = 5, period = 60 }

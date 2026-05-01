@@ -42,7 +42,7 @@ jobs:
       relay: ${{ steps.filter.outputs.relay }}
     steps:
       - uses: actions/checkout@v6
-      - uses: dorny/paths-filter@v3
+      - uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
@@ -80,10 +80,13 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Node tests (frontend modules)
-        run: node --test tests/js/
+        # Glob expanded by bash — Node 22 stopped treating the bare
+        # directory path as a discovery target and tries to resolve it
+        # as a single module instead.
+        run: node --test tests/js/*.test.js
 
       - name: Relay worker type check
         working-directory: relay-worker
@@ -104,7 +107,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "22"
 
       # Cache the Playwright browser binaries across runs. npm install
       # doesn't need its own cache since we deliberately don't commit a
@@ -227,7 +230,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Install dependencies
         working-directory: relay-worker

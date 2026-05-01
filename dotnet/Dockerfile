@@ -1,3 +1,9 @@
+# Skip the SecretsUsedInArgOrEnv build check for POSTHOG_API_KEY: PostHog
+# project keys (phc_*) are designed to be public-facing in client SDKs
+# (Sentry-DSN-style) and are intentionally baked into the assembly via
+# build arg. See TelemetryConfig.cs for the full rationale.
+# check=skip=SecretsUsedInArgOrEnv
+
 # ---- builder ----
 #
 # Pinned to $BUILDPLATFORM so this entire stage runs once on the build
