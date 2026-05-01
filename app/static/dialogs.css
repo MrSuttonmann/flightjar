@@ -65,6 +65,17 @@
     margin: 6px 0; font-size: 13px; color: var(--text);
   }
   #about-dialog .p2p-config-row input { accent-color: var(--accent); }
+  /* Lock hint: shown when the instance requires a password and the
+     user hasn't unlocked yet, so they know why the gated sections
+     (P2P federation, telemetry reset) are missing. */
+  #about-dialog .about-locked-hint {
+    display: flex; align-items: flex-start; gap: 8px;
+    margin: 16px 0 0; padding: 8px 10px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border); border-radius: 4px;
+    font-size: 12px; color: var(--muted);
+  }
+  #about-dialog .about-locked-hint svg { flex-shrink: 0; margin-top: 1px; }
 
   /* Stats dialog — reuses the about-dialog visual shell but replaces
      the bulleted lists with a responsive stat-card grid and a bigger

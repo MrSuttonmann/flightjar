@@ -74,6 +74,15 @@ function applyP2PSectionVisibility(snap) {
   section.hidden = snap.required && !snap.unlocked;
 }
 
+// Show a short hint explaining why the gated sections are absent.
+// Visible exactly when the instance is locked, hidden otherwise — kept
+// in sync via the same auth subscription that hides the sections.
+function applyAboutLockedHintVisibility(snap) {
+  const hint = document.getElementById('about-locked-hint');
+  if (!hint) return;
+  hint.hidden = !(snap.required && !snap.unlocked);
+}
+
 async function loadP2PConfig() {
   const enabledEl = document.getElementById('p2p-enabled');
   const shareEl = document.getElementById('p2p-share-site-name');
@@ -202,6 +211,8 @@ export function initAboutDialog() {
   });
   wireTelemetryReset();
   wireP2PConfig();
+  applyAboutLockedHintVisibility(getAuthStatus());
+  subscribeAuth(applyAboutLockedHintVisibility);
 }
 
 // ---------------- Map-key dialog ----------------
