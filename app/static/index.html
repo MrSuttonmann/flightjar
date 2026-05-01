@@ -362,6 +362,25 @@
         tile hosting by VFRMap.com.</li>
   </ul>
 
+  <section id="p2p-config-section">
+    <h3>P2P federation</h3>
+    <p class="about-body">
+      Share aircraft this receiver detects with the community relay, and
+      see aircraft from other Flightjar instances on your map. Your
+      receiver location is never shared — only the aircraft. On by
+      default.
+    </p>
+    <label class="p2p-config-row">
+      <input type="checkbox" id="p2p-enabled">
+      <span>Enable P2P federation</span>
+    </label>
+    <label class="p2p-config-row">
+      <input type="checkbox" id="p2p-share-site-name">
+      <span>Share <code>SITE_NAME</code> with the relay</span>
+    </label>
+    <p id="p2p-config-status" class="telemetry-status" hidden></p>
+  </section>
+
   <section id="telemetry-reset-section">
     <h3>Telemetry</h3>
     <p class="about-body">

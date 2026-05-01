@@ -26,6 +26,11 @@ public class ApiEndpointsTests : IClassFixture<WebApplicationFactory<Program>>
             b.UseSetting("BEAST_PORT", "1");
             Environment.SetEnvironmentVariable("BEAST_HOST", "127.0.0.1");
             Environment.SetEnvironmentVariable("BEAST_PORT", "1");
+            // Hard-off the P2P relay client. Without this, the BackgroundService
+            // would dial wss://relay.flightjar.xyz on test boot, receive peer
+            // aircraft, and ApiAircraft_ReturnsEmptySnapshot would see them
+            // merged into the snapshot ("expected 0, got 11").
+            Environment.SetEnvironmentVariable("P2P_ENABLED", "0");
             // Stop the VFRMap cycle refresher from making a real call to
             // vfrmap.com during the test run. Without this CI was racing
             // the discovery against MapConfig_ReportsLayerStatus, which

@@ -60,6 +60,11 @@
   }
   #about-dialog .telemetry-status.is-error { color: #fca5a5; }
   #about-dialog .telemetry-status.is-ok { color: #4ade80; }
+  #about-dialog .p2p-config-row {
+    display: flex; align-items: center; gap: 8px;
+    margin: 6px 0; font-size: 13px; color: var(--text);
+  }
+  #about-dialog .p2p-config-row input { accent-color: var(--accent); }
 
   /* Stats dialog — reuses the about-dialog visual shell but replaces
      the bulleted lists with a responsive stat-card grid and a bigger

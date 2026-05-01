@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using FlightJar.Core.Configuration;
 using FlightJar.Core.State;
+using FlightJar.Persistence.P2P;
 
 namespace FlightJar.Api.Hosting;
 
@@ -14,13 +15,24 @@ namespace FlightJar.Api.Hosting;
 /// stripped). Incoming <c>aggregate</c> messages from the relay are written
 /// into <see cref="PeerAircraftCache"/> so the next registry tick can merge
 /// them into the broadcast snapshot.
+/// <para>The service is always registered; the on/off switch lives in
+/// <see cref="P2PConfigStore"/> (UI-toggleable, persisted to
+/// <c>/data/p2p.json</c>). When disabled, the loop idles on a
+/// <see cref="TaskCompletionSource"/> until the store flips back on; when
+/// disabled mid-connection the live socket is closed and the loop returns
+/// to idling.</para>
 /// </summary>
 public sealed class P2PRelayClientService : BackgroundService
 {
     private readonly AppOptions _options;
     private readonly CurrentSnapshot _currentSnapshot;
     private readonly PeerAircraftCache _peerCache;
+    private readonly P2PConfigStore _configStore;
     private readonly ILogger<P2PRelayClientService> _logger;
+
+    private CancellationTokenSource? _connectionCts;
+    private TaskCompletionSource? _enableSignal;
+    private readonly object _signalGate = new();
 
     private static readonly JsonSerializerOptions _jsonOpts = new(JsonSerializerDefaults.Web)
     {
@@ -37,12 +49,39 @@ public sealed class P2PRelayClientService : BackgroundService
         AppOptions options,
         CurrentSnapshot currentSnapshot,
         PeerAircraftCache peerCache,
+        P2PConfigStore configStore,
         ILogger<P2PRelayClientService> logger)
     {
         _options = options;
         _currentSnapshot = currentSnapshot;
         _peerCache = peerCache;
+        _configStore = configStore;
         _logger = logger;
+
+        _configStore.Changed += OnConfigChanged;
+    }
+
+    public override void Dispose()
+    {
+        _configStore.Changed -= OnConfigChanged;
+        base.Dispose();
+    }
+
+    private void OnConfigChanged(P2PConfig cfg)
+    {
+        if (cfg.Enabled)
+        {
+            // Wake the idle loop.
+            lock (_signalGate)
+            {
+                _enableSignal?.TrySetResult();
+            }
+        }
+        else
+        {
+            // Tear down any live connection so the outer loop returns to idle.
+            _connectionCts?.Cancel();
+        }
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -52,14 +91,28 @@ public sealed class P2PRelayClientService : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            if (!_configStore.Current.Enabled)
+            {
+                // Park until the user toggles it on (or shutdown).
+                await WaitForEnableAsync(stoppingToken);
+                if (stoppingToken.IsCancellationRequested) return;
+                backoff = TimeSpan.FromSeconds(1);
+            }
+
             try
             {
-                await RunConnectionAsync(relayUri, stoppingToken);
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+                _connectionCts = cts;
+                await RunConnectionAsync(relayUri, cts.Token);
                 backoff = TimeSpan.FromSeconds(1);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
                 return;
+            }
+            catch (OperationCanceledException)
+            {
+                // User toggled federation off — loop will see Enabled=false and park.
             }
             catch (Exception ex)
             {
@@ -69,7 +122,24 @@ public sealed class P2PRelayClientService : BackgroundService
                 catch (OperationCanceledException) { return; }
                 backoff = TimeSpan.FromSeconds(Math.Min(backoff.TotalSeconds * 2, 60));
             }
+            finally
+            {
+                _connectionCts = null;
+            }
         }
+    }
+
+    private Task WaitForEnableAsync(CancellationToken stoppingToken)
+    {
+        TaskCompletionSource tcs;
+        lock (_signalGate)
+        {
+            _enableSignal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            tcs = _enableSignal;
+        }
+        // Cancellation completes the task too, so the outer loop exits cleanly on shutdown.
+        stoppingToken.Register(() => tcs.TrySetResult());
+        return tcs.Task;
     }
 
     private async Task RunConnectionAsync(Uri relayUri, CancellationToken ct)
@@ -184,7 +254,7 @@ public sealed class P2PRelayClientService : BackgroundService
         // Explicitly null out receiver location — never share it with the relay.
         var sanitised = new SanitisedSnapshot(
             Type: "snapshot",
-            SiteName: _options.P2PShareSiteName ? snap.SiteName : null,
+            SiteName: _configStore.Current.ShareSiteName ? snap.SiteName : null,
             Aircraft: aircraft);
         return JsonSerializer.Serialize(sanitised, _jsonOpts);
     }

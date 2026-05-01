@@ -36,6 +36,7 @@ public abstract class AuthEndpointTestBase
             Environment.SetEnvironmentVariable("BEAST_HOST", "127.0.0.1");
             Environment.SetEnvironmentVariable("BEAST_PORT", "1");
             Environment.SetEnvironmentVariable("FLIGHTJAR_PASSWORD", password ?? "");
+            Environment.SetEnvironmentVariable("P2P_ENABLED", "0");
         });
         return f;
     }

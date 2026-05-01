@@ -19,6 +19,7 @@ using FlightJar.Decoder.Beast;
 using FlightJar.Notifications;
 using FlightJar.Notifications.Alerts;
 using FlightJar.Persistence.Notifications;
+using FlightJar.Persistence.P2P;
 using FlightJar.Persistence.State;
 using FlightJar.Persistence.Watchlist;
 using FlightJar.Terrain.Srtm;
@@ -124,6 +125,15 @@ builder.Services.AddSingleton<CurrentSnapshot>();
 builder.Services.AddSingleton<SnapshotBroadcaster>();
 builder.Services.AddSingleton<BeastConnectionState>();
 builder.Services.AddSingleton<PeerAircraftCache>();
+var p2pConfigPath = !string.IsNullOrEmpty(dataDir) ? Path.Combine(dataDir, "p2p.json") : null;
+builder.Services.AddSingleton(sp => new P2PConfigStore(
+    p2pConfigPath, sp.GetService<ILogger<P2PConfigStore>>()));
+// The relay client is registered when the env-only kill switch is on
+// (default). Runtime on/off lives in P2PConfigStore so the user can
+// toggle it from the About dialog without restarting; setting
+// P2P_ENABLED=0 keeps the BackgroundService out of the process entirely
+// — used by the e2e harness so the relay's outbound chatter doesn't
+// destabilise timing-sensitive tests.
 if (options.P2PEnabled)
 {
     builder.Services.AddHostedService<P2PRelayClientService>();
@@ -292,6 +302,7 @@ var app = builder.Build();
 // Load persisted state synchronously before the host kicks off background services.
 await app.Services.GetRequiredService<WatchlistStore>().LoadAsync();
 await app.Services.GetRequiredService<NotificationsConfigStore>().LoadAsync();
+await app.Services.GetRequiredService<P2PConfigStore>().LoadAsync();
 // Eager-load the install ID so /api/telemetry_config can serve it
 // before TelemetryWorker has had a chance to run.
 await app.Services.GetRequiredService<InstanceIdStore>().LoadOrCreateAsync();

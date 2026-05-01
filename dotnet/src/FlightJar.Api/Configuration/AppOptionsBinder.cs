@@ -121,11 +121,10 @@ public static class AppOptionsBinder
             TerrainCacheDir = NullIfEmpty(Str(get, "TERRAIN_CACHE_DIR", "")) ?? "/data/terrain",
             TelemetryEnabled = Bool(get, "TELEMETRY_ENABLED", true),
             Password = Str(get, "FLIGHTJAR_PASSWORD", ""),
-            P2PEnabled = Bool(get, "P2P_ENABLED", false),
+            P2PEnabled = Bool(get, "P2P_ENABLED", true),
             P2PRelayUrl = NullIfEmpty(Str(get, "P2P_RELAY_URL", "")) ?? AppOptions.DefaultRelayUrl,
             P2PRelayToken = NullIfEmpty(Str(get, "P2P_RELAY_TOKEN", "")),
             P2PPushIntervalS = FloatRequired(get, "P2P_PUSH_INTERVAL_S", 5.0),
-            P2PShareSiteName = Bool(get, "P2P_SHARE_SITE_NAME", false),
         };
     }
 

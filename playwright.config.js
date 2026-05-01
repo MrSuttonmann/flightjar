@@ -69,6 +69,10 @@ export default defineConfig({
       // every test run. Disable it here — the layer still registers in
       // the frontend (testing that is the point of the e2e assertion).
       BLACKSPOTS_ENABLED: '0',
+      // Hard-off the P2P relay client so the BackgroundService doesn't
+      // dial wss://relay.flightjar.xyz during tests — the network noise
+      // and 5s push timer destabilise timing-sensitive layout assertions.
+      P2P_ENABLED: '0',
       FLIGHTJAR_STATIC_DIR: `${process.cwd()}/app/static`,
     },
   },
