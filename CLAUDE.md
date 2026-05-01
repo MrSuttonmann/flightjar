@@ -377,7 +377,7 @@ Reference-data loaders live under `FlightJar.Core.ReferenceData`:
 
 ### P2P federation
 
-Three moving parts split across the .NET service and a separate
+Four moving parts split across the .NET service and a separate
 Cloudflare Worker:
 
 - **`P2PConfigStore`** (`FlightJar.Persistence.P2P`) — UI-managed
@@ -385,22 +385,38 @@ Cloudflare Worker:
   (atomic write-to-temp + rename). Defaults `enabled=true`,
   `share_site_name=false` — federation is on out of the box.
   Exposes a `Changed` event the background service hooks into.
+- **`P2PRelayCredentialsStore`** + **`P2PRelayRegistrar`** — token
+  acquisition. Precedence: `P2P_RELAY_TOKEN` env override → token
+  persisted to `/data/p2p_credentials.json` → fresh `POST /register`
+  against the relay. Tokens are opaque random hex (32 bytes) issued
+  by the worker; persisted ones survive restart so we don't burn the
+  relay's per-IP register-rate-limit on every container restart.
+  `Registrar.InvalidateAsync()` clears the persisted token so the
+  next connect re-registers — called from the WS client when the
+  relay rejects with HTTP 401 (TTL eviction or rotation).
 - **`P2PRelayClientService : BackgroundService`** — always
   registered. Outer loop consults `P2PConfigStore.Current.Enabled`;
   when disabled it parks on a `TaskCompletionSource` until the
-  store fires `Changed`, when re-enabled it dials the relay. Mid-
-  connection toggles cancel the live `ClientWebSocket` via the
-  registered `_connectionCts`. Push side: `PeriodicTimer` at
-  `P2PPushIntervalS` builds a sanitised payload (receiver coords
-  nulled, per-aircraft `distance_km` cleared, `Peer==true` aircraft
-  skipped to avoid echoing). Receive side: deserialises `aggregate`
-  messages into `PeerAircraftCache` for `RegistryWorker` to merge
-  on the next tick.
+  store fires `Changed`, when re-enabled it calls
+  `P2PRelayRegistrar.EnsureTokenAsync` and dials the relay with the
+  resulting bearer token. Mid-connection toggles cancel the live
+  `ClientWebSocket` via the registered `_connectionCts`. Push side:
+  `PeriodicTimer` at `P2PPushIntervalS` builds a sanitised payload
+  (receiver coords nulled, per-aircraft `distance_km` cleared,
+  `Peer==true` aircraft skipped to avoid echoing). Receive side:
+  deserialises `aggregate` messages into `PeerAircraftCache` for
+  `RegistryWorker` to merge on the next tick.
 - **`relay-worker/`** — Cloudflare Worker + Durable Object (TS).
   `acceptWebSocket()` for hibernation; `alarm()` broadcasts every
   5 s and re-arms itself; aggregate Map keyed on lowercase ICAO24,
-  evicts entries older than 65 s. Free-plan compatible — uses
-  `new_sqlite_classes` migration.
+  evicts entries older than 65 s. `POST /register` mints a fresh
+  random token, stores it in DO storage keyed by `token:<value>`,
+  and refreshes its `lastSeenS` on every successful WS auth. Tokens
+  unused for 90d are swept out (throttled to once per 24h, run
+  inline on register/connect — no idle-DO alarms). `/register` is
+  per-IP rate-limited (5/min) via the Cloudflare ratelimit binding
+  declared in `wrangler.toml`. Per-DO connection backstop is 5000.
+  Free-plan compatible — uses `new_sqlite_classes` migration.
 
 Merge semantics (`PeerMerge.Combine`, called from
 `RegistryWorker.MergePeerAircraft`): for ICAOs both receivers see,
@@ -417,7 +433,10 @@ aircraft (we have no local fix) keep `Peer = true` for UI styling.
 
 The relay URL, bearer token, and push interval are env-only
 (`P2P_RELAY_URL`, `P2P_RELAY_TOKEN`, `P2P_PUSH_INTERVAL_S`) — those
-are the advanced "self-hosted relay" knobs. `P2P_ENABLED` is a hard
+are the advanced "self-hosted relay" knobs. `P2P_RELAY_TOKEN` is
+normally unset; the registrar auto-registers on first connect and
+persists the issued token. Set it explicitly only when pointing at
+a relay that issues tokens out-of-band. `P2P_ENABLED` is a hard
 env-only kill switch (default `1`): when `0` the
 `P2PRelayClientService` is never registered, so the process makes
 no outbound WebSocket connections at all. Used by the e2e harness
@@ -510,6 +529,7 @@ throughput ceiling on CI and build boxes):
 | `watchlist.json` | `WatchlistStore` | Watchlist of ICAO24 hex codes + last-seen map. |
 | `notifications.json` | `NotificationsConfigStore` | UI-managed alert channels. |
 | `p2p.json` | `P2PConfigStore` | UI-managed P2P federation on/off + share-site-name (schema v1). Default on first run: `enabled=true`, `share_site_name=false`. |
+| `p2p_credentials.json` | `P2PRelayCredentialsStore` | Bearer token issued by the relay's `/register` endpoint on first connect. Reused across restarts so we don't re-register on every container start. Cleared on HTTP 401 (relay-side eviction or rotation). |
 | `vfrmap_cycle.json` | `VfrmapCycle` | Auto-discovered FAA chart cycle date. |
 | `openaip.json.gz` | `OpenAipClient` | Cached OpenAIP airspaces / obstacles / reporting points per 2° bbox tile (schema v1, 7-day TTL). |
 | `blackspots.json.gz` | `BlackspotsGrid` | Precomputed terrain-shadow grid: blocked cells + required antenna height per cell (schema v1). Recomputed when receiver params change. |

@@ -322,9 +322,8 @@ Flightjar re-download the DB itself on a schedule:
 AIRCRAFT_DB_REFRESH_HOURS: "168"   # weekly
 ```
 
-The fresh file is written atomically to `/data/aircraft_db.csv.gz` inside
-the mounted volume; parsing happens before commit, so a corrupted download
-never replaces the live copy.
+The fresh file is written into the mounted volume safely — a corrupted
+download never replaces the live copy.
 
 **Manual.** Drop a file into the mounted `./beast-logs/` directory yourself:
 
@@ -335,8 +334,7 @@ docker compose restart flightjar
 ```
 
 If `beast-logs/aircraft_db.csv.gz` exists it wins over the baked copy.
-Remove it to fall back to the image's version. If neither is present,
-enrichment is silently disabled and the app behaves as before.
+Remove it to fall back to the image's version.
 
 ## adsbdb integration (routes, aircraft, photos)
 
@@ -355,11 +353,9 @@ community API that needs no account, for two enrichments:
   country flag also surfaces as an emoji in the sidebar next to each
   callsign.
 
-Lookups are serialised with a small spacing (to stay a polite client),
-deduplicated, and cached server-side in `./beast-logs/flight_routes.json.gz`.
-TTLs: 12h for known routes, 1h for unknown callsigns, 30 days for known
-tails, 24h for unknown tails. On first boot you'll see routes, flags and
-photos appear gradually as the cache populates.
+Lookups are cached server-side and rate-limited to stay a polite client.
+On first boot you'll see routes, flags and photos appear gradually as
+the cache populates.
 
 To disable outbound lookups entirely (offline or privacy-conscious
 deploys), set `FLIGHT_ROUTES=0`. That also suppresses photo fetches.
@@ -396,67 +392,37 @@ Alerts channels are what keep working once every tab is closed.
 
 ## P2P federation
 
-Flightjar instances can pool what they see — each one pushes its
-locally decoded aircraft to a small community relay
-(`wss://relay.flightjar.xyz/ws`, hosted on Cloudflare Workers) and
-receives the aggregated feed from every other connected instance.
-Aircraft from peers appear on your map alongside the ones your own
-receiver picked up, with a dashed indigo outline and a "Network" badge
-in the detail panel so the source is always visible. A "Peers" chip
-in the sidebar filter bar toggles them on or off.
+Flightjar instances can pool what they see — each one shares its
+locally decoded aircraft with a small community network and receives
+the aggregated feed from every other connected instance. Aircraft
+seen by peers appear on your map with a dashed indigo outline and a
+"Network" badge in the detail panel; the "Peers" chip in the sidebar
+filter bar toggles them on or off.
 
-**Enabled by default.** No env var, no compose tweaks — fresh installs
-participate out of the box. To turn it off, open the **About** dialog
-from the sidebar footer and uncheck "Enable P2P federation". The
-choice is persisted to `/data/p2p.json` and survives restarts.
+**Enabled by default.** Fresh installs participate out of the box —
+no setup, no signup, no key to copy. To opt out, open the **About**
+dialog from the sidebar footer and uncheck "Enable P2P federation".
 
 **Aircraft seen by multiple receivers are combined, not duplicated.**
-When your receiver and a peer both see the same ICAO24, the two
-records are merged additively: local data wins where both sides
-have a value, peer data fills any gaps (e.g. peer's adsbdb cache
-already has the route, yours doesn't yet). Receiver-specific values
-— distance, signal strength, message count, trail — always stay
-local because they describe *your* reception. The combined record
-renders as a local aircraft (no peer styling), since you have direct
-radio contact regardless of who else saw it.
+When your receiver and a peer both see the same aircraft, the records
+merge: local data wins where both sides have a value, peer data fills
+gaps. Receiver-specific values like distance, signal strength, and
+trail always stay local.
 
 **What's shared, and what isn't.** Each instance sanitises its
 outbound payload before it leaves the container:
 
-- **Stripped:** `receiver.lat` / `receiver.lon` (your exact
-  coordinates), per-aircraft `distance_km` (which would let observers
-  back-solve your location), and `site_name` (unless you opt in via
-  the second checkbox in the About dialog).
-- **Kept:** aircraft ICAO24, lat / lon, callsign, altitude, speed,
-  track, squawk, trail, and the usual enrichment fields (registration,
-  type, operator, route). All of this is derived from public ADS-B
-  broadcasts that anyone in radio range of the aircraft can already
-  pick up.
+- **Stripped:** your receiver coordinates, per-aircraft distance
+  (which would let observers back-solve your location), and your
+  site name (unless you opt in via the second checkbox in About).
+- **Kept:** aircraft ICAO24, position, callsign, altitude, speed,
+  track, squawk, and trail — all derived from public ADS-B
+  broadcasts that anyone in radio range can already pick up.
 
-You can inspect exactly what your instance is sharing with the relay
-by opening `ws://<host>:8080/p2p/ws` in a WebSocket client — the
-endpoint streams the same sanitised payload the relay client pushes.
-`receiver` will be `null` and no aircraft will carry a `distance_km`.
-
-**Self-hosting the relay.** If you'd rather run your own relay (e.g. a
-private federation between a small group of receivers), the worker
-source lives in `relay-worker/` — `wrangler deploy` from that
-directory ships it to Cloudflare Workers under your own account.
-A few optional env vars on the Flightjar instance redirect or
-hard-disable the relay client:
-
-| Var | Default | Purpose |
-|-----|---------|---------|
-| `P2P_ENABLED` | `1` | Hard kill switch. Set to `0` to keep the relay client out of the process entirely (e.g. for tests or hardened deployments) — the UI toggle is then inert. |
-| `P2P_RELAY_URL` | `wss://relay.flightjar.xyz/ws` | Override the relay WebSocket URL. |
-| `P2P_RELAY_TOKEN` | (unset) | Bearer token for a private/auth-gated relay. |
-| `P2P_PUSH_INTERVAL_S` | `5` | Seconds between sanitised snapshot pushes. |
-
-The community relay accepts unauthenticated connections; the token is
-only needed when pointing at a private relay configured with
-`RELAY_TOKEN`. The runtime on/off switch is **not** an env var —
-it's UI-managed at `/api/p2p/config`. `P2P_ENABLED=0` is a hard gate
-that prevents the BackgroundService from registering at all.
+**Self-hosting.** If you'd rather run your own relay (e.g. a private
+federation between a small group of receivers), the worker source
+lives in `relay-worker/`. Deploy it under your own Cloudflare account
+and point your Flightjar instance at it with `P2P_RELAY_URL`.
 
 ## Running multiple receivers
 
@@ -488,21 +454,21 @@ It shows up next to "Flightjar" in the sidebar and in the browser tab title
 | `AIRCRAFT_DB_REFRESH_HOURS` | `0`           | Auto-refresh interval for the aircraft DB. `0` disables.       |
 | `FLIGHT_ROUTES`       | `1`                 | Enable origin/destination lookups via adsbdb.com. `0` disables.|
 | `METAR_WEATHER`       | `1`                 | Enable METAR lookups via aviationweather.gov. `0` disables.    |
-| `OPENAIP_API_KEY`     | (unset)             | Personal key from [openaip.net](https://www.openaip.net/) enabling five optional worldwide overlays: the combined **Aeronautical (OpenAIP)** raster tiles, plus interactive **Airspaces**, **Obstacles**, and **Reporting points** vector layers backed by the OpenAIP Core REST API. The key appears in browser tile URLs (for the raster layer) and is forwarded server-side (for the vector layers), so it's **not** a secret — scope it to your deployment's origin if OpenAIP supports referer restrictions. Vector-layer results are cached on disk at `/data/openaip.json.gz` (snapped to a 2° grid, 7-day TTL) so a typical session makes only a handful of upstream calls. OpenAIP is **CC BY-NC-SA**; don't use the free tier for commercial deployments. |
-| `VFRMAP_CHART_DATE`   | (unset — auto)      | Optional override pinning the [VFRMap.com](https://vfrmap.com/) IFR chart cycle to a specific `YYYYMMDD`. By default, the current cycle is discovered automatically at startup (scraped from vfrmap.com, cached to `/data/vfrmap_cycle.json`, refreshed every 6 h). Set this only for air-gapped deployments or to reproduce a bug against a historical cycle. The optional **IFR Low (US)** / **IFR High (US)** overlays are US only — they stay registered but render blank outside US airspace. |
-| `BLACKSPOTS_ENABLED`  | `1`                 | Master switch for the **Terrain blackspots** overlay — a map layer that shades areas where the radio line-of-sight to a given altitude is blocked by terrain or the Earth's curvature. Requires `LAT_REF` / `LON_REF` to be set. SRTM1 elevation tiles are downloaded from the AWS Open Data `elevation-tiles-prod` bucket (cached to `/data/terrain/`, no API key required) on the first `/api/blackspots` request — not on startup — and reclaimed after `BLACKSPOTS_IDLE_TIMEOUT_MIN` minutes of inactivity. |
-| `BLACKSPOTS_ANTENNA_AGL_M` | `5`             | Antenna tip height in metres above local ground level. Used when `BLACKSPOTS_ANTENNA_MSL_M` is not set — in that case the DEM-sampled ground elevation at the receiver + this AGL value gives the absolute antenna altitude. |
-| `BLACKSPOTS_ANTENNA_MSL_M` | (unset)         | Antenna tip height in metres MSL (absolute, above sea level). When set, takes precedence over the AGL fallback — a measured MSL value is typically more accurate than a guess at AGL + the DEM's 30 m-resolution ground estimate. Most ADS-B tools ask for MSL, so this is the preferred field to set. Target altitude itself is chosen interactively via the vertical slider on the right edge of the map when the layer is active; there's no env var for it. |
-| `BLACKSPOTS_RADIUS_KM` | `400`              | Minimum / floor for the per-altitude grid radius. The grid auto-extends up to the radio horizon for the current target altitude (capped at 1000 km) so the unreachable-cells ring always closes — at high target altitudes (≳ FL300) the curvature horizon would otherwise fall outside a fixed radius and leave an open arc. Must be in (0, 1000]. |
+| `OPENAIP_API_KEY`     | (unset)             | Personal key from [openaip.net](https://www.openaip.net/) — enables four optional worldwide map overlays: combined **Aeronautical** raster tiles, plus interactive **Airspaces**, **Obstacles**, and **Reporting points** vector layers. OpenAIP is **CC BY-NC-SA**; don't use the free tier for commercial deployments. |
+| `VFRMAP_CHART_DATE`   | (unset — auto)      | Override the [VFRMap.com](https://vfrmap.com/) IFR chart cycle date (`YYYYMMDD`). The current cycle is discovered automatically at startup; set this only for air-gapped deployments or historical replays. The optional **IFR Low/High (US)** overlays are US-only and render blank outside US airspace. |
+| `BLACKSPOTS_ENABLED`  | `1`                 | Master switch for the **Terrain blackspots** overlay — a map layer shading areas where terrain or the Earth's curvature blocks radio line-of-sight to a given altitude. Requires `LAT_REF` / `LON_REF` to be set. |
+| `BLACKSPOTS_ANTENNA_AGL_M` | `5`             | Antenna tip height in metres above local ground level. Used when `BLACKSPOTS_ANTENNA_MSL_M` is not set. |
+| `BLACKSPOTS_ANTENNA_MSL_M` | (unset)         | Antenna tip height in metres MSL (absolute, above sea level). Takes precedence over the AGL value when set — a measured MSL height is usually more accurate. Most ADS-B tools ask for MSL, so this is the preferred field. |
+| `BLACKSPOTS_RADIUS_KM` | `400`              | Minimum grid radius. The grid auto-extends out to the radio horizon for the current target altitude. Must be in (0, 1000]. |
 | `BLACKSPOTS_GRID_DEG` | `0.05`              | Cell size in degrees (≈ 5 km at UK latitudes). Smaller = finer detail + slower compute. Must be in (0, 1]. |
-| `BLACKSPOTS_MAX_AGL_M` | `100`              | Bisection ceiling when solving for required antenna height. Cells still blocked at this height are reported as "unreachable". |
-| `BLACKSPOTS_IDLE_TIMEOUT_MIN` | `15`        | Minutes the blackspots feature can sit idle (no `/api/blackspots` requests) before its in-memory state — SRTM tiles (~26 MB each, ~12–15 tiles for the default radius) and the LRU grid cache — is reclaimed. Disk caches survive eviction, so re-engaging the layer pays a disk read instead of a re-download. `0` disables eviction (keep everything resident). |
-| `TERRAIN_CACHE_DIR`   | `/data/terrain`     | Directory for the downloaded SRTM tiles. |
+| `BLACKSPOTS_MAX_AGL_M` | `100`              | Maximum antenna height searched when solving for "what would unblock this cell". Cells still blocked at this height are reported as "unreachable". |
+| `BLACKSPOTS_IDLE_TIMEOUT_MIN` | `15`        | Minutes the blackspots feature can sit idle before reclaiming its in-memory caches. Disk caches survive eviction, so re-engaging the layer is cheap. `0` disables eviction. |
+| `TERRAIN_CACHE_DIR`   | `/data/terrain`     | Directory for the downloaded elevation tiles. |
 | `TELEMETRY_ENABLED`   | `1`                 | Anonymous usage telemetry — see below.                         |
-| `P2P_ENABLED`         | `1`                 | Hard kill switch for the **P2P federation** relay client. When `0`, the BackgroundService never registers — useful for tests, hardened deployments, or air-gapped builds. The runtime on/off (and the share-`SITE_NAME` toggle) are UI-managed in the **About** dialog and persisted to `/data/p2p.json`; this env var keeps the relay client out of the process entirely, regardless of UI state. See **P2P federation** above. |
-| `P2P_RELAY_URL`       | `wss://relay.flightjar.xyz/ws` | WebSocket URL of the relay this instance pushes to and reads aggregated peer aircraft from. Override to point at a self-hosted relay. |
-| `P2P_RELAY_TOKEN`     | (unset)             | Bearer token presented on the relay WebSocket upgrade. Leave unset for the open community relay; required only for private relays configured with `RELAY_TOKEN`. |
-| `P2P_PUSH_INTERVAL_S` | `5`                 | How often (seconds) this instance pushes a sanitised snapshot to the relay. The relay re-broadcasts its aggregate at the same cadence. |
+| `P2P_ENABLED`         | `1`                 | Set to `0` to disable P2P federation entirely (no outbound relay connections). The runtime on/off and share-`SITE_NAME` toggle live in the **About** dialog. |
+| `P2P_RELAY_URL`       | `wss://relay.flightjar.xyz/ws` | Override the relay this instance connects to. Leave at the default to use the community relay; change it to point at one you've self-hosted. |
+| `P2P_RELAY_TOKEN`     | (unset)             | Override the bearer token sent to the relay. Normally unset — instances acquire a token automatically on first connect. Set only when pointing at a relay that issues tokens out-of-band. |
+| `P2P_PUSH_INTERVAL_S` | `5`                 | Seconds between snapshot pushes to the relay. |
 | `FLIGHTJAR_PASSWORD`  | (unset)             | Optional shared secret. When non-empty, the watchlist + notification-channel endpoints (`/api/watchlist`, `/api/notifications/*`) require an authenticated session cookie minted by `POST /api/auth/login`. Empty disables auth entirely (default — fine on a private LAN). Set this when exposing the instance to the internet so unauthenticated callers can't read your bot tokens or scrape your watchlist. See **Optional password protection** below. |
 
 Notification channels aren't configured via env vars — they're

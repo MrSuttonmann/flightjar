@@ -128,6 +128,9 @@ builder.Services.AddSingleton<PeerAircraftCache>();
 var p2pConfigPath = !string.IsNullOrEmpty(dataDir) ? Path.Combine(dataDir, "p2p.json") : null;
 builder.Services.AddSingleton(sp => new P2PConfigStore(
     p2pConfigPath, sp.GetService<ILogger<P2PConfigStore>>()));
+var p2pCredentialsPath = !string.IsNullOrEmpty(dataDir) ? Path.Combine(dataDir, "p2p_credentials.json") : null;
+builder.Services.AddSingleton(sp => new P2PRelayCredentialsStore(
+    p2pCredentialsPath, sp.GetService<ILogger<P2PRelayCredentialsStore>>()));
 // The relay client is registered when the env-only kill switch is on
 // (default). Runtime on/off lives in P2PConfigStore so the user can
 // toggle it from the About dialog without restarting; setting
@@ -136,6 +139,7 @@ builder.Services.AddSingleton(sp => new P2PConfigStore(
 // destabilise timing-sensitive tests.
 if (options.P2PEnabled)
 {
+    builder.Services.AddHttpClient<P2PRelayRegistrar>();
     builder.Services.AddHostedService<P2PRelayClientService>();
 }
 builder.Services.AddSingleton<IBeastConnectionState>(sp => sp.GetRequiredService<BeastConnectionState>());
@@ -303,6 +307,7 @@ var app = builder.Build();
 await app.Services.GetRequiredService<WatchlistStore>().LoadAsync();
 await app.Services.GetRequiredService<NotificationsConfigStore>().LoadAsync();
 await app.Services.GetRequiredService<P2PConfigStore>().LoadAsync();
+await app.Services.GetRequiredService<P2PRelayCredentialsStore>().LoadAsync();
 // Eager-load the install ID so /api/telemetry_config can serve it
 // before TelemetryWorker has had a chance to run.
 await app.Services.GetRequiredService<InstanceIdStore>().LoadOrCreateAsync();

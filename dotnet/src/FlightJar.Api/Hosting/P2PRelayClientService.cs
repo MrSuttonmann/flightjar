@@ -28,6 +28,7 @@ public sealed class P2PRelayClientService : BackgroundService
     private readonly CurrentSnapshot _currentSnapshot;
     private readonly PeerAircraftCache _peerCache;
     private readonly P2PConfigStore _configStore;
+    private readonly P2PRelayRegistrar _registrar;
     private readonly ILogger<P2PRelayClientService> _logger;
 
     private CancellationTokenSource? _connectionCts;
@@ -50,12 +51,14 @@ public sealed class P2PRelayClientService : BackgroundService
         CurrentSnapshot currentSnapshot,
         PeerAircraftCache peerCache,
         P2PConfigStore configStore,
+        P2PRelayRegistrar registrar,
         ILogger<P2PRelayClientService> logger)
     {
         _options = options;
         _currentSnapshot = currentSnapshot;
         _peerCache = peerCache;
         _configStore = configStore;
+        _registrar = registrar;
         _logger = logger;
 
         _configStore.Changed += OnConfigChanged;
@@ -144,15 +147,26 @@ public sealed class P2PRelayClientService : BackgroundService
 
     private async Task RunConnectionAsync(Uri relayUri, CancellationToken ct)
     {
+        var token = await _registrar.EnsureTokenAsync(ct);
+
         using var socket = new ClientWebSocket();
-        if (!string.IsNullOrEmpty(_options.P2PRelayToken))
-        {
-            socket.Options.SetRequestHeader("Authorization", $"Bearer {_options.P2PRelayToken}");
-        }
+        socket.Options.SetRequestHeader("Authorization", $"Bearer {token}");
         socket.Options.SetRequestHeader("X-Instance-Id", _instanceId);
 
         _logger.LogInformation("P2P connecting to relay {Uri}", relayUri);
-        await socket.ConnectAsync(relayUri, ct);
+        try
+        {
+            await socket.ConnectAsync(relayUri, ct);
+        }
+        catch (WebSocketException wse) when (LooksLikeAuthRejection(wse))
+        {
+            // Persisted token rejected — most likely the relay evicted it
+            // after the 90d TTL. Drop it so the next loop iteration mints
+            // a fresh one. Then rethrow so the outer loop applies backoff.
+            _logger.LogWarning("P2P relay rejected token, will re-register on next attempt");
+            await _registrar.InvalidateAsync(CancellationToken.None);
+            throw;
+        }
         _logger.LogInformation("P2P connected to relay");
 
         // Run send and receive concurrently; if either exits (disconnect /
@@ -263,6 +277,17 @@ public sealed class P2PRelayClientService : BackgroundService
     {
         var bytes = Encoding.UTF8.GetBytes(text);
         await socket.SendAsync(bytes, WebSocketMessageType.Text, endOfMessage: true, ct);
+    }
+
+    private static bool LooksLikeAuthRejection(WebSocketException wse)
+    {
+        // ClientWebSocket surfaces a non-101 handshake response as a
+        // WebSocketException; the message includes the status code. We
+        // match on 401 specifically rather than any error so genuine
+        // network failures still hit the normal backoff path.
+        var msg = wse.Message;
+        return msg.Contains("401", StringComparison.Ordinal)
+            || msg.Contains("Unauthorized", StringComparison.OrdinalIgnoreCase);
     }
 
     private sealed record SanitisedSnapshot(
