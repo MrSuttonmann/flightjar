@@ -18,7 +18,7 @@ namespace FlightJar.Api.Telemetry;
 /// </summary>
 internal static class TelemetryConfig
 {
-    public static readonly string Host = ReadAttr("PosthogHost") ?? "https://eu.i.posthog.com";
+    public static readonly string Host = ReadAttr("PosthogHost") ?? "https://wall.flightjar.xyz";
     public static readonly string ApiKey = ReadAttr("PosthogApiKey") ?? "";
     public static readonly TimeSpan PingInterval = TimeSpan.FromHours(24);
 
