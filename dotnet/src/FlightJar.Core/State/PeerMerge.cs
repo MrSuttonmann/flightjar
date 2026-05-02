@@ -11,6 +11,43 @@ namespace FlightJar.Core.State;
 public static class PeerMerge
 {
     /// <summary>
+    /// Extends the snapshot's airports map with origin/destination
+    /// references contributed by each aircraft's <c>OriginInfo</c> /
+    /// <c>DestInfo</c>. Existing entries are preserved unchanged
+    /// (their <c>Metar</c> slot may already have been populated by
+    /// the local enrichment pass); new entries are added with
+    /// name + coords only. METAR for newly-referenced airports is
+    /// the caller's concern — this helper is purely about identity.
+    /// </summary>
+    /// <remarks>
+    /// The frontend reads route names, progress geometry, and METAR
+    /// from <c>RegistrySnapshot.Airports</c> keyed on ICAO code.
+    /// Without this extension step, peer-only aircraft (whose
+    /// origin/destination weren't seen by any locally-tracked flight)
+    /// would render only their bare airport codes.
+    /// </remarks>
+    public static Dictionary<string, SnapshotAirportRef> ExtendAirports(
+        IReadOnlyDictionary<string, SnapshotAirportRef>? existing,
+        IEnumerable<SnapshotAircraft> aircraft)
+    {
+        var airports = existing is null
+            ? new Dictionary<string, SnapshotAirportRef>(StringComparer.Ordinal)
+            : new Dictionary<string, SnapshotAirportRef>(existing, StringComparer.Ordinal);
+        foreach (var ac in aircraft)
+        {
+            Add(airports, ac.OriginInfo);
+            Add(airports, ac.DestInfo);
+        }
+        return airports;
+
+        static void Add(Dictionary<string, SnapshotAirportRef> map, SnapshotAirport? info)
+        {
+            if (info is null || map.ContainsKey(info.Icao)) return;
+            map[info.Icao] = new SnapshotAirportRef(info.Name, info.Lat, info.Lon);
+        }
+    }
+
+    /// <summary>
     /// Returns a new <see cref="SnapshotAircraft"/> that fills the
     /// caller's null fields from <paramref name="peer"/>. The result
     /// is presented as a local aircraft (<c>Peer = null</c>) — the
