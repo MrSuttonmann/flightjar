@@ -294,12 +294,69 @@ public sealed class RegistryWorker : BackgroundService, IBeastFrameStats
             if (peerAc.Lat.HasValue) positioned++;
         }
 
+        // Extend the snapshot's airports map with origin/destination
+        // entries contributed by peer-only aircraft (and locally-augmented
+        // aircraft that gained OriginInfo/DestInfo via PeerMerge.Combine).
+        // The frontend reads route names, progress geometry, and METAR
+        // from this map keyed on ICAO code, so without this step peer
+        // aircraft would render only their bare airport codes.
+        var airports = PeerMerge.ExtendAirports(snap.Airports, merged);
+        LayerInLocalMetarForNewAirports(airports, snap.Airports);
+
         return snap with
         {
             Aircraft = merged,
             Count = merged.Count,
             Positioned = positioned,
+            Airports = airports,
         };
+    }
+
+    /// <summary>
+    /// For airports added to the map by <see cref="PeerMerge.ExtendAirports"/>
+    /// (i.e. ones that weren't in the local enrichment pass), pull in any
+    /// METAR our local cache has and fire a batched fetch for the rest so
+    /// the next tick fills them in. Existing entries are skipped — their
+    /// METAR slot was already populated when EnrichSnapshot ran.
+    /// </summary>
+    private void LayerInLocalMetarForNewAirports(
+        Dictionary<string, SnapshotAirportRef> airports,
+        IReadOnlyDictionary<string, SnapshotAirportRef>? existingBeforeMerge)
+    {
+        if (_metar is null) return;
+        var uncachedMetarCodes = new List<string>();
+        foreach (var icao in airports.Keys.ToArray())
+        {
+            if (existingBeforeMerge is not null && existingBeforeMerge.ContainsKey(icao)) continue;
+            var cached = _metar.LookupCached(icao);
+            if (cached.Known && cached.Data is MetarEntry entry)
+            {
+                airports[icao] = airports[icao] with
+                {
+                    Metar = new SnapshotMetar
+                    {
+                        Raw = entry.Raw,
+                        ObsTime = entry.ObsTime,
+                        WindDir = entry.WindDir,
+                        WindKt = entry.WindKt,
+                        GustKt = entry.GustKt,
+                        Visibility = entry.Visibility,
+                        TempC = entry.TempC,
+                        DewpointC = entry.DewpointC,
+                        AltimeterHpa = entry.AltimeterHpa,
+                        Cover = entry.Cover,
+                    },
+                };
+            }
+            else if (!cached.Known)
+            {
+                uncachedMetarCodes.Add(icao);
+            }
+        }
+        if (uncachedMetarCodes.Count > 0)
+        {
+            _ = _metar.LookupManyAsync(uncachedMetarCodes);
+        }
     }
 
     /// <summary>

@@ -142,6 +142,79 @@ public sealed class PeerMergeTests
     }
 
     [Fact]
+    public void ExtendAirports_AddsPeerOnlyAircraftAirportsToMap()
+    {
+        // Bug repro: a peer-only aircraft arrives at the receiving instance
+        // with Origin/Destination/OriginInfo/DestInfo set (peer enriched it
+        // upstream), but the receiver's snapshot.Airports map was built
+        // before the merge ran and so contained only locally-tracked
+        // aircraft's airports. The frontend reads airports[a.origin] for
+        // route name + progress + METAR, so peer-only aircraft rendered
+        // only the bare codes.
+        var peerOnly = new SnapshotAircraft
+        {
+            Icao = "abc123",
+            Callsign = "BAW123",
+            Peer = true,
+            Origin = "EGLL",
+            Destination = "KJFK",
+            OriginInfo = new SnapshotAirport("EGLL", "London Heathrow", "London", "GB", 51.4706, -0.4619),
+            DestInfo = new SnapshotAirport("KJFK", "John F Kennedy Intl", "New York", "US", 40.6413, -73.7781),
+        };
+
+        var airports = PeerMerge.ExtendAirports(existing: null, aircraft: new[] { peerOnly });
+
+        Assert.True(airports.ContainsKey("EGLL"));
+        Assert.True(airports.ContainsKey("KJFK"));
+        Assert.Equal("London Heathrow", airports["EGLL"].Name);
+        Assert.Equal(51.4706, airports["EGLL"].Lat);
+        Assert.Equal(-0.4619, airports["EGLL"].Lon);
+        Assert.Equal("John F Kennedy Intl", airports["KJFK"].Name);
+    }
+
+    [Fact]
+    public void ExtendAirports_PreservesExistingEntriesIncludingMetar()
+    {
+        // Local aircraft's airports were already added to the map by
+        // EnrichSnapshot, with METAR populated from the local cache.
+        // Re-running the extension after the peer merge must not clobber
+        // those entries — they hold METAR data the static helper has no
+        // way to recompute.
+        var existing = new Dictionary<string, SnapshotAirportRef>(StringComparer.Ordinal)
+        {
+            ["EGLL"] = new SnapshotAirportRef("London Heathrow", 51.4706, -0.4619)
+            {
+                Metar = new SnapshotMetar { Raw = "EGLL 010000Z 27010KT" },
+            },
+        };
+        var ac = new SnapshotAircraft
+        {
+            Icao = "abc123",
+            Origin = "EGLL",
+            // A different OriginInfo for the same ICAO — must not overwrite.
+            OriginInfo = new SnapshotAirport("EGLL", "Different Name", null, null, 0, 0),
+        };
+
+        var airports = PeerMerge.ExtendAirports(existing, new[] { ac });
+
+        Assert.Equal("London Heathrow", airports["EGLL"].Name);
+        Assert.Equal("EGLL 010000Z 27010KT", airports["EGLL"].Metar?.Raw);
+    }
+
+    [Fact]
+    public void ExtendAirports_SkipsAircraftWithNullAirportInfo()
+    {
+        // Aircraft with no OriginInfo/DestInfo (e.g., adsbdb cache miss
+        // and no peer enrichment yet) must not crash the helper or
+        // produce empty entries.
+        var ac = new SnapshotAircraft { Icao = "abc123" };
+
+        var airports = PeerMerge.ExtendAirports(existing: null, aircraft: new[] { ac });
+
+        Assert.Empty(airports);
+    }
+
+    [Fact]
     public void Combine_FillsAltitudeAndVelocityFromPeer()
     {
         var local = new SnapshotAircraft { Icao = "abc123", Callsign = "BAW123" };
