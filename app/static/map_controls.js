@@ -6,7 +6,7 @@
 
 import { applyFollowState, setFollow } from './detail_panel.js';
 import { applyLabelsVisibility } from './labels.js';
-import { applyTrailsVisibility } from './trails.js';
+import { applyTrailsVisibility, applyViewportVisibility } from './trails.js';
 import { escapeHtml } from './format.js';
 import { lucide } from './icons_lib.js';
 import { getUnitSystem, setUnitSystem, uconv } from './units.js';
@@ -325,6 +325,14 @@ export function initMapControls() {
   document.getElementById('sidebar-handle')
     .addEventListener('click', () => setCompact(!state.compactMode));
   applyCompactMode();
+
+  // Re-evaluate aircraft viewport / altitude-floor gates on pan/zoom
+  // so planes appear/vanish without waiting for the next snapshot tick.
+  // Trails follow because they read the same hiddenByViewport flag.
+  state.map.on('moveend zoomend', () => {
+    applyViewportVisibility();
+    applyTrailsVisibility();
+  });
 
   // Airports overlay — refresh on pan/zoom when visible.
   state.map.on('moveend', () => { if (state.showAirports) scheduleAirportRefresh(); });

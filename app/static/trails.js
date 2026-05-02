@@ -264,7 +264,7 @@ export function applyTrailsVisibility() {
       resetTrailState(entry);
       continue;
     }
-    if (entry.hiddenByFilter) {
+    if (entry.hiddenByFilter || entry.hiddenByViewport) {
       resetTrailState(entry);
       continue;
     }
@@ -282,6 +282,17 @@ export function applyTrailsVisibility() {
   state.syncOverlay(state.trailsProxy, state.showTrails);
 }
 
+// Reconcile marker presence on the map against both gates
+// (hiddenByFilter, hiddenByViewport). Either one being true keeps the
+// marker off the map; both false puts it on. Trail polylines clear
+// independently in resetTrailState.
+function reconcileMarker(entry) {
+  const shouldHide = entry.hiddenByFilter || entry.hiddenByViewport;
+  const onMap = state.map.hasLayer(entry.marker);
+  if (shouldHide && onMap) state.map.removeLayer(entry.marker);
+  else if (!shouldHide && !onMap) state.map.addLayer(entry.marker);
+}
+
 // Show/hide markers + trails for aircraft that don't match the active
 // list filters. The currently-selected aircraft is exempt — hiding a
 // plane the user is actively looking at would orphan the detail panel.
@@ -293,8 +304,8 @@ export function applyFilterVisibility() {
   if (active.size === 0 && state.showPeer) {
     for (const entry of state.aircraft.values()) {
       if (entry.hiddenByFilter) {
-        state.map.addLayer(entry.marker);
         entry.hiddenByFilter = false;
+        reconcileMarker(entry);
       }
     }
     return;
@@ -304,12 +315,56 @@ export function applyFilterVisibility() {
     const visible = icao === selIcao ||
       ((!isPeer || state.showPeer) && matchesActiveFilters(entry.data));
     if (!visible && !entry.hiddenByFilter) {
-      state.map.removeLayer(entry.marker);
-      resetTrailState(entry);
       entry.hiddenByFilter = true;
+      resetTrailState(entry);
+      reconcileMarker(entry);
     } else if (visible && entry.hiddenByFilter) {
-      state.map.addLayer(entry.marker);
       entry.hiddenByFilter = false;
+      reconcileMarker(entry);
+    }
+  }
+}
+
+// Per-zoom altitude floor (feet). At wide zooms a hundred GA planes at
+// 1500 ft just clutter — only the high cruisers are interesting. Once
+// you're zoomed in to metro scale, show everything including ground
+// traffic. Aircraft with no altitude reported are always shown rather
+// than guessing.
+export function minAltitudeFtForZoom(zoom) {
+  if (zoom >= 8) return 0;
+  if (zoom >= 6) return 5000;
+  if (zoom >= 4) return 15000;
+  return 25000;
+}
+
+// Hide markers + trails for aircraft outside the current map viewport
+// (with a 20% pad so things don't pop in/out at the edges of a pan)
+// or below the per-zoom altitude floor. The currently-selected aircraft
+// is exempt — Follow / detail-panel must keep working even when the
+// plane is off-screen. Called per tick and on map moveend / zoomend.
+export function applyViewportVisibility() {
+  const bounds = state.map.getBounds().pad(0.2);
+  const minAltFt = minAltitudeFtForZoom(state.map.getZoom());
+  const selIcao = state.selectedIcao;
+  for (const [icao, entry] of state.aircraft) {
+    if (icao === selIcao) {
+      if (entry.hiddenByViewport) {
+        entry.hiddenByViewport = false;
+        reconcileMarker(entry);
+      }
+      continue;
+    }
+    const inside = bounds.contains(entry.marker.getLatLng());
+    const alt = entry.data?.altitude;
+    const altOk = alt == null || alt >= minAltFt;
+    const visible = inside && altOk;
+    if (!visible && !entry.hiddenByViewport) {
+      entry.hiddenByViewport = true;
+      resetTrailState(entry);
+      reconcileMarker(entry);
+    } else if (visible && entry.hiddenByViewport) {
+      entry.hiddenByViewport = false;
+      reconcileMarker(entry);
     }
   }
 }

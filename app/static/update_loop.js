@@ -10,6 +10,7 @@ import { GO_AROUND_COOLDOWN_MS } from './state.js';
 import {
   applyFilterVisibility,
   applyTrailsVisibility,
+  applyViewportVisibility,
   mergeClientTrail,
   peekListItem,
   setHoverHalo,
@@ -181,6 +182,10 @@ export function update(snap) {
   // pass so applyTrailsVisibility sees fresh hiddenByFilter flags and
   // doesn't redraw a trail for a now-hidden plane.
   applyFilterVisibility();
+
+  // Same gate but spatial: drop markers for aircraft outside the
+  // current viewport / below the per-zoom altitude floor.
+  applyViewportVisibility();
 
   // Single pass across all aircraft now that each has its fresh
   // snapshot data merged — applyTrailsVisibility picks which source
