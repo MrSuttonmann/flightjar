@@ -125,6 +125,7 @@ builder.Services.AddSingleton<CurrentSnapshot>();
 builder.Services.AddSingleton<SnapshotBroadcaster>();
 builder.Services.AddSingleton<BeastConnectionState>();
 builder.Services.AddSingleton<PeerAircraftCache>();
+builder.Services.AddSingleton<P2PStatus>();
 var p2pConfigPath = !string.IsNullOrEmpty(dataDir) ? Path.Combine(dataDir, "p2p.json") : null;
 builder.Services.AddSingleton(sp => new P2PConfigStore(
     p2pConfigPath, sp.GetService<ILogger<P2PConfigStore>>()));

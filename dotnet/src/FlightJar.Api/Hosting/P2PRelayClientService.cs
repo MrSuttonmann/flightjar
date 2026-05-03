@@ -29,6 +29,7 @@ public sealed class P2PRelayClientService : BackgroundService
     private readonly PeerAircraftCache _peerCache;
     private readonly P2PConfigStore _configStore;
     private readonly P2PRelayRegistrar _registrar;
+    private readonly P2PStatus _status;
     private readonly ILogger<P2PRelayClientService> _logger;
 
     private CancellationTokenSource? _connectionCts;
@@ -52,6 +53,7 @@ public sealed class P2PRelayClientService : BackgroundService
         PeerAircraftCache peerCache,
         P2PConfigStore configStore,
         P2PRelayRegistrar registrar,
+        P2PStatus status,
         ILogger<P2PRelayClientService> logger)
     {
         _options = options;
@@ -59,6 +61,7 @@ public sealed class P2PRelayClientService : BackgroundService
         _peerCache = peerCache;
         _configStore = configStore;
         _registrar = registrar;
+        _status = status;
         _logger = logger;
 
         _configStore.Changed += OnConfigChanged;
@@ -168,6 +171,7 @@ public sealed class P2PRelayClientService : BackgroundService
             throw;
         }
         _logger.LogInformation("P2P connected to relay");
+        _status.SetConnected();
 
         // Run send and receive concurrently; if either exits (disconnect /
         // error), cancel the other and let the outer loop reconnect.
@@ -175,13 +179,20 @@ public sealed class P2PRelayClientService : BackgroundService
         var sendTask = SendLoopAsync(socket, innerCts.Token);
         var receiveTask = ReceiveLoopAsync(socket, innerCts.Token);
 
-        await Task.WhenAny(sendTask, receiveTask);
-        await innerCts.CancelAsync();
-        try { await Task.WhenAll(sendTask, receiveTask); }
-        catch (OperationCanceledException) { }
-        catch (Exception ex)
+        try
         {
-            _logger.LogDebug(ex, "P2P relay connection closed");
+            await Task.WhenAny(sendTask, receiveTask);
+            await innerCts.CancelAsync();
+            try { await Task.WhenAll(sendTask, receiveTask); }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "P2P relay connection closed");
+            }
+        }
+        finally
+        {
+            _status.SetDisconnected();
         }
     }
 
@@ -240,6 +251,12 @@ public sealed class P2PRelayClientService : BackgroundService
                     {
                         var nowUnix = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000.0;
                         _peerCache.Update(aircraft, nowUnix);
+                    }
+                    if (root.TryGetProperty("peers", out var peersProp)
+                        && peersProp.ValueKind == JsonValueKind.Number
+                        && peersProp.TryGetInt32(out var peers))
+                    {
+                        _status.UpdatePeers(peers);
                     }
                     break;
 

@@ -31,6 +31,29 @@ export const countHistory = [];
 let prevFrames = null;
 let prevFramesAt = null;
 
+function renderP2PStatus(p2p) {
+  // Snapshot is missing the block entirely when the env kill switch
+  // (P2P_ENABLED=0) is set or backend is older than the field.
+  // Federation user-toggled off also hides the line.
+  const visible = !!(p2p && p2p.enabled);
+  const connected = visible && !!p2p.connected;
+  const peers = connected ? (p2p.peers | 0) : 0;
+  const text = !visible
+    ? ''
+    : connected
+      ? (peers === 1 ? '1 peer connected' : `${peers} peers connected`)
+      : 'P2P disconnected';
+  const fp = `${visible ? 1 : 0}|${connected ? 1 : 0}|${text}`;
+  if (fp === lastP2PFp) return;
+  lastP2PFp = fp;
+  const row = document.getElementById('p2p-status');
+  if (!row) return;
+  row.hidden = !visible;
+  row.classList.toggle('live', connected);
+  row.classList.toggle('dead', visible && !connected);
+  document.getElementById('p2p-status-text').textContent = text;
+}
+
 function updateMsgRate(snap) {
   const el = document.getElementById('msg-rate');
   if (snap.frames == null || snap.now == null) { el.textContent = ''; return; }
@@ -52,6 +75,7 @@ let lastEmptyMsg = null;
 let lastStatusText = '';
 let lastSiteName = '';
 let lastDocTitle = '';
+let lastP2PFp = '';
 
 // Scratch host used to parse a row's HTML string into a real Element.
 // Reused across calls — the parsed node becomes detached as soon as we
@@ -97,6 +121,7 @@ export function renderSidebar(snap) {
     document.getElementById('status-text').textContent = statusText;
     lastStatusText = statusText;
   }
+  renderP2PStatus(snap.p2p);
   const site = snap.site_name || '';
   if (site !== lastSiteName) {
     document.getElementById('site-name').textContent = site;

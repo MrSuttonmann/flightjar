@@ -23,11 +23,22 @@ public sealed record RegistrySnapshot(
     /// compute the current frame rate from consecutive snapshots.</summary>
     public long? Frames { get; init; }
 
+    /// <summary>P2P relay status surfaced to the frontend so the sidebar
+    /// can show connection state and peer count. Null when federation is
+    /// disabled (env kill switch <c>P2P_ENABLED=0</c>) and the service
+    /// was never registered.</summary>
+    public SnapshotP2PStatus? P2P { get; init; }
+
     public static RegistrySnapshot Empty { get; } = new(
         Now: 0, Count: 0, Positioned: 0,
         Receiver: null, SiteName: null,
         Aircraft: Array.Empty<SnapshotAircraft>());
 }
+
+/// <summary>P2P federation status block on the snapshot. The frontend
+/// reads <c>enabled</c> to decide whether to show the status line at all,
+/// then <c>connected</c> / <c>peers</c> for the value.</summary>
+public sealed record SnapshotP2PStatus(bool Enabled, bool Connected, int Peers);
 
 /// <summary>Per-ICAO airport entry surfaced in the snapshot's
 /// <see cref="RegistrySnapshot.Airports"/> map. Trimmed to what the
