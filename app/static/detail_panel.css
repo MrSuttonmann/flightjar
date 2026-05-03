@@ -391,6 +391,10 @@
     display: flex; flex-direction: column; gap: 1px;
     font-variant-numeric: tabular-nums;
   }
+  /* Reassert the UA [hidden] rule — the .stat selector above sets
+     display: flex, which would otherwise win over the (lower-specificity)
+     attribute selector and leave hidden stats visible with empty values. */
+  .panel-stats .stat[hidden] { display: none; }
   .panel-stats .stat-label {
     font-size: 9px; color: var(--muted);
     text-transform: uppercase; letter-spacing: 0.6px;
