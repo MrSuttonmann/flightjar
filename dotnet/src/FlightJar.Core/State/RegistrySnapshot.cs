@@ -27,6 +27,11 @@ public sealed record RegistrySnapshot(
     /// can show connection state and peer count. Null when federation is
     /// disabled (env kill switch <c>P2P_ENABLED=0</c>) and the service
     /// was never registered.</summary>
+    /// <remarks>The explicit JSON name pins the wire key to <c>p2p</c>;
+    /// the global SnakeCaseLower policy would otherwise emit <c>p2_p</c>
+    /// because it inserts an underscore between the digit and trailing
+    /// uppercase letter.</remarks>
+    [System.Text.Json.Serialization.JsonPropertyName("p2p")]
     public SnapshotP2PStatus? P2P { get; init; }
 
     public static RegistrySnapshot Empty { get; } = new(
