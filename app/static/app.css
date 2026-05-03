@@ -54,6 +54,12 @@
                  background: #888; margin-right: 6px; vertical-align: middle; }
   #status.live .dot { background: #4ade80; }
   #status.dead .dot { background: #ef4444; }
+  #p2p-status { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  #p2p-status[hidden] { display: none; }
+  #p2p-status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+                     background: #888; margin-right: 6px; vertical-align: middle; }
+  #p2p-status.live .dot { background: #818cf8; }
+  #p2p-status.dead .dot { background: #ef4444; }
   .home-control {
     /* Mirror Leaflet's .leaflet-bar a sizing — 26×26 by default, bumped
        to 30×30 on touch devices — so the home button lines up flush with
@@ -596,6 +602,13 @@
     border: 1px solid rgba(167, 139, 250, 0.4);
     letter-spacing: 0.3px; margin-left: 4px;
   }
+  .pop-peer {
+    font-size: 10px; padding: 1px 6px; border-radius: 10px;
+    background: rgba(129, 140, 248, 0.18); color: #a5b4fc;
+    border: 1px solid rgba(129, 140, 248, 0.4);
+    letter-spacing: 0.3px; margin-left: 4px;
+  }
+  .pop-peer[hidden] { display: none; }
   .first-of-day-tag { font-size: 13px; vertical-align: -1px; }
   .pop-first-today {
     font-size: 10px; padding: 1px 6px; border-radius: 10px;

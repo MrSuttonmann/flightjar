@@ -10,6 +10,7 @@ using FlightJar.Core.State;
 using FlightJar.Core.Stats;
 using FlightJar.Decoder.Beast;
 using FlightJar.Notifications.Alerts;
+using FlightJar.Persistence.P2P;
 using FlightJar.Persistence.State;
 using FlightJar.Persistence.Watchlist;
 
@@ -37,6 +38,8 @@ public sealed class RegistryWorker : BackgroundService, IBeastFrameStats
     private readonly RegistrySnapshotEnrichers _enrichers;
     private readonly RegistryStatsCollectors _stats;
     private readonly PeerAircraftCache? _peerCache;
+    private readonly P2PStatus? _p2pStatus;
+    private readonly P2PConfigStore? _p2pConfig;
 
     // Convenience aliases — the original code referenced bare fields, so
     // forwarding through these keeps the body unchanged after the bundle.
@@ -83,7 +86,9 @@ public sealed class RegistryWorker : BackgroundService, IBeastFrameStats
         WatchlistStore? watchlist = null,
         StateSnapshotStore? statePersister = null,
         TelemetryAccumulator? telemetry = null,
-        PeerAircraftCache? peerCache = null)
+        PeerAircraftCache? peerCache = null,
+        P2PStatus? p2pStatus = null,
+        P2PConfigStore? p2pConfig = null)
     {
         _frames = frames;
         _registry = registry;
@@ -99,6 +104,8 @@ public sealed class RegistryWorker : BackgroundService, IBeastFrameStats
         _statePersister = statePersister;
         _telemetry = telemetry;
         _peerCache = peerCache;
+        _p2pStatus = p2pStatus;
+        _p2pConfig = p2pConfig;
 
         // Wire registry callbacks into stats collectors. These fire from within
         // Ingest() which runs on this worker's thread, so no locking needed.
@@ -200,6 +207,7 @@ public sealed class RegistryWorker : BackgroundService, IBeastFrameStats
         var snap = _registry.Snapshot(nowSec);
         snap = EnrichSnapshot(snap) with { Frames = FrameCount };
         snap = MergePeerAircraft(snap, nowSec);
+        snap = AttachP2PStatus(snap);
         var json = JsonSerializer.Serialize(snap, _jsonOpts);
         _current.Set(snap, json);
         _broadcaster.Broadcast(json);
@@ -254,6 +262,20 @@ public sealed class RegistryWorker : BackgroundService, IBeastFrameStats
         {
             _ = _polarHeatmap.MaybePersistAsync(TimeSpan.FromSeconds(60));
         }
+    }
+
+    private RegistrySnapshot AttachP2PStatus(RegistrySnapshot snap)
+    {
+        // No DI bindings → env kill switch is off; surface nothing so the
+        // sidebar hides the row entirely.
+        if (_p2pStatus is null || _p2pConfig is null) return snap;
+        return snap with
+        {
+            P2P = new SnapshotP2PStatus(
+                Enabled: _p2pConfig.Current.Enabled,
+                Connected: _p2pStatus.Connected,
+                Peers: _p2pStatus.Peers),
+        };
     }
 
     private RegistrySnapshot MergePeerAircraft(RegistrySnapshot snap, double nowSec)

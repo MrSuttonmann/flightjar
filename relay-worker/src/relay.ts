@@ -208,7 +208,12 @@ export class RelayDurableObject extends DurableObject {
 
     if (fresh.length === 0 && this.connections.size === 0) return;
 
-    const payload = JSON.stringify({ type: 'aggregate', aircraft: fresh });
+    // Count of "other" peers from any single recipient's perspective —
+    // every connected client is one of `connections`, so each sees
+    // `connections.size - 1` others. Same number for every recipient,
+    // so one shared payload is correct.
+    const peers = Math.max(0, this.connections.size - 1);
+    const payload = JSON.stringify({ type: 'aggregate', peers, aircraft: fresh });
     const dead: WebSocket[] = [];
 
     for (const ws of this.connections) {
