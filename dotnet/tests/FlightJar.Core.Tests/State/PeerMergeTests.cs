@@ -215,6 +215,21 @@ public sealed class PeerMergeTests
     }
 
     [Fact]
+    public void Combine_TakesSeenByOthersFromPeer()
+    {
+        // The relay computes seen_by_others per-recipient (it knows the
+        // contributor set) and stamps it on the peer record. Combine must
+        // surface that value on the merged record so the detail panel can
+        // render the count even when the aircraft is locally observed.
+        var local = new SnapshotAircraft { Icao = "abc123", Callsign = "BAW123" };
+        var peer = new SnapshotAircraft { Icao = "abc123", SeenByOthers = 3 };
+
+        var merged = PeerMerge.Combine(local, peer);
+
+        Assert.Equal(3, merged.SeenByOthers);
+    }
+
+    [Fact]
     public void Combine_FillsAltitudeAndVelocityFromPeer()
     {
         var local = new SnapshotAircraft { Icao = "abc123", Callsign = "BAW123" };

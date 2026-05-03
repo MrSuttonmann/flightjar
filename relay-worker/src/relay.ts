@@ -3,6 +3,10 @@ import { DurableObject } from 'cloudflare:workers';
 interface AircraftEntry {
   data: Record<string, unknown>;
   receivedAt: number; // epoch seconds
+  // WebSockets that have reported this aircraft, keyed by their last
+  // contribution timestamp. Lets us tell each recipient how many OTHER
+  // peers also see the aircraft, so the UI can render "also seen by N".
+  contributors: Map<WebSocket, number>;
 }
 
 interface TokenRecord {
@@ -143,7 +147,7 @@ export class RelayDurableObject extends DurableObject {
     }));
   }
 
-  override webSocketMessage(_ws: WebSocket, message: string | ArrayBuffer): void {
+  override webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
     if (typeof message !== 'string') return;
 
     let parsed: Record<string, unknown>;
@@ -163,23 +167,46 @@ export class RelayDurableObject extends DurableObject {
       if (typeof ac !== 'object' || ac === null) continue;
       const icao = (ac as Record<string, unknown>)['icao'];
       if (typeof icao !== 'string' || !icao) continue;
-      this.aggregate.set(icao.toLowerCase(), { data: ac as Record<string, unknown>, receivedAt: now });
+      const key = icao.toLowerCase();
+      const existing = this.aggregate.get(key);
+      if (existing) {
+        existing.data = ac as Record<string, unknown>;
+        existing.receivedAt = now;
+        existing.contributors.set(ws, now);
+      } else {
+        this.aggregate.set(key, {
+          data: ac as Record<string, unknown>,
+          receivedAt: now,
+          contributors: new Map([[ws, now]]),
+        });
+      }
     }
   }
 
   override webSocketClose(ws: WebSocket): void {
     this.connections.delete(ws);
+    this.dropContributor(ws);
     console.log(JSON.stringify({ event: 'disconnect', connections: this.connections.size }));
   }
 
   override webSocketError(ws: WebSocket, error: unknown): void {
     this.connections.delete(ws);
+    this.dropContributor(ws);
     try { ws.close(); } catch { /* already closed */ }
     console.log(JSON.stringify({
       event: 'ws_error',
       connections: this.connections.size,
       message: error instanceof Error ? error.message : String(error),
     }));
+  }
+
+  // Remove `ws` from every aircraft's contributor map. Called on clean
+  // disconnect so the seen_by_others count drops immediately rather than
+  // waiting up to STALE_S for the lazy eviction in broadcast() to catch up.
+  private dropContributor(ws: WebSocket): void {
+    for (const entry of this.aggregate.values()) {
+      entry.contributors.delete(ws);
+    }
   }
 
   override async alarm(): Promise<void> {
@@ -196,27 +223,34 @@ export class RelayDurableObject extends DurableObject {
     const now = Date.now() / 1000;
     const cutoff = now - STALE_S;
 
-    // Evict stale and collect fresh
-    const fresh: Record<string, unknown>[] = [];
+    // Evict stale aggregate entries; for each surviving entry also sweep
+    // out per-WS contributor timestamps that have aged past the same
+    // cutoff, so seen_by_others counts a contributor only as long as
+    // they're actively reporting the aircraft.
+    const fresh: AircraftEntry[] = [];
     for (const [icao, entry] of this.aggregate) {
       if (entry.receivedAt < cutoff) {
         this.aggregate.delete(icao);
-      } else {
-        fresh.push(entry.data);
+        continue;
       }
+      for (const [ws, ts] of entry.contributors) {
+        if (ts < cutoff) entry.contributors.delete(ws);
+      }
+      fresh.push(entry);
     }
 
-    if (fresh.length === 0 && this.connections.size === 0) return;
-
-    // Count of "other" peers from any single recipient's perspective —
-    // every connected client is one of `connections`, so each sees
-    // `connections.size - 1` others. Same number for every recipient,
-    // so one shared payload is correct.
+    // Total connected count goes in the envelope; per-aircraft counts go
+    // in `seen_by_others` and are computed per-recipient (each WS subtracts
+    // itself from every aircraft it's contributing to).
     const peers = Math.max(0, this.connections.size - 1);
-    const payload = JSON.stringify({ type: 'aggregate', peers, aircraft: fresh });
     const dead: WebSocket[] = [];
 
     for (const ws of this.connections) {
+      const aircraft = fresh.map(entry => ({
+        ...entry.data,
+        seen_by_others: entry.contributors.size - (entry.contributors.has(ws) ? 1 : 0),
+      }));
+      const payload = JSON.stringify({ type: 'aggregate', peers, aircraft });
       try {
         ws.send(payload);
       } catch {
@@ -226,6 +260,7 @@ export class RelayDurableObject extends DurableObject {
 
     for (const ws of dead) {
       this.connections.delete(ws);
+      this.dropContributor(ws);
       try { ws.close(); } catch { /* already closed */ }
     }
   }

@@ -120,7 +120,10 @@ internal static class P2PEndpoints
         foreach (var ac in snap.Aircraft)
         {
             if (ac.Peer == true) continue;
-            aircraft.Add(ac with { DistanceKm = null });
+            // SeenByOthers is filled by the cloud relay per-recipient and
+            // doesn't make sense over a direct same-LAN /p2p/ws stream;
+            // strip it so consumers can't mistake it for our own count.
+            aircraft.Add(ac with { DistanceKm = null, SeenByOthers = null });
         }
         var sanitised = snap with
         {

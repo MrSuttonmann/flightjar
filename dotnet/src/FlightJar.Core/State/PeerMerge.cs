@@ -106,6 +106,11 @@ public static class PeerMerge
             // Peer flag stays null — we have direct contact, so this
             // record renders as a local aircraft (no peer styling).
             Peer = null,
+
+            // Relay-computed: how many other peers also report this ICAO.
+            // The relay calculated this per-recipient (excluding us), so
+            // we just carry the peer record's value through.
+            SeenByOthers = peer.SeenByOthers,
         };
     }
 }
