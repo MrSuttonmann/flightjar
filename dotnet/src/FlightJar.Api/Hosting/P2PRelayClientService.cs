@@ -279,7 +279,11 @@ public sealed class P2PRelayClientService : BackgroundService
         foreach (var ac in snap.Aircraft)
         {
             if (ac.Peer == true) continue; // don't echo back what we received
-            aircraft.Add(ac with { DistanceKm = null });
+            // Strip receiver-specific + relay-computed fields:
+            // - DistanceKm describes our reception, not the aircraft itself.
+            // - SeenByOthers is filled by the relay per-recipient; if we
+            //   echoed it back the relay would treat it as our reading.
+            aircraft.Add(ac with { DistanceKm = null, SeenByOthers = null });
         }
 
         // Explicitly null out receiver location — never share it with the relay.

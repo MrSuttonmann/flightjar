@@ -122,6 +122,14 @@ public sealed record SnapshotAircraft
     /// for locally-observed aircraft.</summary>
     public bool? Peer { get; init; }
 
+    /// <summary>How many OTHER P2P peers also see this aircraft (excluding
+    /// this receiver). Computed by the relay per-recipient and surfaced via
+    /// the aggregate broadcast — null for locally-only aircraft when the
+    /// relay isn't connected, or any aircraft outside the federation. The
+    /// detail panel renders an "also seen by N peers" stat when this is
+    /// > 0.</summary>
+    public int? SeenByOthers { get; init; }
+
     // Enrichment fields populated by the snapshot pusher from the external
     // clients. Names match the wire schema the frontend reads directly:
     // `origin`, `destination`, `phase`, `operator`, `operator_iata`,

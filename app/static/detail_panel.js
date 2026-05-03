@@ -326,6 +326,9 @@ export function buildPopupContent(a, now, airports) {
         `<span class="stat-val pop-signal"></span></div>` +
       `<div class="stat"><span class="stat-label">First seen</span>` +
         `<span class="stat-val pop-first-seen"></span></div>` +
+      `<div class="stat pop-peers-stat" hidden>` +
+        `<span class="stat-label">Also seen by</span>` +
+        `<span class="stat-val pop-peers-val"></span></div>` +
     `</div>`;
   injectHelpIcons(root);
   updatePopupContent(root, a, now, airports);
@@ -604,6 +607,18 @@ export function updatePopupContent(root, a, now, airports) {
   q('.pop-signal').textContent = signalLabel(a.signal_peak);
   const firstSeen = entry?.sessionFirstSeen || a.first_seen;
   q('.pop-first-seen').textContent = relativeAge(firstSeen, now);
+
+  // P2P "also seen by N peers" — surfaced only when the relay reported a
+  // non-zero count for this aircraft. Locally-only aircraft (e.g. P2P off,
+  // or no peer is currently reporting this ICAO) leave the stat hidden.
+  const peersStat = q('.pop-peers-stat');
+  const seenN = a.seen_by_others;
+  if (typeof seenN === 'number' && seenN > 0) {
+    q('.pop-peers-val').textContent = `${seenN} peer${seenN === 1 ? '' : 's'}`;
+    peersStat.hidden = false;
+  } else {
+    peersStat.hidden = true;
+  }
 
   renderCommBSection(root, q, a, now);
 }
