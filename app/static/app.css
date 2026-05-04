@@ -834,4 +834,16 @@
     body.compact-mode #sidebar-handle svg { transform: scaleY(-1); }
     #sidebar-handle:hover svg,
     #sidebar-handle:active svg { color: var(--text); }
+    /* Compact mode hides the sidebar so the map fills the viewport.
+       Leaflet's top-anchored controls and the toast stack default to
+       y≈10px / 56px from the top edge, which on iOS PWA standalone
+       lands under the status bar / notch. Nudge them down by the safe-
+       area inset so the zoom buttons, layer toggle, and toasts stay
+       reachable. */
+    body.compact-mode .leaflet-top {
+      top: env(safe-area-inset-top);
+    }
+    body.compact-mode #toast-host {
+      top: calc(56px + env(safe-area-inset-top));
+    }
   }

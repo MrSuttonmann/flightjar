@@ -199,6 +199,47 @@ Do not introduce `document.write`, and do not build a parallel
 sanitiser; `escapeHtml` is the one primitive. If you find yourself
 reaching for `DOMPurify` or similar, stop and ask.
 
+### Frontend: iOS PWA safe-area insets
+
+The site is installable as a standalone PWA
+(`apple-mobile-web-app-capable=yes`,
+`viewport-fit=cover`), which means content paints under the iPhone
+notch / status bar / home indicator. Any surface that pins to a
+viewport edge on mobile MUST factor in `env(safe-area-inset-*)` or
+its controls will sit under hardware that the user can't tap through.
+
+Pattern, in order of preference:
+
+1. **Pad the surface** that contains the controls — e.g.
+   `#sidebar { padding-top: env(safe-area-inset-top); }`,
+   `#sidebar-footer { padding-bottom: max(8px, env(safe-area-inset-bottom)); }`.
+   This is the cleanest fix because the surface still extends
+   visually behind the notch (background colour fills the gap) but
+   its children stay in the safe area.
+2. **Offset position** when the element is `position: fixed`/`sticky`
+   without a useful parent — e.g.
+   `body.compact-mode .leaflet-top { top: env(safe-area-inset-top); }`,
+   `#toast-host { top: calc(56px + env(safe-area-inset-top)); }`.
+3. **Shrink centred elements** so `margin: auto` keeps them inside
+   the safe area — `<dialog>` uses
+   `max-height: calc(100dvh - 20px - 2 * max(env(safe-area-inset-top), env(safe-area-inset-bottom)))`.
+   The `2 * max(...)` is right because `margin: auto` on a centred
+   block puts equal space above and below; we need that half-margin
+   to be ≥ the larger inset, so the total reduction is twice that.
+
+Sticky elements (`#detail-header`, dialog `.about-close-form`)
+ignore ancestor padding — apply padding *to the sticky element
+itself* so its content shifts. The `padding-top: calc(6px +
+env(safe-area-inset-top))` pattern on `#detail-header` is the
+canonical example.
+
+When adding any new fullscreen mobile surface (anything that uses
+`inset: 0`, `position: fixed; top: 0`, full-viewport `<dialog>`,
+etc.), audit it against the four insets before merging. Test on a
+notched device (or the iPhone Pro simulator in Safari devtools) in
+PWA standalone mode — the browser tab itself reserves space for
+the status bar so the bug only manifests once installed.
+
 ### BEAST wire format (`dotnet/src/FlightJar.Decoder/Beast/BeastFrameReader.cs`)
 
 Frames are `0x1A <type> <6B MLAT ts> <1B sig> <msg>`, where any `0x1A` in
