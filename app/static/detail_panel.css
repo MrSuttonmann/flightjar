@@ -418,4 +418,20 @@
     /* Compact mode's `left: 10px` desktop override shouldn't fight the
        full-viewport mobile overlay. */
     body.compact-mode #detail-panel { left: 0; }
+    /* iOS PWA standalone runs the panel to the physical edges of the
+       device, so the sticky header lands under the notch / status bar
+       and the home indicator overlaps the bottom of the content. Pad
+       inner surfaces with safe-area insets so every interactive control
+       stays reachable. The header's own padding is what pushes the
+       close button down — sticky positioning ignores ancestor padding. */
+    #detail-header {
+      padding-top: calc(6px + env(safe-area-inset-top));
+      padding-left: calc(6px + env(safe-area-inset-left));
+      padding-right: calc(6px + env(safe-area-inset-right));
+    }
+    #detail-content {
+      padding-left: calc(14px + env(safe-area-inset-left));
+      padding-right: calc(14px + env(safe-area-inset-right));
+      padding-bottom: calc(14px + env(safe-area-inset-bottom));
+    }
   }

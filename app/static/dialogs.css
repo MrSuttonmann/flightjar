@@ -393,14 +393,18 @@
      first child <form> — pin it so it stays reachable while the body
      scrolls underneath. `100dvh` tracks the *visible* viewport on
      mobile browsers (excludes the URL bar) so the dialog actually
-     fits when the browser chrome is onscreen. */
+     fits when the browser chrome is onscreen. The safe-area subtraction
+     keeps the centered <dialog> out from under the iOS notch / home
+     indicator in PWA standalone mode — `margin: auto` puts equal space
+     above and below, so we shrink by 2× the larger inset to guarantee
+     both edges clear. */
   #about-dialog,
   #stats-dialog,
   #watchlist-dialog,
   #alerts-dialog,
   #airspace-filters-dialog,
   #map-key-dialog {
-    max-height: calc(100dvh - 20px);
+    max-height: calc(100dvh - 20px - 2 * max(env(safe-area-inset-top), env(safe-area-inset-bottom)));
     overflow-y: auto;
     overscroll-behavior: contain;
   }
