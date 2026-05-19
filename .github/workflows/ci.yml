@@ -130,6 +130,7 @@ jobs:
         # a complete page. Python interpreter is preinstalled on GitHub runners.
         env:
           TAR1090_SHAPES_DEST: ${{ github.workspace }}/app/static/tar1090_shapes.js
+          TAR1090_TYPES_DEST: ${{ github.workspace }}/app/static/icao_aircraft_types.js
         run: python3 scripts/fetch_plane_shapes.py
 
       - name: Publish backend for Playwright
