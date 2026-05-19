@@ -1,25 +1,45 @@
-// Marker icon rendering. Prefers tar1090's per-type silhouette when the
-// bundle is loaded and the aircraft's ICAO type code has a match;
-// otherwise falls back to a generic triangular arrow.
+// Marker icon rendering. Prefers tar1090's per-type silhouette via the
+// four-tier fallback in `resolveSilhouette` (designator → description →
+// category); falls back to a generic triangular arrow when none match
+// or the bundles haven't loaded yet.
 //
-// tar1090_shapes.js is loaded asynchronously (it's a big static file
-// and failing to fetch it shouldn't stop the app from running). Until
-// it resolves we render the generic arrow for everyone; once it does,
-// subsequent planeIcon() calls light up.
+// tar1090_shapes.js and icao_aircraft_types.js are loaded asynchronously
+// (they're big static files and failing to fetch them shouldn't stop the
+// app from running). Until they resolve we render the generic arrow for
+// everyone; once they do, subsequent planeIcon() calls light up.
+
+import { resolveSilhouette } from './silhouette.js';
 
 let tar1090Shapes = null;
 let tar1090TypeIcons = null;
+let tar1090TypeDescIcons = null;
+let tar1090CategoryIcons = null;
+let typeDesignatorMeta = null;
 
 import('./tar1090_shapes.js').then(mod => {
   tar1090Shapes = mod.shapes;
   tar1090TypeIcons = mod.TypeDesignatorIcons;
+  tar1090TypeDescIcons = mod.TypeDescriptionIcons;
+  tar1090CategoryIcons = mod.CategoryIcons;
 }).catch(e => {
   console.warn('tar1090 shapes unavailable — using generic arrow', e);
 });
 
-function tar1090ShapeFor(typeIcao) {
-  if (!tar1090Shapes || !tar1090TypeIcons || !typeIcao) return null;
-  const entry = tar1090TypeIcons[typeIcao.toUpperCase()];
+import('./icao_aircraft_types.js').then(mod => {
+  typeDesignatorMeta = mod.TypeDesignatorMeta;
+}).catch(e => {
+  console.warn('ICAO type metadata unavailable — silhouette fallback narrowed', e);
+});
+
+function tar1090ShapeFor(typeIcao, category, categorySet) {
+  if (!tar1090Shapes) return null;
+  const entry = resolveSilhouette({
+    typeIcao, category, categorySet,
+    typeDesignatorIcons: tar1090TypeIcons,
+    typeDescriptionIcons: tar1090TypeDescIcons,
+    categoryIcons: tar1090CategoryIcons,
+    typeDesignatorMeta,
+  });
   if (!entry) return null;
   const [shapeName, scaleFactor] = entry;
   const shape = tar1090Shapes[shapeName];
@@ -86,8 +106,8 @@ function tar1090Icon(track, color, selected, emergency, relayed, shape, scaleFac
 const GENERIC_ARROW_PATH = 'M0,-10 L7,8 L0,4 L-7,8 Z';
 const GENERIC_ARROW_SIZE = 26;
 
-export function planeIcon(track, color, selected, emergency, relayed, typeIcao) {
-  const tar = tar1090ShapeFor(typeIcao);
+export function planeIcon(track, color, selected, emergency, relayed, typeIcao, category, categorySet) {
+  const tar = tar1090ShapeFor(typeIcao, category, categorySet);
   if (tar) return tar1090Icon(track, color, selected, emergency, relayed, tar.shape, tar.scaleFactor);
 
   const rot = track == null ? 0 : track;

@@ -12,6 +12,14 @@ public sealed class Aircraft
     public string? Callsign { get; set; }
     public int? Category { get; set; }
 
+    /// <summary>ADS-B emitter category set letter — 'A' / 'B' / 'C' / 'D',
+    /// derived from the BDS-08 typecode that delivered <see cref="Category"/>.
+    /// Pairs with the 3-bit subcategory: e.g. typecode 4 + subcategory 1
+    /// → "A1" (Light). Needed by the frontend silhouette fallback to
+    /// distinguish Set B (gliders, balloons, UAVs) and Set C (surface
+    /// vehicles) from the default Set A.</summary>
+    public char? CategorySet { get; set; }
+
     public double? Lat { get; set; }
     public double? Lon { get; set; }
     public int? AltitudeBaro { get; set; }

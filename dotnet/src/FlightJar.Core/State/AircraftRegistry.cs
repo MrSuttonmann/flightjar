@@ -157,6 +157,19 @@ public class AircraftRegistry
             if (r.Category is int cat)
             {
                 ac.Category = cat;
+                // Typecode 1-4 maps to set D/C/B/A. Set A is "powered
+                // aircraft" (the vast majority of ADS-B traffic); Set B
+                // covers gliders / balloons / UAVs; Set C covers surface
+                // vehicles. The frontend uses the set letter to pick the
+                // right silhouette when no specific designator matches.
+                ac.CategorySet = tc switch
+                {
+                    4 => 'A',
+                    3 => 'B',
+                    2 => 'C',
+                    1 => 'D',
+                    _ => ac.CategorySet,
+                };
             }
         }
         else if (tc >= 5 && tc <= 8)
@@ -623,6 +636,7 @@ public class AircraftRegistry
                 Icao = ac.Icao,
                 Callsign = ac.Callsign,
                 Category = ac.Category,
+                CategorySet = ac.CategorySet?.ToString(),
                 Registration = dbInfo?.Registration,
                 TypeIcao = dbInfo?.TypeIcao,
                 TypeLong = dbInfo?.TypeLong,

@@ -60,6 +60,7 @@ public static class PeerMerge
             // Identity / DB enrichment — peer fills gaps.
             Callsign = local.Callsign ?? peer.Callsign,
             Category = local.Category ?? peer.Category,
+            CategorySet = local.CategorySet ?? peer.CategorySet,
             Registration = local.Registration ?? peer.Registration,
             TypeIcao = local.TypeIcao ?? peer.TypeIcao,
             TypeLong = local.TypeLong ?? peer.TypeLong,

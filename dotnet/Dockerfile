@@ -93,6 +93,7 @@ COPY app/static /out/static
 COPY scripts/fetch_plane_shapes.py /tmp/fetch_plane_shapes.py
 RUN echo "data fetch ${DATA_CACHEBUST}" \
  && TAR1090_SHAPES_DEST=/out/static/tar1090_shapes.js \
+    TAR1090_TYPES_DEST=/out/static/icao_aircraft_types.js \
     python3 /tmp/fetch_plane_shapes.py
 
 # esbuild is a standalone Go binary; we pull it straight from npm's

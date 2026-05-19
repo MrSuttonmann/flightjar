@@ -89,10 +89,10 @@ export function update(snap) {
     // Any non-direct source — MLAT / TIS-B / ADS-R — gets the same
     // dashed amber marker. The detail panel chip distinguishes them.
     const isRelayed = a.position_source && a.position_source !== 'adsb';
-    const iconFp = `${altBand}|${isSelected ? 1 : 0}|${a.emergency ? 1 : 0}|${isRelayed ? 1 : 0}|${a.type_icao || ''}`;
+    const iconFp = `${altBand}|${isSelected ? 1 : 0}|${a.emergency ? 1 : 0}|${isRelayed ? 1 : 0}|${a.type_icao || ''}|${a.category || ''}${a.category_set || ''}`;
     let entry = state.aircraft.get(a.icao);
     if (!entry) {
-      const icon = planeIcon(a.track, color, isSelected, !!a.emergency, isRelayed, a.type_icao);
+      const icon = planeIcon(a.track, color, isSelected, !!a.emergency, isRelayed, a.type_icao, a.category, a.category_set);
       const marker = L.marker([a.lat, a.lon], { icon }).addTo(state.map);
       const trail = L.layerGroup().addTo(state.map);
       marker.on('click', () => selectAircraft(a.icao));
@@ -140,7 +140,7 @@ export function update(snap) {
       // updates, rotate the existing element in place.
       if (entry.iconFp !== iconFp) {
         entry.marker.setIcon(
-          planeIcon(a.track, color, isSelected, !!a.emergency, isRelayed, a.type_icao)
+          planeIcon(a.track, color, isSelected, !!a.emergency, isRelayed, a.type_icao, a.category, a.category_set)
         );
         entry.iconFp = iconFp;
         entry.lastTrack = a.track;

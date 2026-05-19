@@ -5,11 +5,20 @@ tar1090 defines per-type aircraft silhouettes as SVG polygon paths in a
 `TypeDesignatorIcons`. We grab the raw source, turn its top-level data
 declarations into ES exports, and ship the result unchanged otherwise.
 
-Source: https://github.com/wiedehopf/tar1090 (GPL-2.0+, compatible with
-Flightjar's GPL-3.0). Override the URL via the TAR1090_MARKERS_URL env
-var if needed.
+Also fetches tar1090-db's `icao_aircraft_types.json` — the lookup that
+turns an ICAO type designator (e.g. "C172") into its ICAO type
+description ("L1P") + wake turbulence category ("L"). The frontend uses
+these to drive tar1090's full fallback chain when a specific designator
+isn't in `TypeDesignatorIcons`.
+
+Sources:
+- https://github.com/wiedehopf/tar1090 (GPL-2.0+, compatible with FlightJar's GPL-3.0)
+- https://github.com/wiedehopf/tar1090-db (CC0)
+
+Override the URLs via TAR1090_MARKERS_URL / TAR1090_TYPES_URL if needed.
 """
 
+import json
 import os
 import sys
 import urllib.request
@@ -21,6 +30,14 @@ URL = os.environ.get(
 DEST = os.environ.get(
     "TAR1090_SHAPES_DEST",
     "/app/app/static/tar1090_shapes.js",
+)
+TYPES_URL = os.environ.get(
+    "TAR1090_TYPES_URL",
+    "https://raw.githubusercontent.com/wiedehopf/tar1090-db/master/icao_aircraft_types.json",
+)
+TYPES_DEST = os.environ.get(
+    "TAR1090_TYPES_DEST",
+    "/app/app/static/icao_aircraft_types.js",
 )
 # Top-level bindings we want to surface as ES module exports. Everything
 # else in markers.js (helper functions, sprite code, iconTest) is left
@@ -61,7 +78,38 @@ def main() -> int:
     with open(DEST, "w", encoding="utf-8") as f:
         f.write(header + data)
     print(f"wrote {DEST} ({len(data)} bytes)", file=sys.stderr)
+
+    write_types_module()
     return 0
+
+
+def write_types_module() -> None:
+    print(f"fetching {TYPES_URL}", file=sys.stderr)
+    with urllib.request.urlopen(TYPES_URL, timeout=60) as r:
+        types_raw = r.read().decode("utf-8")
+    types = json.loads(types_raw)
+
+    # Drop empty entries to keep the bundle lean. The source has a small
+    # number of {} placeholders; rendering needs at least one of desc/wtc.
+    compact = {
+        designator: {k: v for k, v in entry.items() if k in ("desc", "wtc") and v}
+        for designator, entry in sorted(types.items())
+        if any(entry.get(k) for k in ("desc", "wtc"))
+    }
+    body = "export const TypeDesignatorMeta = " + json.dumps(
+        compact, separators=(",", ":"), ensure_ascii=False
+    ) + ";\n"
+    header = (
+        "// Auto-generated at build time by scripts/fetch_plane_shapes.py.\n"
+        "// Source: tar1090-db / icao_aircraft_types.json (CC0).\n"
+        "// https://github.com/wiedehopf/tar1090-db\n"
+        "// Maps ICAO type designator -> { desc: 'L2J', wtc: 'M' }, where\n"
+        "// `desc` is the ICAO type description and `wtc` is wake turbulence.\n"
+    )
+    os.makedirs(os.path.dirname(TYPES_DEST), exist_ok=True)
+    with open(TYPES_DEST, "w", encoding="utf-8") as f:
+        f.write(header + body)
+    print(f"wrote {TYPES_DEST} ({len(body)} bytes, {len(compact)} entries)", file=sys.stderr)
 
 
 if __name__ == "__main__":

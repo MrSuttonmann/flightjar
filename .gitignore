@@ -42,6 +42,7 @@ app/aircraft_db.csv.gz
 app/airports.csv
 app/navaids.csv
 app/static/tar1090_shapes.js
+app/static/icao_aircraft_types.js
 
 # Editors / OS
 .vscode/
