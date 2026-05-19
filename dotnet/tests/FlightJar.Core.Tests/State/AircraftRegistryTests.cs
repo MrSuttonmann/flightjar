@@ -26,7 +26,18 @@ public class AircraftRegistryTests
         var ac = reg.Aircraft["abc123"];
         Assert.Equal("FLY123", ac.Callsign);
         Assert.Equal(3, ac.Category);
+        Assert.Equal('A', ac.CategorySet); // TC 4 → Set A (powered aircraft)
         Assert.Equal(1, ac.MsgCount);
+    }
+
+    [Theory]
+    [InlineData("IDB1glider", "abcb01", 'B')]
+    [InlineData("IDC2surface", "abcc02", 'C')]
+    public void Ingest_AdsbIdentification_DerivesCategorySetFromTypecode(string hex, string icao, char expectedSet)
+    {
+        var reg = MakeRegistry();
+        Assert.True(reg.Ingest(hex, now: 100.0));
+        Assert.Equal(expectedSet, reg.Aircraft[icao].CategorySet);
     }
 
     [Fact]

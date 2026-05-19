@@ -11,7 +11,7 @@ internal static class FakeDecoder
 {
     public static readonly IReadOnlyDictionary<string, DecodedMessage> Messages = new Dictionary<string, DecodedMessage>
     {
-        // DF17 identification (TC 4): callsign + category
+        // DF17 identification (TC 4): callsign + Set A category
         ["ID01"] = new()
         {
             Df = 17,
@@ -20,6 +20,26 @@ internal static class FakeDecoder
             Typecode = 4,
             Callsign = "FLY123__",
             Category = 3,
+        },
+        // DF17 identification (TC 3): Set B — e.g. glider / balloon / UAV.
+        ["IDB1"] = new()
+        {
+            Df = 17,
+            CrcValid = true,
+            Icao = "abcb01",
+            Typecode = 3,
+            Callsign = "GLIDER__",
+            Category = 1,
+        },
+        // DF17 identification (TC 2): Set C — surface vehicle.
+        ["IDC2"] = new()
+        {
+            Df = 17,
+            CrcValid = true,
+            Icao = "abcc02",
+            Typecode = 2,
+            Callsign = "TUG123__",
+            Category = 2,
         },
         // DF17 airborne baro position (TC 11)
         ["AP01"] = new()

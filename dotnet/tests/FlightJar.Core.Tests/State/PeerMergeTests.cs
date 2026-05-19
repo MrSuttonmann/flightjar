@@ -253,4 +253,19 @@ public sealed class PeerMergeTests
         Assert.Equal(-200, merged.Vrate);
         Assert.Equal("1234", merged.Squawk);
     }
+
+    [Fact]
+    public void Combine_FillsCategorySetFromPeer()
+    {
+        // Local: BDS-08 ident hasn't arrived yet (no category or set).
+        // Peer: already saw the ident. Both fields propagate; frontend
+        // uses them together for CategoryIcons["A1"]-style lookups.
+        var local = new SnapshotAircraft { Icao = "abc123" };
+        var peer = new SnapshotAircraft { Icao = "abc123", Category = 6, CategorySet = "B" };
+
+        var merged = PeerMerge.Combine(local, peer);
+
+        Assert.Equal(6, merged.Category);
+        Assert.Equal("B", merged.CategorySet);
+    }
 }

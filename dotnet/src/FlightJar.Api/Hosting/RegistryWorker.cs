@@ -406,6 +406,8 @@ public sealed class RegistryWorker : BackgroundService, IBeastFrameStats
             string? operatorCountry = null;
             string? countryIso = null;
             string? manufacturer = null;
+            string? typeIcao = ac.TypeIcao;
+            string? typeLong = ac.TypeLong;
 
             if (_adsbdb is not null)
             {
@@ -430,6 +432,12 @@ public sealed class RegistryWorker : BackgroundService, IBeastFrameStats
                     operatorCountry = acCached.Data.OperatorCountry;
                     countryIso = acCached.Data.OperatorCountryIso;
                     manufacturer = acCached.Data.Manufacturer;
+                    // Tar1090-db is the primary source for type designator
+                    // because it's the most consistent (uppercase ICAO codes);
+                    // adsbdb fills the gap for tails it doesn't ship — recent
+                    // registrations, GA, military.
+                    typeIcao ??= acCached.Data.IcaoType;
+                    typeLong ??= acCached.Data.Type;
                 }
                 else if (!acCached.Known)
                 {
@@ -480,6 +488,8 @@ public sealed class RegistryWorker : BackgroundService, IBeastFrameStats
 
             aircraft.Add(ac with
             {
+                TypeIcao = typeIcao,
+                TypeLong = typeLong,
                 Origin = origin,
                 Destination = destination,
                 OriginInfo = originInfo,

@@ -84,6 +84,11 @@ public sealed record SnapshotAircraft
     public string? Callsign { get; init; }
     public int? Category { get; init; }
 
+    /// <summary>ADS-B emitter category set — "A" / "B" / "C" / "D". Pairs
+    /// with <see cref="Category"/> to form the full identifier ("A1",
+    /// "B6", etc.) used by the frontend silhouette fallback.</summary>
+    public string? CategorySet { get; init; }
+
     // Enriched from the aircraft DB (optional; null when no DB attached).
     public string? Registration { get; init; }
     public string? TypeIcao { get; init; }

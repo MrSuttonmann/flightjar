@@ -884,7 +884,8 @@ export function openDetailPanel(icao) {
   if (entry) {
     entry.marker.setIcon(
       planeIcon(a.track, altColor(a.altitude), true, !!a.emergency,
-        !!a.position_source && a.position_source !== 'adsb', a.type_icao),
+        !!a.position_source && a.position_source !== 'adsb',
+        a.type_icao, a.category, a.category_set),
     );
   }
   document.querySelectorAll('.ac-item').forEach(el => {
@@ -924,7 +925,8 @@ export function closeDetailPanel() {
       const a = entry.data;
       entry.marker.setIcon(
         planeIcon(a.track, altColor(a.altitude), false, !!a.emergency,
-          !!a.position_source && a.position_source !== 'adsb', a.type_icao),
+          !!a.position_source && a.position_source !== 'adsb',
+          a.type_icao, a.category, a.category_set),
       );
     }
   }
