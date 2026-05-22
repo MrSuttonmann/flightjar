@@ -10,10 +10,11 @@ using FlightJar.Persistence.P2P;
 namespace FlightJar.Api.Endpoints;
 
 /// <summary>
-/// P2P federation endpoints.
+/// Community Feed endpoints.
 /// <list type="bullet">
-/// <item><c>GET/POST /api/p2p/config</c> — UI-toggleable on/off and
-/// share-site-name. Default: enabled.</item>
+/// <item><c>GET/POST /api/p2p/config</c> — UI-toggleable on/off,
+/// consent_given (set true when the user explicitly opts in via the
+/// Community Feed dialog) and share-site-name.</item>
 /// <item><c>/p2p/ws</c> — WebSocket stream of sanitised snapshots (receiver
 /// lat/lon and per-aircraft distance stripped). Useful for direct same-LAN
 /// peer connections and for inspecting what this instance is sharing.</item>
@@ -37,6 +38,7 @@ internal static class P2PEndpoints
             {
                 version = P2PConfigStore.SchemaVersion,
                 enabled = cfg.Enabled,
+                consent_given = cfg.ConsentGiven,
                 share_site_name = cfg.ShareSiteName,
             });
         }).RequireAuthSession();
@@ -51,21 +53,29 @@ internal static class P2PEndpoints
             }
             catch (JsonException)
             {
-                return Results.BadRequest(new { error = "expected {enabled?: bool, share_site_name?: bool}" });
+                return Results.BadRequest(new { error = "expected {enabled?: bool, consent_given?: bool, share_site_name?: bool}" });
             }
             if (payload is null)
             {
                 return Results.BadRequest(new { error = "empty body" });
             }
             var current = store.Current;
+            var nextEnabled = payload.Enabled ?? current.Enabled;
+            var explicitConsent = payload.ConsentGiven ?? current.ConsentGiven;
+            // Flipping the feed on through this endpoint *is* the consent
+            // moment, so make it implicit. The frontend always sends the
+            // pair from the onboarding dialog; this is belt-and-braces.
+            var nextConsent = explicitConsent || nextEnabled;
             var updated = store.Replace(new P2PConfig
             {
-                Enabled = payload.Enabled ?? current.Enabled,
+                Enabled = nextEnabled,
+                ConsentGiven = nextConsent,
                 ShareSiteName = payload.ShareSiteName ?? current.ShareSiteName,
             });
             return Results.Json(new
             {
                 enabled = updated.Enabled,
+                consent_given = updated.ConsentGiven,
                 share_site_name = updated.ShareSiteName,
             });
         }).RequireAuthSession();
@@ -142,5 +152,5 @@ internal static class P2PEndpoints
         await socket.SendAsync(bytes, WebSocketMessageType.Text, endOfMessage: true, ct);
     }
 
-    private sealed record P2PConfigPayload(bool? Enabled, bool? ShareSiteName);
+    private sealed record P2PConfigPayload(bool? Enabled, bool? ConsentGiven, bool? ShareSiteName);
 }

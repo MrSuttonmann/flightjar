@@ -5,15 +5,17 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace FlightJar.Persistence.P2P;
 
 /// <summary>
-/// User-toggleable P2P federation settings. Persisted to
+/// User-toggleable Community Feed settings. Persisted to
 /// <c>/data/p2p.json</c> so a flip from the UI survives restart.
-/// First run with no file produces the documented defaults
-/// (<c>enabled=true</c>, <c>share_site_name=false</c>) — federation
-/// is on out of the box; opt out is one click in the About dialog.
+/// <para>Fresh installs default to <c>Enabled=false, ConsentGiven=false</c> —
+/// the relay client won't dial out until the operator opts in via the
+/// Community Feed dialog. Existing installs on schema v1 are grandfathered
+/// (<c>ConsentGiven = Enabled</c>) so users who already opted in via the
+/// previous default stay opted in across the upgrade.</para>
 /// </summary>
 public sealed class P2PConfigStore
 {
-    public const int SchemaVersion = 1;
+    public const int SchemaVersion = 2;
 
     private readonly object _gate = new();
     private readonly string? _path;
@@ -67,21 +69,34 @@ public sealed class P2PConfigStore
             {
                 return;
             }
+            var version = payload.Version ?? 0;
+            var enabled = payload.Enabled ?? false;
+            // v1 had no ConsentGiven and defaulted Enabled=true. Grandfather
+            // those users in so the upgrade doesn't yank sharing out from
+            // under anyone who'd already opted in via the previous default.
+            var consent = payload.ConsentGiven ?? (version <= 1 ? enabled : false);
             lock (_gate)
             {
                 _config = new P2PConfig
                 {
-                    Enabled = payload.Enabled ?? true,
+                    Enabled = enabled,
+                    ConsentGiven = consent,
                     ShareSiteName = payload.ShareSiteName ?? false,
                 };
             }
             _logger.LogInformation(
-                "loaded P2P config from {Path} (enabled={Enabled}, share_site_name={Share})",
-                _path, _config.Enabled, _config.ShareSiteName);
+                "loaded Community Feed config from {Path} (enabled={Enabled}, consent={Consent}, share_site_name={Share})",
+                _path, _config.Enabled, _config.ConsentGiven, _config.ShareSiteName);
+
+            // Migrate the on-disk file forward so subsequent reads see v2.
+            if (version < SchemaVersion)
+            {
+                Persist();
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "P2P config unreadable at {Path}", _path);
+            _logger.LogWarning(ex, "Community Feed config unreadable at {Path}", _path);
         }
     }
 
@@ -105,6 +120,7 @@ public sealed class P2PConfigStore
                 {
                     Version = SchemaVersion,
                     Enabled = _config.Enabled,
+                    ConsentGiven = _config.ConsentGiven,
                     ShareSiteName = _config.ShareSiteName,
                 };
             }
@@ -114,7 +130,7 @@ public sealed class P2PConfigStore
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "couldn't persist P2P config");
+            _logger.LogWarning(ex, "couldn't persist Community Feed config");
         }
     }
 
@@ -126,14 +142,24 @@ public sealed class P2PConfigStore
 
     private sealed class PersistedPayload
     {
-        public int Version { get; set; }
+        public int? Version { get; set; }
         public bool? Enabled { get; set; }
+        public bool? ConsentGiven { get; set; }
         public bool? ShareSiteName { get; set; }
     }
 }
 
 public sealed record P2PConfig
 {
-    public bool Enabled { get; init; } = true;
+    /// <summary>Active on/off state. Only meaningful when <see cref="ConsentGiven"/> is true.</summary>
+    public bool Enabled { get; init; }
+
+    /// <summary>
+    /// True iff the operator has explicitly opted in via the Community Feed dialog
+    /// (or was grandfathered in from a v1 config that already had Enabled=true).
+    /// The relay client refuses to dial out unless this is true.
+    /// </summary>
+    public bool ConsentGiven { get; init; }
+
     public bool ShareSiteName { get; init; }
 }

@@ -416,15 +416,22 @@ Reference-data loaders live under `FlightJar.Core.ReferenceData`:
 - **`AirlinesDb`** — OpenFlights `airlines.dat`; callsign prefix → IATA
   + airline + alliance. Hand-curated Star / oneworld / SkyTeam dict.
 
-### P2P federation
+### Community Feed (P2P federation internally)
+
+User-facing name is **Community Feed** (entered via the sidebar-footer
+"Share planes" / "Community Feed" button → `#community-feed-dialog`).
+Backend identifiers stay as `P2P*` / `/api/p2p/config` / `/data/p2p.json`
+/ `/p2p/ws` / `P2P_*` env vars — internal-only, never renamed.
 
 Four moving parts split across the .NET service and a separate
 Cloudflare Worker:
 
 - **`P2PConfigStore`** (`FlightJar.Persistence.P2P`) — UI-managed
-  on/off + share-site-name toggles. Persisted to `/data/p2p.json`
-  (atomic write-to-temp + rename). Defaults `enabled=true`,
-  `share_site_name=false` — federation is on out of the box.
+  on/off + consent + share-site-name. Persisted to `/data/p2p.json`
+  (atomic write-to-temp + rename). Schema v2 adds `consent_given`;
+  fresh installs default `Enabled=false, ConsentGiven=false`,
+  v1 files are grandfathered on load (`ConsentGiven = Enabled`).
+  The relay client refuses to dial out unless both flags are true.
   Exposes a `Changed` event the background service hooks into.
 - **`P2PRelayCredentialsStore`** + **`P2PRelayRegistrar`** — token
   acquisition. Precedence: `P2P_RELAY_TOKEN` env override → token
@@ -436,9 +443,10 @@ Cloudflare Worker:
   next connect re-registers — called from the WS client when the
   relay rejects with HTTP 401 (TTL eviction or rotation).
 - **`P2PRelayClientService : BackgroundService`** — always
-  registered. Outer loop consults `P2PConfigStore.Current.Enabled`;
-  when disabled it parks on a `TaskCompletionSource` until the
-  store fires `Changed`, when re-enabled it calls
+  registered. Outer loop consults
+  `P2PConfigStore.Current.{Enabled,ConsentGiven}`; when either is
+  false it parks on a `TaskCompletionSource` until the store fires
+  `Changed`, when both flip on it calls
   `P2PRelayRegistrar.EnsureTokenAsync` and dials the relay with the
   resulting bearer token. Mid-connection toggles cancel the live
   `ClientWebSocket` via the registered `_connectionCts`. Push side:
@@ -477,15 +485,14 @@ The relay URL, bearer token, and push interval are env-only
 are the advanced "self-hosted relay" knobs. `P2P_RELAY_TOKEN` is
 normally unset; the registrar auto-registers on first connect and
 persists the issued token. Set it explicitly only when pointing at
-a relay that issues tokens out-of-band. `P2P_ENABLED` is a hard
-env-only kill switch (default `1`): when `0` the
-`P2PRelayClientService` is never registered, so the process makes
-no outbound WebSocket connections at all. Used by the e2e harness
-(`playwright.config.js`) and the `WebApplicationFactory`-based API
-tests so the relay's outbound chatter doesn't destabilise
-timing-sensitive assertions or pollute snapshot counts. Everything
-user-facing still goes through `GET/POST /api/p2p/config`, both
-auth-gated by `RequireAuthSession()`.
+a relay that issues tokens out-of-band. There is no env-only kill
+switch any more: the relay BackgroundService is always registered
+but parks on a signal until `P2PConfigStore.Current.Enabled &&
+ConsentGiven` is true. Fresh installs (and the e2e harness, which
+uses a clean data dir each run) default to off, so the relay stays
+parked unless the operator opts in via the Community Feed dialog.
+Everything user-facing still goes through `GET/POST /api/p2p/config`,
+both auth-gated by `RequireAuthSession()`.
 
 ### Watchlist + alerts
 
@@ -533,7 +540,7 @@ Handled in `FlightJar.Api.Configuration.AppOptionsBinder` against the
 `BLACKSPOTS_ANTENNA_MSL_M` (optional override; preferred when known),
 `BLACKSPOTS_RADIUS_KM`, `BLACKSPOTS_GRID_DEG`,
 `BLACKSPOTS_MAX_AGL_M`, `BLACKSPOTS_IDLE_TIMEOUT_MIN`, `TERRAIN_CACHE_DIR`,
-`P2P_ENABLED`, `P2P_RELAY_URL`, `P2P_RELAY_TOKEN`, `P2P_PUSH_INTERVAL_S`.
+`P2P_RELAY_URL`, `P2P_RELAY_TOKEN`, `P2P_PUSH_INTERVAL_S`.
 Target altitude is UI-only (slider on the map), not env-driven. The
 README has the full reference table.
 
@@ -569,7 +576,7 @@ throughput ceiling on CI and build boxes):
 | `heatmap.json` | `TrafficHeatmap` | 7×24 weekday/hour grid. |
 | `watchlist.json` | `WatchlistStore` | Watchlist of ICAO24 hex codes + last-seen map. |
 | `notifications.json` | `NotificationsConfigStore` | UI-managed alert channels. |
-| `p2p.json` | `P2PConfigStore` | UI-managed P2P federation on/off + share-site-name (schema v1). Default on first run: `enabled=true`, `share_site_name=false`. |
+| `p2p.json` | `P2PConfigStore` | UI-managed Community Feed on/off + consent + share-site-name (schema v2). Default on fresh install: `enabled=false`, `consent_given=false`, `share_site_name=false`. v1 files (which only had `enabled`/`share_site_name`) are grandfathered on load: `consent_given = enabled`. |
 | `p2p_credentials.json` | `P2PRelayCredentialsStore` | Bearer token issued by the relay's `/register` endpoint on first connect. Reused across restarts so we don't re-register on every container start. Cleared on HTTP 401 (relay-side eviction or rotation). |
 | `vfrmap_cycle.json` | `VfrmapCycle` | Auto-discovered FAA chart cycle date. |
 | `openaip.json.gz` | `OpenAipClient` | Cached OpenAIP airspaces / obstacles / reporting points per 2° bbox tile (schema v1, 7-day TTL). |

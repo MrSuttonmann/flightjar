@@ -301,7 +301,7 @@ function reconcileMarker(entry) {
 export function applyFilterVisibility() {
   const active = state.activeFilters;
   const selIcao = state.selectedIcao;
-  if (active.size === 0 && state.showPeer) {
+  if (active.size === 0) {
     for (const entry of state.aircraft.values()) {
       if (entry.hiddenByFilter) {
         entry.hiddenByFilter = false;
@@ -311,9 +311,7 @@ export function applyFilterVisibility() {
     return;
   }
   for (const [icao, entry] of state.aircraft) {
-    const isPeer = entry.data?.peer === true;
-    const visible = icao === selIcao ||
-      ((!isPeer || state.showPeer) && matchesActiveFilters(entry.data));
+    const visible = icao === selIcao || matchesActiveFilters(entry.data);
     if (!visible && !entry.hiddenByFilter) {
       entry.hiddenByFilter = true;
       resetTrailState(entry);

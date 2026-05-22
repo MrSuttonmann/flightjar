@@ -64,16 +64,6 @@ function applyTelemetryResetVisibility(snap) {
   section.hidden = snap.required && !snap.unlocked;
 }
 
-// P2P federation toggles. Mirrors the wiring shape of telemetry reset:
-// the section hides itself when the instance is locked + not unlocked,
-// since both POSTs go through authedFetch and would otherwise just pop
-// an unlock prompt the moment a checkbox is touched.
-function applyP2PSectionVisibility(snap) {
-  const section = document.getElementById('p2p-config-section');
-  if (!section) return;
-  section.hidden = snap.required && !snap.unlocked;
-}
-
 // Show a short hint explaining why the gated sections are absent.
 // Visible exactly when the instance is locked, hidden otherwise — kept
 // in sync via the same auth subscription that hides the sections.
@@ -81,78 +71,6 @@ function applyAboutLockedHintVisibility(snap) {
   const hint = document.getElementById('about-locked-hint');
   if (!hint) return;
   hint.hidden = !(snap.required && !snap.unlocked);
-}
-
-async function loadP2PConfig() {
-  const enabledEl = document.getElementById('p2p-enabled');
-  const shareEl = document.getElementById('p2p-share-site-name');
-  if (!enabledEl || !shareEl) return;
-  // Skip the fetch when the instance is locked. The endpoint is
-  // auth-gated, so calling authedFetch here would pop the unlock
-  // dialog the moment the user opens About — which is exactly the
-  // surprise we're avoiding by hiding the section in the first place.
-  const auth = getAuthStatus();
-  if (auth.required && !auth.unlocked) return;
-  try {
-    const r = await fetch('/api/p2p/config', { credentials: 'same-origin' });
-    if (!r.ok) return;
-    const cfg = await r.json();
-    enabledEl.checked = !!cfg.enabled;
-    shareEl.checked = !!cfg.share_site_name;
-  } catch (_) { /* offline — leave checkboxes as-is */ }
-}
-
-function wireP2PConfig() {
-  const enabledEl = document.getElementById('p2p-enabled');
-  const shareEl = document.getElementById('p2p-share-site-name');
-  const status = document.getElementById('p2p-config-status');
-  if (!enabledEl || !shareEl || !status) return;
-
-  applyP2PSectionVisibility(getAuthStatus());
-  subscribeAuth((snap) => {
-    applyP2PSectionVisibility(snap);
-    // Just unlocked while the dialog is open: pull the current config
-    // so the checkboxes reflect server state without needing to close
-    // and reopen the About dialog.
-    if (snap.ready && (!snap.required || snap.unlocked)) {
-      const dialog = aboutDialogEl();
-      if (dialog?.open) loadP2PConfig();
-    }
-  });
-
-  function setStatus(text, kind) {
-    status.textContent = text;
-    status.hidden = !text;
-    status.classList.remove('is-error', 'is-ok');
-    if (kind) status.classList.add(`is-${kind}`);
-  }
-
-  async function save() {
-    setStatus('Saving…');
-    try {
-      const r = await authedFetch('/api/p2p/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          enabled: enabledEl.checked,
-          share_site_name: shareEl.checked,
-        }),
-      });
-      if (!r.ok) {
-        setStatus(`Save failed (${r.status})`, 'error');
-        return;
-      }
-      const cfg = await r.json();
-      enabledEl.checked = !!cfg.enabled;
-      shareEl.checked = !!cfg.share_site_name;
-      setStatus('Saved.', 'ok');
-    } catch (err) {
-      setStatus(`Save failed: ${err.message || err}`, 'error');
-    }
-  }
-
-  enabledEl.addEventListener('change', save);
-  shareEl.addEventListener('change', save);
 }
 
 function wireTelemetryReset() {
@@ -191,17 +109,12 @@ export function initAboutDialog() {
   document.getElementById('about-btn').addEventListener('click', async () => {
     await populateAboutVersion();
     maybePrependWrightBrothersNote();
-    // Refresh checkbox state from the server every time the dialog opens
-    // so a config change made from another browser tab is reflected.
-    loadP2PConfig();
     if (typeof dialog.showModal === 'function') dialog.showModal();
     else dialog.setAttribute('open', '');
   });
   dialog.addEventListener('close', () => {
     const telStatus = document.getElementById('telemetry-reset-status');
     if (telStatus) { telStatus.hidden = true; telStatus.textContent = ''; }
-    const p2pStatus = document.getElementById('p2p-config-status');
-    if (p2pStatus) { p2pStatus.hidden = true; p2pStatus.textContent = ''; }
   });
   dialog.addEventListener('click', (e) => {
     const r = dialog.getBoundingClientRect();
@@ -210,7 +123,6 @@ export function initAboutDialog() {
     if (!inside) dialog.close();
   });
   wireTelemetryReset();
-  wireP2PConfig();
   applyAboutLockedHintVisibility(getAuthStatus());
   subscribeAuth(applyAboutLockedHintVisibility);
 }

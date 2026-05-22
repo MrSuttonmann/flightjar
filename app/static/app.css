@@ -54,12 +54,39 @@
                  background: #888; margin-right: 6px; vertical-align: middle; }
   #status.live .dot { background: #4ade80; }
   #status.dead .dot { background: #ef4444; }
-  #p2p-status { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-  #p2p-status[hidden] { display: none; }
-  #p2p-status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-                     background: #888; margin-right: 6px; vertical-align: middle; }
-  #p2p-status.live .dot { background: #818cf8; }
-  #p2p-status.dead .dot { background: #ef4444; }
+  /* Community Feed status pill. Lives in the header next to the
+     connection status; doubles as the dialog entry point so the
+     feature isn't buried in the footer. Two states:
+       - .is-off: accent-coloured dot, drives the eye on a fresh
+         install. Click to enable.
+       - .is-on:  muted, dot live (green) when the relay's connected,
+         dead (amber) while reconnecting. Click to manage. */
+  .community-feed-pill {
+    font-family: inherit; font-size: 11px;
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 9px; border-radius: 11px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border);
+    color: var(--muted); cursor: pointer;
+    transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+  }
+  .community-feed-pill:hover {
+    color: var(--text); background: rgba(255, 255, 255, 0.08);
+  }
+  .community-feed-pill-dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: #888;
+  }
+  .community-feed-pill.is-off {
+    color: var(--accent); border-color: rgba(37, 99, 235, 0.55);
+    background: rgba(37, 99, 235, 0.08);
+  }
+  .community-feed-pill.is-off:hover {
+    color: #60a5fa; background: rgba(37, 99, 235, 0.15);
+  }
+  .community-feed-pill.is-off .community-feed-pill-dot { background: var(--accent); }
+  .community-feed-pill.is-on .community-feed-pill-dot { background: #4ade80; }
+  .community-feed-pill.is-disconnected .community-feed-pill-dot { background: #fbbf24; }
   .home-control {
     /* Mirror Leaflet's .leaflet-bar a sizing — 26×26 by default, bumped
        to 30×30 on touch devices — so the home button lines up flush with

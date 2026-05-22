@@ -175,7 +175,7 @@ export function buildPopupContent(a, now, airports) {
         `<span class="pop-pos-source" hidden></span>` +
         `<span class="pop-notable" hidden></span>` +
         `<span class="pop-mil mil-chip" hidden>MIL</span>` +
-        `<span class="pop-peer" hidden title="Seen by a peer receiver, not this station">Network</span>` +
+        `<span class="pop-peer" hidden title="Seen via the Community Feed, not this receiver">Network</span>` +
         `<span class="pop-first-today" hidden title="First contact today">🌅 First today</span>` +
       `</div>` +
       `<div class="panel-subline pop-reg-line" hidden><span class="pop-reg"></span></div>` +
@@ -608,13 +608,15 @@ export function updatePopupContent(root, a, now, airports) {
   const firstSeen = entry?.sessionFirstSeen || a.first_seen;
   q('.pop-first-seen').textContent = relativeAge(firstSeen, now);
 
-  // P2P "also seen by N peers" — surfaced only when the relay reported a
-  // non-zero count for this aircraft. Locally-only aircraft (e.g. P2P off,
-  // or no peer is currently reporting this ICAO) leave the stat hidden.
+  // Community Feed "also seen by N receivers" — surfaced only when the
+  // relay reported a non-zero count for this aircraft. Locally-only
+  // aircraft (Community Feed off, or no other receiver currently
+  // reporting this ICAO) leave the stat hidden.
   const peersStat = q('.pop-peers-stat');
   const seenN = a.seen_by_others;
   if (typeof seenN === 'number' && seenN > 0) {
-    q('.pop-peers-val').textContent = `${seenN} peer${seenN === 1 ? '' : 's'}`;
+    q('.pop-peers-val').textContent =
+      `${seenN} receiver${seenN === 1 ? '' : 's'}`;
     peersStat.hidden = false;
   } else {
     peersStat.hidden = true;

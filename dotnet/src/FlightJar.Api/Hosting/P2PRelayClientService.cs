@@ -75,7 +75,7 @@ public sealed class P2PRelayClientService : BackgroundService
 
     private void OnConfigChanged(P2PConfig cfg)
     {
-        if (cfg.Enabled)
+        if (cfg.Enabled && cfg.ConsentGiven)
         {
             // Wake the idle loop.
             lock (_signalGate)
@@ -97,9 +97,11 @@ public sealed class P2PRelayClientService : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            if (!_configStore.Current.Enabled)
+            var cfg = _configStore.Current;
+            if (!cfg.Enabled || !cfg.ConsentGiven)
             {
                 // Park until the user toggles it on (or shutdown).
+                // No outbound connection is made without explicit consent.
                 await WaitForEnableAsync(stoppingToken);
                 if (stoppingToken.IsCancellationRequested) return;
                 backoff = TimeSpan.FromSeconds(1);

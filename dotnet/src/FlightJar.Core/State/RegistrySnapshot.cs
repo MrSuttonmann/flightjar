@@ -23,10 +23,10 @@ public sealed record RegistrySnapshot(
     /// compute the current frame rate from consecutive snapshots.</summary>
     public long? Frames { get; init; }
 
-    /// <summary>P2P relay status surfaced to the frontend so the sidebar
-    /// can show connection state and peer count. Null when federation is
-    /// disabled (env kill switch <c>P2P_ENABLED=0</c>) and the service
-    /// was never registered.</summary>
+    /// <summary>Community Feed relay status surfaced to the frontend so
+    /// the Community Feed dialog can show connection state and peer count.
+    /// Null when the user has not opted in (the relay BackgroundService
+    /// parks until consent_given && enabled).</summary>
     /// <remarks>The explicit JSON name pins the wire key to <c>p2p</c>;
     /// the global SnakeCaseLower policy would otherwise emit <c>p2_p</c>
     /// because it inserts an underscore between the digit and trailing

@@ -26,11 +26,11 @@ public class ApiEndpointsTests : IClassFixture<WebApplicationFactory<Program>>
             b.UseSetting("BEAST_PORT", "1");
             Environment.SetEnvironmentVariable("BEAST_HOST", "127.0.0.1");
             Environment.SetEnvironmentVariable("BEAST_PORT", "1");
-            // Hard-off the P2P relay client. Without this, the BackgroundService
-            // would dial wss://relay.flightjar.xyz on test boot, receive peer
-            // aircraft, and ApiAircraft_ReturnsEmptySnapshot would see them
-            // merged into the snapshot ("expected 0, got 11").
-            Environment.SetEnvironmentVariable("P2P_ENABLED", "0");
+            // The Community Feed relay client refuses to dial out unless the
+            // user has explicitly opted in via /api/p2p/config (which writes
+            // p2p.json with consent_given=true). The test fixture starts with
+            // no data dir / no p2p.json, so the relay client parks on its
+            // enable signal and no outbound chatter occurs.
             // Stop the VFRMap cycle refresher from making a real call to
             // vfrmap.com during the test run. Without this CI was racing
             // the discovery against MapConfig_ReportsLayerStatus, which

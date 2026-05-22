@@ -6,6 +6,7 @@
 // steady-cruise tick doesn't touch DOM that didn't actually change.
 
 import { compassIcon, escapeHtml, flagIcon, fmt } from './format.js';
+import { updateP2PStatus } from './community_feed_dialog.js';
 import { isNotable, militaryLabel } from './notable_aircraft.js';
 import { matchesActiveFilters } from './filters.js';
 import { routeLabel, selectAircraft } from './detail_panel.js';
@@ -31,29 +32,6 @@ export const countHistory = [];
 let prevFrames = null;
 let prevFramesAt = null;
 
-function renderP2PStatus(p2p) {
-  // Snapshot is missing the block entirely when the env kill switch
-  // (P2P_ENABLED=0) is set or backend is older than the field.
-  // Federation user-toggled off also hides the line.
-  const visible = !!(p2p && p2p.enabled);
-  const connected = visible && !!p2p.connected;
-  const peers = connected ? (p2p.peers | 0) : 0;
-  const text = !visible
-    ? ''
-    : connected
-      ? (peers === 1 ? '1 peer connected' : `${peers} peers connected`)
-      : 'P2P disconnected';
-  const fp = `${visible ? 1 : 0}|${connected ? 1 : 0}|${text}`;
-  if (fp === lastP2PFp) return;
-  lastP2PFp = fp;
-  const row = document.getElementById('p2p-status');
-  if (!row) return;
-  row.hidden = !visible;
-  row.classList.toggle('live', connected);
-  row.classList.toggle('dead', visible && !connected);
-  document.getElementById('p2p-status-text').textContent = text;
-}
-
 function updateMsgRate(snap) {
   const el = document.getElementById('msg-rate');
   if (snap.frames == null || snap.now == null) { el.textContent = ''; return; }
@@ -75,7 +53,6 @@ let lastEmptyMsg = null;
 let lastStatusText = '';
 let lastSiteName = '';
 let lastDocTitle = '';
-let lastP2PFp = '';
 
 // Scratch host used to parse a row's HTML string into a real Element.
 // Reused across calls — the parsed node becomes detached as soon as we
@@ -121,7 +98,7 @@ export function renderSidebar(snap) {
     document.getElementById('status-text').textContent = statusText;
     lastStatusText = statusText;
   }
-  renderP2PStatus(snap.p2p);
+  updateP2PStatus(snap.p2p);
   const site = snap.site_name || '';
   if (site !== lastSiteName) {
     document.getElementById('site-name').textContent = site;
@@ -137,13 +114,12 @@ export function renderSidebar(snap) {
 
   const q = state.searchFilter;
   const selIcao = state.selectedIcao;
-  const needsFilter = state.activeFilters.size > 0 || !!q || !state.showPeer;
+  const needsFilter = state.activeFilters.size > 0 || !!q;
   const filtered = needsFilter
     ? snap.aircraft.filter(a => {
         // The selected aircraft stays visible even when it stops
         // matching — otherwise the detail panel orphans mid-read.
         if (a.icao === selIcao) return true;
-        if (!state.showPeer && a.peer) return false;
         if (q && !(
           (a.callsign || '').toLowerCase().includes(q) ||
           a.icao.toLowerCase().includes(q) ||
@@ -333,21 +309,11 @@ export function initSidebar() {
   renderFilterBar();
   applyFilterVisibility();
 
-  // Peer chip — independent toggle (hide/show aircraft from relay peers).
-  const peerChip = document.getElementById('peer-chip');
-  if (peerChip) {
-    peerChip.classList.toggle('active', state.showPeer);
-    peerChip.addEventListener('click', () => {
-      state.showPeer = !state.showPeer;
-      try { localStorage.setItem('flightjar.showPeer', state.showPeer ? '1' : '0'); }
-      catch (_) { /* storage disabled */ }
-      peerChip.classList.toggle('active', state.showPeer);
-      if (state.lastSnap) {
-        renderSidebar(state.lastSnap);
-        applyFilterVisibility();
-      }
-    });
-  }
+  // Stale localStorage key from the old "Peers" chip (Community Feed
+  // rework dropped the dedicated visibility toggle). Clear so future
+  // reads can't pick up a half-migrated state.
+  try { localStorage.removeItem('flightjar.showPeer'); }
+  catch (_) { /* storage disabled */ }
 
   const searchInput = document.getElementById('search');
   searchInput.addEventListener('input', () => {
