@@ -60,15 +60,14 @@
   }
   #about-dialog .telemetry-status.is-error { color: #fca5a5; }
   #about-dialog .telemetry-status.is-ok { color: #4ade80; }
-  #about-dialog .p2p-config-row {
-    display: flex; align-items: center; gap: 8px;
-    margin: 6px 0; font-size: 13px; color: var(--text);
-  }
-  #about-dialog .p2p-config-row input { accent-color: var(--accent); }
   /* Lock hint: shown when the instance requires a password and the
      user hasn't unlocked yet, so they know why the gated sections
-     (P2P federation, telemetry reset) are missing. */
-  #about-dialog .about-locked-hint {
+     (telemetry reset) are missing. The Community Feed dialog has its
+     own copy of this rule scoped under #community-feed-dialog.
+     The :not([hidden]) guard matters — without it the rule's
+     specificity beats the UA's `[hidden] { display: none }` and the
+     hint paints even when the JS toggles the attribute off. */
+  #about-dialog .about-locked-hint:not([hidden]) {
     display: flex; align-items: flex-start; gap: 8px;
     margin: 16px 0 0; padding: 8px 10px;
     background: rgba(255, 255, 255, 0.04);
@@ -475,3 +474,97 @@
                  cursor: pointer; background: var(--accent); color: #fff;
                  border: 0; border-radius: 3px; }
   .auth-submit:hover { background: #1d4ed8; }
+
+  /* Community Feed dialog — opens from the sidebar footer "Share planes"
+     button. Two states: onboarding (#cf-onboarding) when the user has
+     never opted in, and manage (#cf-manage) once the feed is on. */
+  #community-feed-dialog {
+    max-width: 540px; width: 90vw;
+    border: 1px solid var(--border); border-radius: 6px;
+    background: var(--panel); color: var(--text);
+    padding: 20px 24px 24px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    font-size: 13px; line-height: 1.45;
+  }
+  #community-feed-dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
+  #community-feed-dialog h2 { margin: 0 0 8px; font-size: 18px; font-weight: 600; }
+  #community-feed-dialog h3 {
+    margin: 16px 0 6px; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.6px;
+    color: var(--muted); font-weight: 600;
+  }
+  #community-feed-dialog p { margin: 0 0 8px; color: var(--muted); }
+  #community-feed-dialog .about-close-form {
+    margin: 0; padding: 0; display: flex; justify-content: flex-end;
+  }
+  #community-feed-dialog .about-close {
+    background: transparent; border: 0; color: var(--muted);
+    cursor: pointer; padding: 2px 4px; margin: -6px -8px 0 0;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  #community-feed-dialog .about-close svg { display: block; }
+  #community-feed-dialog .about-close:hover { color: var(--text); }
+  #community-feed-dialog .cf-section { margin-top: 8px; }
+  #community-feed-dialog .cf-list {
+    margin: 0; padding-left: 18px; color: var(--muted);
+  }
+  #community-feed-dialog .cf-list li { margin-bottom: 4px; }
+  #community-feed-dialog .cf-inline-badge {
+    display: inline-block; margin: 0 2px;
+  }
+  #community-feed-dialog .cf-share-row {
+    display: flex; align-items: center; gap: 8px;
+    margin: 12px 0 0; font-size: 13px; color: var(--text);
+  }
+  #community-feed-dialog .cf-share-row input { accent-color: var(--accent); }
+  #community-feed-dialog .cf-primary-btn {
+    margin-top: 12px; padding: 8px 16px;
+    font-family: inherit; font-size: 13px; font-weight: 600;
+    cursor: pointer; background: var(--accent); color: #fff;
+    border: 0; border-radius: 3px;
+  }
+  #community-feed-dialog .cf-primary-btn:hover { background: #1d4ed8; }
+  #community-feed-dialog .cf-primary-btn:disabled {
+    opacity: 0.5; cursor: not-allowed;
+  }
+  #community-feed-dialog .cf-secondary-btn {
+    margin-top: 12px; padding: 5px 12px;
+    font-family: inherit; font-size: 12px; cursor: pointer;
+    background: transparent; color: var(--muted);
+    border: 1px solid var(--border); border-radius: 3px;
+  }
+  #community-feed-dialog .cf-secondary-btn:hover {
+    color: var(--text); border-color: var(--muted);
+  }
+  #community-feed-dialog .telemetry-status {
+    margin: 8px 0 0; font-size: 11px; color: var(--muted);
+  }
+  #community-feed-dialog .telemetry-status.is-error { color: #fca5a5; }
+  #community-feed-dialog .telemetry-status.is-ok { color: #4ade80; }
+  #community-feed-dialog .about-locked-hint:not([hidden]) {
+    display: flex; align-items: flex-start; gap: 8px;
+    margin: 12px 0 0; padding: 8px 10px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border); border-radius: 4px;
+    font-size: 12px; color: var(--muted);
+  }
+  #community-feed-dialog .about-locked-hint svg {
+    flex-shrink: 0; margin-top: 1px;
+  }
+  #community-feed-dialog .cf-status-card {
+    margin: 4px 0 8px; padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border); border-radius: 4px;
+  }
+  #community-feed-dialog .cf-status-row {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 13px; color: var(--text);
+  }
+  #community-feed-dialog .cf-status-dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: #888;
+  }
+  #community-feed-dialog .cf-status-dot.live { background: #4ade80; }
+  #community-feed-dialog .cf-status-dot.dead { background: #ef4444; }
+
+

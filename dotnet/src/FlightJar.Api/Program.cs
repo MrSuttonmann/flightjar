@@ -132,17 +132,13 @@ builder.Services.AddSingleton(sp => new P2PConfigStore(
 var p2pCredentialsPath = !string.IsNullOrEmpty(dataDir) ? Path.Combine(dataDir, "p2p_credentials.json") : null;
 builder.Services.AddSingleton(sp => new P2PRelayCredentialsStore(
     p2pCredentialsPath, sp.GetService<ILogger<P2PRelayCredentialsStore>>()));
-// The relay client is registered when the env-only kill switch is on
-// (default). Runtime on/off lives in P2PConfigStore so the user can
-// toggle it from the About dialog without restarting; setting
-// P2P_ENABLED=0 keeps the BackgroundService out of the process entirely
-// — used by the e2e harness so the relay's outbound chatter doesn't
-// destabilise timing-sensitive tests.
-if (options.P2PEnabled)
-{
-    builder.Services.AddHttpClient<P2PRelayRegistrar>();
-    builder.Services.AddHostedService<P2PRelayClientService>();
-}
+// The Community Feed relay client is always registered. It refuses to
+// dial out unless the user has explicitly opted in via the Community
+// Feed dialog (Enabled && ConsentGiven), so fresh installs and tests
+// inherit "no outbound traffic" by default — the BackgroundService
+// just parks on a signal until the user flips it on.
+builder.Services.AddHttpClient<P2PRelayRegistrar>();
+builder.Services.AddHostedService<P2PRelayClientService>();
 builder.Services.AddSingleton<IBeastConnectionState>(sp => sp.GetRequiredService<BeastConnectionState>());
 
 // Phase 4: watchlist + notifications + alerts.

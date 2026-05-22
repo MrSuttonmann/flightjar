@@ -390,39 +390,45 @@ or your own tooling.
 Browser notifications (while a tab is open) still fire alongside; the
 Alerts channels are what keep working once every tab is closed.
 
-## P2P federation
+## Community Feed
 
 Flightjar instances can pool what they see — each one shares its
 locally decoded aircraft with a small community network and receives
 the aggregated feed from every other connected instance. Aircraft
-seen by peers appear on your map with a dashed indigo outline and a
-"Network" badge in the detail panel; the "Peers" chip in the sidebar
-filter bar toggles them on or off.
+seen via the feed appear with a "Network" badge in the detail panel;
+on the map they're indistinguishable from aircraft your own radio
+picked up.
 
-**Enabled by default.** Fresh installs participate out of the box —
-no setup, no signup, no key to copy. To opt out, open the **About**
-dialog from the sidebar footer and uncheck "Enable P2P federation".
+**Opt-in.** Fresh installs do **not** connect to the network until
+you opt in. Click **Share planes** in the sidebar footer to open the
+Community Feed dialog — it explains what's shared and what isn't,
+then a single "Turn on Community Feed" button starts the relay
+connection. Toggling it back off later is one click in the same
+dialog. (Existing installs that had the previous "enabled by
+default" behaviour are grandfathered in across the upgrade and
+continue to share unless you turn it off.)
 
 **Aircraft seen by multiple receivers are combined, not duplicated.**
-When your receiver and a peer both see the same aircraft, the records
-merge: local data wins where both sides have a value, peer data fills
-gaps. Receiver-specific values like distance, signal strength, and
-trail always stay local.
+When your receiver and another both see the same aircraft, the
+records merge: local data wins where both sides have a value, the
+peer's data fills gaps. Receiver-specific values like distance,
+signal strength, and trail always stay local.
 
 **What's shared, and what isn't.** Each instance sanitises its
 outbound payload before it leaves the container:
 
 - **Stripped:** your receiver coordinates, per-aircraft distance
   (which would let observers back-solve your location), and your
-  site name (unless you opt in via the second checkbox in About).
+  site name (unless you opt in via the second checkbox in the
+  Community Feed dialog).
 - **Kept:** aircraft ICAO24, position, callsign, altitude, speed,
   track, squawk, and trail — all derived from public ADS-B
   broadcasts that anyone in radio range can already pick up.
 
 **Self-hosting.** If you'd rather run your own relay (e.g. a private
-federation between a small group of receivers), the worker source
-lives in `relay-worker/`. Deploy it under your own Cloudflare account
-and point your Flightjar instance at it with `P2P_RELAY_URL`.
+network between a small group of receivers), the worker source lives
+in `relay-worker/`. Deploy it under your own Cloudflare account and
+point your Flightjar instance at it with `P2P_RELAY_URL`.
 
 ## Running multiple receivers
 
@@ -465,8 +471,7 @@ It shows up next to "Flightjar" in the sidebar and in the browser tab title
 | `BLACKSPOTS_IDLE_TIMEOUT_MIN` | `15`        | Minutes the blackspots feature can sit idle before reclaiming its in-memory caches. Disk caches survive eviction, so re-engaging the layer is cheap. `0` disables eviction. |
 | `TERRAIN_CACHE_DIR`   | `/data/terrain`     | Directory for the downloaded elevation tiles. |
 | `TELEMETRY_ENABLED`   | `1`                 | Anonymous usage telemetry — see below.                         |
-| `P2P_ENABLED`         | `1`                 | Set to `0` to disable P2P federation entirely (no outbound relay connections). The runtime on/off and share-`SITE_NAME` toggle live in the **About** dialog. |
-| `P2P_RELAY_URL`       | `wss://relay.flightjar.xyz/ws` | Override the relay this instance connects to. Leave at the default to use the community relay; change it to point at one you've self-hosted. |
+| `P2P_RELAY_URL`       | `wss://relay.flightjar.xyz/ws` | Override the relay this instance connects to. Leave at the default to use the community relay; change it to point at one you've self-hosted. The Community Feed runtime on/off, consent, and share-`SITE_NAME` toggle live in the **Community Feed** dialog reached from the sidebar footer — fresh installs default to off until you opt in. |
 | `P2P_RELAY_TOKEN`     | (unset)             | Override the bearer token sent to the relay. Normally unset — instances acquire a token automatically on first connect. Set only when pointing at a relay that issues tokens out-of-band. |
 | `P2P_PUSH_INTERVAL_S` | `5`                 | Seconds between snapshot pushes to the relay. |
 | `FLIGHTJAR_PASSWORD`  | (unset)             | Optional shared secret. When non-empty, the watchlist + notification-channel endpoints (`/api/watchlist`, `/api/notifications/*`) require an authenticated session cookie minted by `POST /api/auth/login`. Empty disables auth entirely (default — fine on a private LAN). Set this when exposing the instance to the internet so unauthenticated callers can't read your bot tokens or scrape your watchlist. See **Optional password protection** below. |

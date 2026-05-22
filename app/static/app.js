@@ -11,6 +11,7 @@ import { initAboutDialog, initMapKeyDialog, initStatsDialog, initWatchlistDialog
 import { initAirspaceFiltersDialog } from './airspace_filters_dialog.js';
 import { initAirspaceSlice, refreshSlice, syncSliceEnabled } from './airspace_slice.js';
 import { initAlertsDialog } from './alerts_dialog.js';
+import { initCommunityFeedDialog } from './community_feed_dialog.js';
 import { initAirportTooltip } from './tooltip.js';
 import {
   initDetailPanel,
@@ -99,6 +100,7 @@ async function boot() {
   setAirspaceCacheListener(refreshSlice);
   syncSliceEnabled();
   initAboutDialog();
+  initCommunityFeedDialog();
   initMapKeyDialog();
   initStatsDialog();
   initWatchlistDialog();

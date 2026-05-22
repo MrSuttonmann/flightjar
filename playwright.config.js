@@ -69,10 +69,11 @@ export default defineConfig({
       // every test run. Disable it here — the layer still registers in
       // the frontend (testing that is the point of the e2e assertion).
       BLACKSPOTS_ENABLED: '0',
-      // Hard-off the P2P relay client so the BackgroundService doesn't
-      // dial wss://relay.flightjar.xyz during tests — the network noise
-      // and 5s push timer destabilise timing-sensitive layout assertions.
-      P2P_ENABLED: '0',
+      // The Community Feed relay client is consent-gated: it parks until
+      // the user opts in via /api/p2p/config (which writes p2p.json with
+      // consent_given=true). The harness uses a fresh data dir each run,
+      // so the relay client never dials out and there's no need for a
+      // separate env-var kill switch.
       FLIGHTJAR_STATIC_DIR: `${process.cwd()}/app/static`,
     },
   },
